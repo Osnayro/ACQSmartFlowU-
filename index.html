@@ -1,3 +1,4 @@
+
 <!DOCTYPE html>
 <html lang="es">
 <head>
@@ -5,12 +6,14 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no">
     <title>SmartEngp 3D | AcQuaBlue - Ingeniería Inteligente</title>
     
-    <!-- Three.js y complementos (con post-procesado) -->
-    <script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
+    <!-- Carga unificada de Three.js y complementos (evita "is not a constructor") -->
+    <script src="https://cdn.jsdelivr.net/npm/three@0.128.0/build/three.min.js"></script>
     <script src="https://cdn.jsdelivr.net/npm/three@0.128.0/examples/js/controls/OrbitControls.js"></script>
     <script src="https://cdn.jsdelivr.net/npm/three@0.128.0/examples/js/postprocessing/EffectComposer.js"></script>
     <script src="https://cdn.jsdelivr.net/npm/three@0.128.0/examples/js/postprocessing/RenderPass.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/three@0.128.0/examples/js/postprocessing/ShaderPass.js"></script>
     <script src="https://cdn.jsdelivr.net/npm/three@0.128.0/examples/js/postprocessing/OutlinePass.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/three@0.128.0/examples/js/shaders/CopyShader.js"></script>
     
     <!-- Librerías de exportación -->
     <script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"></script>
@@ -438,7 +441,7 @@
         <button id="toolSelect" class="active" aria-label="Seleccionar">🔍 Seleccionar</button>
         <button id="toolMoveEq" aria-label="Mover equipo">✋ Mover equipo</button>
         <button id="toolEditPipe" aria-label="Editar tubería">✏️ Editar tubería</button>
-        <button id="toolAddPoint" aria-label="Añadir punto">➕ Añadir punto</button>
+        <button id="toolAddPoint" aria-label="Añadir punto">➕ Add punto</button>
     </div>
 
     <!-- Panel de elevación -->
