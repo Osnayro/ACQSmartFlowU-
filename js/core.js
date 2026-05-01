@@ -1,6 +1,6 @@
 
 // ============================================================
-// SMARTFLOW CORE v6.3 (Three.js + Reactivo + updatePuerto)
+// SMARTFLOW CORE v6.4 (Three.js + updatePuerto corregido)
 // Archivo: js/core.js
 // ============================================================
 
@@ -18,7 +18,7 @@ const SmartFlowCore = (function() {
     let _db = {
         equipos: [],
         lines: [],
-        metadata: { version: "6.3", lastModified: Date.now() }
+        metadata: { version: "6.4", lastModified: Date.now() }
     };
     
     // --- Mapa visual: tag -> objeto 3D ---
@@ -151,7 +151,7 @@ const SmartFlowCore = (function() {
             
             const saved = localStorage.getItem('smartflow_project');
             if (saved) try { _db = JSON.parse(saved); if (_visualFactory) _refreshVisuals(); } catch(e) {}
-            console.log("✔ Core Three.js v6.3 listo");
+            console.log("✔ Core Three.js v6.4 listo");
             _notify();
         },
         
@@ -226,9 +226,9 @@ const SmartFlowCore = (function() {
             return true;
         },
         
-        // --- Puertos (NUEVO y mejorado) ---
+        // --- Puertos (CORREGIDO: usa _saveToHistory y _notify) ---
         updatePuerto: function(ownerTag, puertoId, cambios) {
-            const owner = this.getDb().equipos.find(e => e.tag === ownerTag) || this.getDb().lines.find(l => l.tag === ownerTag);
+            const owner = _db.equipos.find(e => e.tag === ownerTag) || _db.lines.find(l => l.tag === ownerTag);
             if (!owner) { console.warn(`Objeto ${ownerTag} no encontrado`); return false; }
             const puerto = owner.puertos?.find(p => p.id === puertoId);
             if (!puerto) { console.warn(`Puerto ${puertoId} no encontrado en ${ownerTag}`); return false; }
@@ -253,12 +253,13 @@ const SmartFlowCore = (function() {
                     puerto.orientacion = { dx: 0, dy: 0, dz: 1 };
                 }
             }
-            // También permitir cambiar estado o connectedLine si se pasa
             if (cambios.status) puerto.status = cambios.status;
             if (cambios.connectedLine !== undefined) puerto.connectedLine = cambios.connectedLine;
             
-            this._saveState();
-            this._notify();
+            // CORRECCIÓN: usar funciones privadas directamente
+            _saveToHistory();
+            _notify();
+            
             return true;
         },
         
@@ -340,7 +341,6 @@ const SmartFlowCore = (function() {
             if (!line) return null;
             let pts = line.points || line._cachedPoints;
             if (!pts || pts.length < 2) return null;
-            // Encontrar el segmento más cercano e insertar punto
             let minDist = Infinity, insertIdx = -1;
             for (let i = 0; i < pts.length - 1; i++) {
                 const a = pts[i], b = pts[i+1];
@@ -358,7 +358,6 @@ const SmartFlowCore = (function() {
             line.points = pts;
             line._cachedPoints = pts;
             this.updateLine(lineTag, { points: pts, _cachedPoints: pts });
-            // Crear un componente Tee simbólico
             const teeTag = `TEE-${Date.now().slice(-6)}`;
             const teeComp = { type: 'TEE_EQUAL', tag: teeTag, param: insertIdx / (pts.length-1) };
             line.components = line.components || [];
@@ -368,7 +367,7 @@ const SmartFlowCore = (function() {
             return { componente: teeComp, linea: line };
         },
         
-        // --- Métodos de compatibilidad (legacy) ---
+        // --- Métodos de compatibilidad ---
         syncPhysicalData: function() { _notify(); },
         getElevation: () => 0,
         setElevation: (level) => {},
