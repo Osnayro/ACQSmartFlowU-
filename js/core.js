@@ -1,6 +1,6 @@
 
 // ============================================================
-// SMARTFLOW CORE v6.4 (Three.js + updatePuerto corregido)
+// SMARTFLOW CORE v6.5 (Expone _animate para render)
 // Archivo: js/core.js
 // ============================================================
 
@@ -18,7 +18,7 @@ const SmartFlowCore = (function() {
     let _db = {
         equipos: [],
         lines: [],
-        metadata: { version: "6.4", lastModified: Date.now() }
+        metadata: { version: "6.5", lastModified: Date.now() }
     };
     
     // --- Mapa visual: tag -> objeto 3D ---
@@ -38,6 +38,9 @@ const SmartFlowCore = (function() {
     
     // --- Timer auto-guardado ---
     let _autoSaveTimer = null;
+    
+    // --- Función de animación (expuesta para modificaciones) ---
+    let _animate = null;
     
     // -------------------- PRIVADAS --------------------
     const _deepClone = (obj) => {
@@ -146,14 +149,23 @@ const SmartFlowCore = (function() {
             _scene.add(ambient, dirLight, fill);
             _scene.add(new THREE.GridHelper(20000, 40, 0x334155, 0x1e293b));
             
-            const animate = () => { requestAnimationFrame(animate); _controls.update(); _renderer.render(_scene, _camera); };
-            animate();
+            // Definir y exponer el bucle de animación
+            _animate = () => {
+                requestAnimationFrame(_animate);
+                _controls.update();
+                _renderer.render(_scene, _camera);
+            };
+            _animate(); // iniciar
             
             const saved = localStorage.getItem('smartflow_project');
             if (saved) try { _db = JSON.parse(saved); if (_visualFactory) _refreshVisuals(); } catch(e) {}
-            console.log("✔ Core Three.js v6.4 listo");
+            console.log("✔ Core Three.js v6.5 listo");
             _notify();
         },
+        
+        // Exponer la función de animación para que otros módulos (ej. render) la modifiquen
+        getAnimate: () => _animate,
+        setAnimate: (fn) => { _animate = fn; fn(); },
         
         registerVisualFactory: function(factory) {
             _visualFactory = factory;
@@ -256,10 +268,8 @@ const SmartFlowCore = (function() {
             if (cambios.status) puerto.status = cambios.status;
             if (cambios.connectedLine !== undefined) puerto.connectedLine = cambios.connectedLine;
             
-            // CORRECCIÓN: usar funciones privadas directamente
             _saveToHistory();
             _notify();
-            
             return true;
         },
         
