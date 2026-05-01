@@ -1,24 +1,20 @@
-
 <!DOCTYPE html>
 <html lang="es">
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no">
-    <title>SmartEngp | AcQuaBlue</title>
+    <title>SmartEngp 3D | AcQuaBlue - Ingeniería Inteligente</title>
     
-    <!-- Librerías externas -->
+    <!-- Three.js y complementos (con post-procesado) -->
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/three@0.128.0/examples/js/controls/OrbitControls.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/three@0.128.0/examples/js/postprocessing/EffectComposer.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/three@0.128.0/examples/js/postprocessing/RenderPass.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/three@0.128.0/examples/js/postprocessing/OutlinePass.js"></script>
+    
+    <!-- Librerías de exportación -->
     <script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"></script>
     <script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js"></script>
-    
-    <!-- Three.js y OrbitControls -->
-    <script type="importmap">
-        {
-            "imports": {
-                "three": "https://unpkg.com/three@0.160.0/build/three.module.js",
-                "three/addons/": "https://unpkg.com/three@0.160.0/examples/jsm/"
-            }
-        }
-    </script>
     
     <style>
         :root {
@@ -44,6 +40,7 @@
             font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
         }
 
+        /* Splash Screen */
         #splash-screen {
             position: fixed;
             top: 0; left: 0;
@@ -55,12 +52,10 @@
             align-items: center;
             transition: opacity 0.8s ease, visibility 0.8s;
         }
-
         .splash-content { text-align: center; width: 350px; }
         .corporate-header { margin-bottom: 25px; }
         .company-name { font-size: 11px; letter-spacing: 3px; color: #fff; opacity: 0.6; text-transform: uppercase; display: block; }
         .powered-by { font-size: 8px; color: var(--accent-cyan); letter-spacing: 1px; text-transform: uppercase; }
-
         .hex-container {
             width: 120px; height: 120px;
             margin: 0 auto 30px;
@@ -71,27 +66,22 @@
             animation: hex-pulse 2.5s infinite ease-in-out;
         }
         .hex-container img { width: 70%; filter: drop-shadow(0 0 10px #00f2ff); }
-
         @keyframes hex-pulse {
             0%, 100% { transform: scale(1); box-shadow: 0 0 15px rgba(0,242,255,0.1); }
             50% { transform: scale(1.05); box-shadow: 0 0 30px rgba(0,242,255,0.3); }
         }
-
         .splash-title { font-size: 30px; letter-spacing: 8px; color: white; font-weight: 900; text-transform: uppercase; margin-bottom: 5px; }
         .splash-subtitle { color: var(--accent-cyan); letter-spacing: 4px; font-size: 10px; margin-bottom: 35px; opacity: 0.8; font-weight: bold; }
-
         .loading-bar-container { width: 200px; height: 1px; background: rgba(255,255,255,0.1); margin: 0 auto 15px; overflow: hidden; }
         .loading-bar-fill { width: 0%; height: 100%; background: var(--accent-cyan); animation: fill-bar 4.5s forwards cubic-bezier(0.19, 1, 0.22, 1); }
-
         .splash-status { font-family: monospace; font-size: 9px; color: #64748b; text-transform: uppercase; margin-bottom: 50px; height: 15px; }
-
         .author-footer { border-top: 1px solid rgba(255,255,255,0.1); padding-top: 20px; }
         .leader-by { font-size: 9px; color: #fff; opacity: 0.5; text-transform: uppercase; }
         .engineer-name { font-size: 13px; font-weight: bold; color: #fff; display: block; letter-spacing: 1.5px; margin-top: 4px; }
-
         @keyframes fill-bar { 0% { width: 0%; } 100% { width: 100%; } }
         .splash-hidden { opacity: 0; visibility: hidden; }
 
+        /* Welcome Panel */
         #welcome-panel {
             position: fixed;
             top: 0; left: 0;
@@ -103,7 +93,6 @@
             align-items: center;
             transition: opacity 0.6s ease, visibility 0.6s;
         }
-
         .welcome-container {
             width: 600px;
             padding: 40px;
@@ -112,47 +101,14 @@
             border-radius: 16px;
             backdrop-filter: blur(12px);
             box-shadow: 0 20px 40px rgba(0,0,0,0.6);
-            position: relative;
-            overflow: hidden;
             text-align: center;
         }
-
-        .home-logo-wrapper { text-align: center; margin-bottom: 25px; }
-
-        .home-logo-img {
-            width: 130px; height: auto;
-            margin-top: 10px; margin-bottom: 25px;
-            filter: drop-shadow(0 0 15px rgba(0, 242, 255, 0.4));
-            transition: transform 0.3s ease;
-        }
-        .home-logo-img:active { transform: scale(0.95); }
-
-        .header-names {
-            display: flex;
-            justify-content: space-between;
-            margin-bottom: 35px;
-            text-align: left;
-        }
-
-        .corp-name {
-            color: var(--accent-cyan);
-            font-size: 16px; font-weight: 800; line-height: 1.3;
-            text-transform: uppercase; letter-spacing: 2px;
-        }
-
-        .user-name {
-            color: #fff;
-            font-size: 16px; font-weight: 600; line-height: 1.3;
-            text-transform: uppercase; letter-spacing: 2px;
-            text-align: right;
-        }
-
-        .button-group {
-            display: flex;
-            flex-direction: column;
-            gap: 16px;
-        }
-
+        .home-logo-img { width: 130px; margin-bottom: 25px; filter: drop-shadow(0 0 15px rgba(0,242,255,0.4)); }
+        .header-names { display: flex; justify-content: space-between; margin-bottom: 35px; }
+        .corp-name, .user-name { font-size: 16px; font-weight: 800; text-transform: uppercase; letter-spacing: 2px; }
+        .corp-name { color: var(--accent-cyan); text-align: left; }
+        .user-name { color: #fff; text-align: right; }
+        .button-group { display: flex; flex-direction: column; gap: 16px; }
         .welcome-btn {
             background: transparent;
             border: 1px solid var(--accent-cyan);
@@ -167,9 +123,9 @@
         .welcome-btn:hover { background: var(--accent-cyan); color: #000; box-shadow: 0 0 30px rgba(0,242,255,0.4); }
         .welcome-btn.secondary { border-color: #64748b; color: #94a3b8; }
         .welcome-btn.secondary:hover { background: #334155; border-color: #94a3b8; color: white; }
-
         .welcome-hidden { opacity: 0; visibility: hidden; pointer-events: none; }
 
+        /* Modal proyecto */
         #project-name-modal {
             position: fixed; top: 0; left: 0;
             width: 100%; height: 100%;
@@ -179,7 +135,6 @@
             justify-content: center;
             align-items: center;
         }
-
         .modal-content {
             width: 400px; padding: 30px;
             background: var(--panel-bg);
@@ -188,7 +143,6 @@
             backdrop-filter: blur(12px);
             text-align: center;
         }
-
         .modal-content h3 { color: var(--accent-cyan); margin-bottom: 20px; font-size: 18px; text-transform: uppercase; }
         .modal-content input {
             width: 100%; padding: 12px 16px;
@@ -197,7 +151,6 @@
             margin-bottom: 25px; outline: none;
         }
         .modal-content input:focus { border-color: var(--accent-cyan); }
-
         .modal-actions { display: flex; gap: 15px; justify-content: center; }
         .modal-btn {
             padding: 10px 24px; background: var(--accent-blue);
@@ -206,6 +159,7 @@
         }
         .modal-btn.cancel { background: #334155; }
 
+        /* Toolbar */
         .toolbar {
             background: var(--toolbar-bg);
             padding: 10px 16px;
@@ -216,19 +170,10 @@
             border-bottom: 1px solid var(--accent-blue);
             box-shadow: 0 4px 20px rgba(0,0,0,0.5);
         }
-
-        .toolbar-logo {
-            display: flex;
-            align-items: center;
-            margin-right: 15px;
-        }
+        .toolbar-logo { display: flex; align-items: center; margin-right: 15px; }
         .toolbar-logo img { height: 28px; margin-right: 8px; filter: drop-shadow(0 0 6px #00f2ff); }
-        .toolbar-title {
-            color: var(--accent-cyan);
-            font-size: 18px; font-weight: 800;
-            text-transform: uppercase; letter-spacing: 2px;
-        }
-
+        .toolbar-title { color: var(--accent-cyan); font-size: 18px; font-weight: 800; text-transform: uppercase; letter-spacing: 2px; }
+        
         button {
             background: var(--button-bg);
             border: 1px solid var(--button-border);
@@ -248,15 +193,15 @@
         .btn-speak { background: #7c3aed; border-color: #8b5cf6; }
         .btn-speak:hover { background: #8b5cf6; }
 
-        .canvas-container {
+        /* Canvas container (Three.js) */
+        #canvas-container {
             flex: 1;
             background: #000;
             position: relative;
             overflow: hidden;
         }
-        canvas { display: block; width: 100%; height: 100%; cursor: grab; }
-        canvas:active { cursor: grabbing; }
 
+        /* Property panel (derecha) */
         .property-panel {
             position: absolute;
             top: 20px;
@@ -272,9 +217,7 @@
             overflow-y: auto;
             transition: transform 0.3s ease;
         }
-
         .property-panel.hidden { transform: translateX(320px); }
-
         .panel-header {
             display: flex;
             justify-content: space-between;
@@ -286,20 +229,10 @@
             font-weight: bold;
             font-size: 0.9rem;
         }
-
-        .panel-header button {
-            background: none;
-            border: none;
-            color: var(--accent-cyan);
-            font-size: 1.2rem;
-            cursor: pointer;
-            padding: 0;
-        }
-
+        .panel-header button { background: none; border: none; color: var(--accent-cyan); font-size: 1.2rem; cursor: pointer; padding: 0; }
         .prop-group { margin-bottom: 12px; }
         .prop-label { font-size: 0.75rem; color: #94a3b8; display: block; }
         .prop-value { font-size: 0.9rem; color: white; font-weight: 500; }
-
         .port-item {
             background: rgba(255,255,255,0.05);
             margin-top: 5px;
@@ -311,9 +244,9 @@
         }
         .port-open { color: #10b981; }
         .port-connected { color: #3b82f6; }
-
         .empty-msg { color: #aaa; text-align: center; padding: 20px 0; }
 
+        /* Command panel */
         .command-panel {
             position: fixed; left: 10px; bottom: 10px;
             width: 90%; max-width: 500px;
@@ -338,6 +271,7 @@
         }
         textarea:focus { border-color: var(--accent-cyan); }
 
+        /* Notification */
         .notification {
             position: fixed; top: 20px; left: 50%; transform: translateX(-50%);
             background: #238636; padding: 10px 20px; border-radius: 8px;
@@ -345,6 +279,7 @@
             font-weight: bold; box-shadow: 0 2px 15px rgba(0,0,0,0.5);
         }
 
+        /* Status bar */
         .status-bar {
             background: #020617; padding: 8px 20px; font-size: 10px;
             border-top: 1px solid var(--accent-blue); color: var(--accent-cyan);
@@ -352,6 +287,18 @@
             display: flex; justify-content: space-between;
         }
 
+        /* Tools panel flotante */
+        .tools-panel {
+            position: fixed; left: 20px; top: 100px;
+            background: var(--panel-bg); border-radius: 12px;
+            padding: 8px; display: flex; flex-direction: column; gap: 8px;
+            z-index: 900; border: 1px solid var(--accent-blue);
+            backdrop-filter: blur(8px);
+        }
+        .tools-panel button { padding: 6px 12px; font-size: 12px; }
+        .tools-panel button.active { background: var(--accent-blue); color: white; }
+
+        /* Elevation panel */
         .elevation-panel {
             position: fixed; bottom: 20px; right: 20px;
             background: var(--panel-bg); padding: 8px 12px; border-radius: 8px;
@@ -359,11 +306,7 @@
             display: flex; gap: 6px; align-items: center;
             backdrop-filter: blur(8px);
         }
-        .elevation-panel input {
-            width: 70px; background: #0f0f17; border: 1px solid #3a3a4a;
-            color: white; border-radius: 4px; padding: 4px 6px; outline: none;
-        }
-        .elevation-panel input:focus { border-color: var(--accent-cyan); }
+        .elevation-panel input { width: 70px; background: #0f0f17; border: 1px solid #3a3a4a; color: white; border-radius: 4px; padding: 4px 6px; }
 
         @media (max-width: 768px) {
             .toolbar button { font-size: 10px; padding: 6px 8px; }
@@ -376,6 +319,7 @@
 </head>
 <body>
 
+    <!-- Splash screen -->
     <div id="splash-screen">
         <div class="splash-content">
             <div class="corporate-header">
@@ -386,9 +330,9 @@
                 <img src="img/logo.PNG" alt="Logo" onerror="this.style.display='none'">
             </div>
             <h1 class="splash-title">SmartEngp</h1>
-            <p class="splash-subtitle">INGENIERÍA INTELIGENTE</p>
+            <p class="splash-subtitle">INGENIERÍA INTELIGENTE 3D</p>
             <div class="loading-bar-container"><div class="loading-bar-fill"></div></div>
-            <div class="splash-status" id="splash-status">Inicializando motor 3D...</div>
+            <div class="splash-status" id="splash-status">Inicializando motor Three.js...</div>
             <div class="author-footer">
                 <span class="leader-by">Ingeniero Líder de Proyecto:</span>
                 <span class="engineer-name">Ing. Osnay Romero</span>
@@ -396,26 +340,26 @@
         </div>
     </div>
 
+    <!-- Welcome panel -->
     <div id="welcome-panel">
         <div class="welcome-container">
-            <div class="home-logo-wrapper">
-                <img src="img/logo.PNG" alt="Logo SmartEngp" class="home-logo-img" onerror="this.style.display='none'">
-            </div>
+            <img src="img/logo.PNG" alt="Logo SmartEngp" class="home-logo-img" onerror="this.style.display='none'">
             <div class="header-names">
                 <h1 class="corp-name">ACQUABLUE<br>INTERNATIONAL CORP.</h1>
                 <h2 class="user-name">ING.<br>OSNAY ROMERO</h2>
             </div>
             <div class="button-group">
-                <button class="welcome-btn" id="welcome-new-project">➕ NUEVO PROYECTO</button>
+                <button class="welcome-btn" id="welcome-new-project">➕ NUEVO PROYECTO 3D</button>
                 <button class="welcome-btn secondary" id="welcome-open-project">📂 ABRIR PROYECTO EXISTENTE</button>
             </div>
         </div>
     </div>
 
+    <!-- Modal para nombre de proyecto -->
     <div id="project-name-modal">
         <div class="modal-content">
-            <h3>Nuevo Proyecto</h3>
-            <input type="text" id="project-name-input" placeholder="Nombre del proyecto" value="Proyecto_SmartEngp">
+            <h3>Nuevo Proyecto 3D</h3>
+            <input type="text" id="project-name-input" placeholder="Nombre del proyecto" value="Proyecto_SmartEngp3D">
             <div class="modal-actions">
                 <button class="modal-btn" id="modal-accept">Aceptar</button>
                 <button class="modal-btn cancel" id="modal-skip">Saltar</button>
@@ -423,16 +367,20 @@
         </div>
     </div>
 
+    <!-- Toolbar principal -->
     <div class="toolbar" role="toolbar" aria-label="Barra de herramientas principal">
         <div class="toolbar-logo">
             <img src="img/logo.PNG" alt="Logo" style="height: 28px;" onerror="this.style.display='none'">
-            <span class="toolbar-title" aria-label="SmartEngp">SmartEngp</span>
+            <span class="toolbar-title">SmartEngp 3D</span>
         </div>
         <button id="btnOpen" aria-label="Abrir proyecto">📂 Abrir</button>
         <button id="btnSave" aria-label="Guardar proyecto">💾 Guardar</button>
         <button id="btnExportProject" aria-label="Exportar proyecto">📤 Exportar Proy</button>
         <button id="btnImportProject" aria-label="Importar proyecto">📥 Importar Proy</button>
-        <button id="btnReset" aria-label="Centrar vista">🔄 Centrar</button>
+        <button id="btnReset" aria-label="Centrar vista isométrica">🎥 Isométrico</button>
+        <button id="btnTopView" aria-label="Vista superior">⬇️ Top</button>
+        <button id="btnFrontView" aria-label="Vista frontal">➡️ Front</button>
+        <button id="btnSideView" aria-label="Vista lateral">⬅️ Side</button>
         <button id="btnCommand" class="btn-primary" aria-label="Abrir panel de comandos">🤖 Comandos</button>
         <button id="btnAddTank" aria-label="Añadir tanque">🏭 Tanque</button>
         <button id="btnAddPump" aria-label="Añadir bomba">⚙️ Bomba</button>
@@ -446,25 +394,24 @@
         <button id="btnApplyNorm" aria-label="Aplicar normas">📐 Normas</button>
         <button id="btnSpeakSummary" class="btn-speak" aria-label="Leer resumen del proyecto">📢 Resumen</button>
         <button id="btnRecalc" aria-label="Recalcular">🔄 Recalcular</button>
+        <button id="btnToggleCatalog" aria-label="Mostrar catálogo">📦 Catálogo</button>
     </div>
 
-    <div class="canvas-container" id="canvas-container">
-        <!-- El canvas 3D se creará dinámicamente por renderer3d.js -->
-        <div style="position:absolute; top:20px; left:20px; color:rgba(0,242,255,0.2); font-size:11px; pointer-events:none; text-transform:uppercase;">
-            AcQuaBlue Corp. | MODO 3D
+    <!-- Contenedor principal: aquí Three.js creará el canvas -->
+    <div id="canvas-container" class="canvas-container"></div>
+
+    <!-- Panel de propiedades lateral -->
+    <div id="side-panel" class="property-panel hidden">
+        <div class="panel-header">
+            <span>PROPIEDADES TÉCNICAS</span>
+            <button onclick="togglePanel(false)" aria-label="Cerrar panel">×</button>
         </div>
-        
-        <div id="side-panel" class="property-panel hidden">
-            <div class="panel-header">
-                <span>PROPIEDADES TÉCNICAS</span>
-                <button onclick="togglePanel(false)" aria-label="Cerrar panel">×</button>
-            </div>
-            <div id="panel-content">
-                <p class="empty-msg">Seleccione un elemento para ver sus detalles</p>
-            </div>
+        <div id="panel-content">
+            <p class="empty-msg">Seleccione un elemento para ver sus detalles</p>
         </div>
     </div>
 
+    <!-- Panel de comandos -->
     <div id="commandPanel" class="command-panel" role="dialog" aria-label="Panel de comandos">
         <div class="command-header">
             <strong>🤖 Comandos IA</strong>
@@ -477,13 +424,24 @@
         </div>
     </div>
 
+    <!-- Notificación flotante -->
     <div id="notification" class="notification" role="status"></div>
 
+    <!-- Barra de estado -->
     <div class="status-bar">
-        <div id="statusMsg">SISTEMA LISTO | SmartEngp</div>
+        <div id="statusMsg">SISTEMA 3D LISTO | SmartEngp</div>
         <div>AcQuaBlue International Corp. | Ing. Osnay Romero</div>
     </div>
 
+    <!-- Panel de herramientas flotantes -->
+    <div class="tools-panel" id="toolsPanel" role="toolbar" aria-label="Herramientas de dibujo">
+        <button id="toolSelect" class="active" aria-label="Seleccionar">🔍 Seleccionar</button>
+        <button id="toolMoveEq" aria-label="Mover equipo">✋ Mover equipo</button>
+        <button id="toolEditPipe" aria-label="Editar tubería">✏️ Editar tubería</button>
+        <button id="toolAddPoint" aria-label="Añadir punto">➕ Añadir punto</button>
+    </div>
+
+    <!-- Panel de elevación -->
     <div class="elevation-panel" id="elevationPanel">
         <span style="font-size:12px;">📐 Elev. (mm):</span>
         <button onclick="setElevation(0)" style="padding:2px 8px;" aria-label="Elevación 0">0</button>
@@ -493,112 +451,46 @@
         <button id="btnSetElev" style="padding:2px 8px;" aria-label="Establecer elevación">Set</button>
     </div>
 
-    <!-- MÓDULOS (Orden según dependencias) -->
-    <script src="js/catalog.js"></script>
+    <!-- Módulos de la aplicación (orden correcto) -->
     <script src="js/core.js"></script>
+    <script src="js/catalog.js"></script>
     <script src="js/router.js"></script>
-    <script src="js/renderer3d.js"></script>   <!-- NUEVO: Renderizador 3D -->
-    <script src="js/io.js"></script>            <!-- NUEVO: Exportación/Importación independiente -->
+    <script src="js/render.js"></script>
     <script src="js/commands.js"></script>
+    <script src="js/accessibility.js"></script>
+    <script src="js/autocomplete.js"></script>
+    <script src="js/io.js"></script>
     <script src="js/main.js"></script>
 
-    <script type="module">
-        // Inicializar el módulo 3D dinámicamente después de cargar Three.js
-        import * as THREE from 'three';
-        import { OrbitControls } from 'three/addons/controls/OrbitControls.js';
-        
-        // Exponer a window para que los otros módulos (no módulo) puedan usarlos
-        window.THREE = THREE;
-        window.OrbitControls = OrbitControls;
-        
-        console.log("✅ Three.js y OrbitControls cargados correctamente");
-    </script>
-
     <script>
-        // Variables globales y funciones auxiliares utilizadas por el HTML
+        // Variables globales y funciones auxiliares
         window.voiceEnabled = true;
-        window.currentProjectName = "Proyecto_SmartEngp";
-
-        // Stub de accesibilidad requerido por commands.js y main.js
-        window.SmartFlowAccessibility = { 
-            isVoiceEnabled: function() { return window.voiceEnabled; }, 
-            speak: function(m) { console.log("IA Voice:", m); },
-            processAccessibilityCommand: function(cmd) { return false; }
-        };
-
-        // Módulo IO (Exportación/Importación unificada)
-        window.SmartFlowIO = {
-            exportProjectJSON: function() {
-                if (typeof SmartFlowCore !== 'undefined') {
-                    const state = SmartFlowCore.exportProject();
-                    const blob = new Blob([state], { type: 'application/json' });
-                    const a = document.createElement('a');
-                    a.href = URL.createObjectURL(blob);
-                    a.download = `${window.currentProjectName || 'Proyecto'}_SmartEngp.json`;
-                    a.click();
-                }
-            },
-            importProjectJSON: function(file) {
-                const reader = new FileReader();
-                reader.onload = (ev) => {
-                    try {
-                        const state = JSON.parse(ev.target.result);
-                        if (typeof SmartFlowCore !== 'undefined') {
-                            SmartFlowCore.importState(state.data || state);
-                        }
-                    } catch (err) {
-                        console.error("Error al importar proyecto JSON", err);
-                    }
-                };
-                reader.readAsText(file);
-            },
-            importPCF: function(fileContent) {
-                // Delegar al módulo commands
-                if (typeof SmartFlowCommands !== 'undefined' && SmartFlowCommands.importPCF) {
-                    SmartFlowCommands.importPCF(fileContent);
-                }
-            },
-            exportPCF: function() {
-                // Delegar al módulo commands
-                if (typeof SmartFlowCommands !== 'undefined' && SmartFlowCommands.exportPCF) {
-                    SmartFlowCommands.exportPCF();
-                }
-            }
-        };
+        window.currentProjectName = "Proyecto_SmartEngp3D";
 
         function setElevation(level) {
-            // La elevación ahora es solo conceptual; el renderizador 3D no la usa para dibujar
-            if (typeof SmartFlowCore !== 'undefined') {
-                SmartFlowCore.setElevation(level);
-                document.getElementById('customElev').value = level;
-            }
+            if (SmartFlowCore && SmartFlowCore.setElevation) SmartFlowCore.setElevation(level);
+            const elevInput = document.getElementById('customElev');
+            if (elevInput) elevInput.value = level;
         }
 
         function togglePanel(show) {
             const panel = document.getElementById('side-panel');
-            if (show) panel.classList.remove('hidden');
-            else panel.classList.add('hidden');
+            if (panel) {
+                if (show) panel.classList.remove('hidden');
+                else panel.classList.add('hidden');
+            }
         }
 
-        function updatePropertyPanel(obj) {
-            const content = document.getElementById('panel-content');
-            if (!obj) { togglePanel(false); return; }
-            togglePanel(true);
-            content.innerHTML = `
-                <div class="prop-group"><span class="prop-label">TAG</span><span class="prop-value">${obj.tag}</span></div>
-                <div class="prop-group"><span class="prop-label">TIPO</span><span class="prop-value">${obj.tipo || 'Tubería'}</span></div>
-                <div class="prop-group"><span class="prop-label">MATERIAL</span><span class="prop-value">${obj.material || 'N/A'}</span></div>
-                <div class="prop-group"><span class="prop-label">DIÁMETRO</span><span class="prop-value">${obj.diametro}"</span></div>
-                <hr style="border:0; border-top:1px solid rgba(255,255,255,0.1); margin:15px 0;">
-                <div class="prop-group"><span class="prop-label">PUERTOS</span>
-                    ${obj.puertos ? obj.puertos.map(p => `
-                        <div class="port-item"><span>${p.id}</span><span class="${p.status === 'open' ? 'port-open' : 'port-connected'}">${p.status === 'open' ? 'DISPONIBLE' : 'CONECTADO a ' + (p.connectedTo || '')}</span></div>
-                    `).join('') : '<p>Sin puertos</p>'}
-                </div>
-            `;
+        // Stub de accesibilidad para commands.js (se reemplazará por el módulo real)
+        if (!window.SmartFlowAccessibility) {
+            window.SmartFlowAccessibility = {
+                isVoiceEnabled: () => window.voiceEnabled,
+                speak: (msg) => console.log("[VOZ]", msg),
+                processAccessibilityCommand: (cmd) => false
+            };
         }
 
-        // Gestión del splash, welcome y modal
+        // Manejo de splash, welcome y modal
         window.addEventListener('load', function() {
             const splash = document.getElementById('splash-screen');
             const welcome = document.getElementById('welcome-panel');
@@ -608,12 +500,11 @@
             
             const messages = [
                 "Cargando librerías de AcQuaBlue...",
-                "Inicializando motor 3D...",
-                "Optimizando escena volumétrica...",
-                "Iniciando interfaz de Ing. Osnay Romero...",
-                "¡SmartEngp Activo!"
+                "Iniciando motor Three.js con post-procesado...",
+                "Sincronizando modelos 3D...",
+                "Optimizando efectos visuales...",
+                "¡SmartEngp 3D Activo!"
             ];
-            
             let i = 0;
             const interval = setInterval(() => {
                 if(i < messages.length) { statusEl.innerText = messages[i]; i++; }
@@ -621,7 +512,7 @@
 
             setTimeout(() => { splash.classList.add('splash-hidden'); clearInterval(interval); }, 4500);
             setTimeout(() => { welcome.classList.remove('welcome-hidden'); }, 4800);
-
+            
             document.getElementById('welcome-new-project').onclick = () => { modal.style.display = 'flex'; };
             document.getElementById('welcome-open-project').onclick = () => {
                 document.getElementById('btnOpen')?.click();
@@ -632,7 +523,7 @@
                 if (name) window.currentProjectName = name;
                 modal.style.display = 'none';
                 welcome.classList.add('welcome-hidden');
-                if (typeof SmartFlowCore !== 'undefined' && SmartFlowCore.nuevoProyecto) SmartFlowCore.nuevoProyecto();
+                if (SmartFlowCore && SmartFlowCore.clearProject) SmartFlowCore.clearProject();
                 document.getElementById('statusMsg').innerText = `Proyecto: ${window.currentProjectName} | Listo`;
             };
             document.getElementById('modal-skip').onclick = () => {
