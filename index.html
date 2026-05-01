@@ -1,0 +1,646 @@
+
+<!DOCTYPE html>
+<html lang="es">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no">
+    <title>SmartEngp | AcQuaBlue</title>
+    
+    <!-- Librerías externas -->
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js"></script>
+    
+    <!-- Three.js y OrbitControls -->
+    <script type="importmap">
+        {
+            "imports": {
+                "three": "https://unpkg.com/three@0.160.0/build/three.module.js",
+                "three/addons/": "https://unpkg.com/three@0.160.0/examples/jsm/"
+            }
+        }
+    </script>
+    
+    <style>
+        :root {
+            --primary-bg: #0a0e17;
+            --panel-bg: rgba(20, 28, 45, 0.95);
+            --accent-cyan: #00f2ff;
+            --accent-blue: #1e4eb8;
+            --text-main: #e0e6ed;
+            --toolbar-bg: #0f172a;
+            --button-bg: #1e293b;
+            --button-border: #334155;
+        }
+
+        * { margin: 0; padding: 0; box-sizing: border-box; }
+        
+        body {
+            background: var(--primary-bg);
+            color: var(--text-main);
+            height: 100vh;
+            display: flex;
+            flex-direction: column;
+            overflow: hidden;
+            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+        }
+
+        #splash-screen {
+            position: fixed;
+            top: 0; left: 0;
+            width: 100%; height: 100%;
+            background: radial-gradient(circle at center, #10172a 0%, #020617 100%);
+            z-index: 10000;
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            transition: opacity 0.8s ease, visibility 0.8s;
+        }
+
+        .splash-content { text-align: center; width: 350px; }
+        .corporate-header { margin-bottom: 25px; }
+        .company-name { font-size: 11px; letter-spacing: 3px; color: #fff; opacity: 0.6; text-transform: uppercase; display: block; }
+        .powered-by { font-size: 8px; color: var(--accent-cyan); letter-spacing: 1px; text-transform: uppercase; }
+
+        .hex-container {
+            width: 120px; height: 120px;
+            margin: 0 auto 30px;
+            border: 1px solid var(--accent-cyan);
+            clip-path: polygon(50% 0%, 100% 25%, 100% 75%, 50% 100%, 0% 75%, 0% 25%);
+            display: flex; justify-content: center; align-items: center;
+            background: rgba(0, 242, 255, 0.05);
+            animation: hex-pulse 2.5s infinite ease-in-out;
+        }
+        .hex-container img { width: 70%; filter: drop-shadow(0 0 10px #00f2ff); }
+
+        @keyframes hex-pulse {
+            0%, 100% { transform: scale(1); box-shadow: 0 0 15px rgba(0,242,255,0.1); }
+            50% { transform: scale(1.05); box-shadow: 0 0 30px rgba(0,242,255,0.3); }
+        }
+
+        .splash-title { font-size: 30px; letter-spacing: 8px; color: white; font-weight: 900; text-transform: uppercase; margin-bottom: 5px; }
+        .splash-subtitle { color: var(--accent-cyan); letter-spacing: 4px; font-size: 10px; margin-bottom: 35px; opacity: 0.8; font-weight: bold; }
+
+        .loading-bar-container { width: 200px; height: 1px; background: rgba(255,255,255,0.1); margin: 0 auto 15px; overflow: hidden; }
+        .loading-bar-fill { width: 0%; height: 100%; background: var(--accent-cyan); animation: fill-bar 4.5s forwards cubic-bezier(0.19, 1, 0.22, 1); }
+
+        .splash-status { font-family: monospace; font-size: 9px; color: #64748b; text-transform: uppercase; margin-bottom: 50px; height: 15px; }
+
+        .author-footer { border-top: 1px solid rgba(255,255,255,0.1); padding-top: 20px; }
+        .leader-by { font-size: 9px; color: #fff; opacity: 0.5; text-transform: uppercase; }
+        .engineer-name { font-size: 13px; font-weight: bold; color: #fff; display: block; letter-spacing: 1.5px; margin-top: 4px; }
+
+        @keyframes fill-bar { 0% { width: 0%; } 100% { width: 100%; } }
+        .splash-hidden { opacity: 0; visibility: hidden; }
+
+        #welcome-panel {
+            position: fixed;
+            top: 0; left: 0;
+            width: 100%; height: 100%;
+            background: var(--primary-bg);
+            z-index: 9000;
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            transition: opacity 0.6s ease, visibility 0.6s;
+        }
+
+        .welcome-container {
+            width: 600px;
+            padding: 40px;
+            background: rgba(15, 23, 42, 0.85);
+            border: 1px solid var(--accent-cyan);
+            border-radius: 16px;
+            backdrop-filter: blur(12px);
+            box-shadow: 0 20px 40px rgba(0,0,0,0.6);
+            position: relative;
+            overflow: hidden;
+            text-align: center;
+        }
+
+        .home-logo-wrapper { text-align: center; margin-bottom: 25px; }
+
+        .home-logo-img {
+            width: 130px; height: auto;
+            margin-top: 10px; margin-bottom: 25px;
+            filter: drop-shadow(0 0 15px rgba(0, 242, 255, 0.4));
+            transition: transform 0.3s ease;
+        }
+        .home-logo-img:active { transform: scale(0.95); }
+
+        .header-names {
+            display: flex;
+            justify-content: space-between;
+            margin-bottom: 35px;
+            text-align: left;
+        }
+
+        .corp-name {
+            color: var(--accent-cyan);
+            font-size: 16px; font-weight: 800; line-height: 1.3;
+            text-transform: uppercase; letter-spacing: 2px;
+        }
+
+        .user-name {
+            color: #fff;
+            font-size: 16px; font-weight: 600; line-height: 1.3;
+            text-transform: uppercase; letter-spacing: 2px;
+            text-align: right;
+        }
+
+        .button-group {
+            display: flex;
+            flex-direction: column;
+            gap: 16px;
+        }
+
+        .welcome-btn {
+            background: transparent;
+            border: 1px solid var(--accent-cyan);
+            color: var(--accent-cyan);
+            padding: 16px 24px;
+            font-size: 18px; font-weight: bold;
+            text-transform: uppercase; letter-spacing: 3px;
+            border-radius: 8px;
+            cursor: pointer;
+            transition: all 0.3s;
+        }
+        .welcome-btn:hover { background: var(--accent-cyan); color: #000; box-shadow: 0 0 30px rgba(0,242,255,0.4); }
+        .welcome-btn.secondary { border-color: #64748b; color: #94a3b8; }
+        .welcome-btn.secondary:hover { background: #334155; border-color: #94a3b8; color: white; }
+
+        .welcome-hidden { opacity: 0; visibility: hidden; pointer-events: none; }
+
+        #project-name-modal {
+            position: fixed; top: 0; left: 0;
+            width: 100%; height: 100%;
+            background: rgba(0,0,0,0.8);
+            z-index: 9500;
+            display: none;
+            justify-content: center;
+            align-items: center;
+        }
+
+        .modal-content {
+            width: 400px; padding: 30px;
+            background: var(--panel-bg);
+            border: 1px solid var(--accent-cyan);
+            border-radius: 16px;
+            backdrop-filter: blur(12px);
+            text-align: center;
+        }
+
+        .modal-content h3 { color: var(--accent-cyan); margin-bottom: 20px; font-size: 18px; text-transform: uppercase; }
+        .modal-content input {
+            width: 100%; padding: 12px 16px;
+            background: #0f172a; border: 1px solid #334155;
+            color: white; border-radius: 8px; font-size: 16px;
+            margin-bottom: 25px; outline: none;
+        }
+        .modal-content input:focus { border-color: var(--accent-cyan); }
+
+        .modal-actions { display: flex; gap: 15px; justify-content: center; }
+        .modal-btn {
+            padding: 10px 24px; background: var(--accent-blue);
+            border: none; color: white; font-weight: bold;
+            border-radius: 6px; cursor: pointer; text-transform: uppercase;
+        }
+        .modal-btn.cancel { background: #334155; }
+
+        .toolbar {
+            background: var(--toolbar-bg);
+            padding: 10px 16px;
+            display: flex;
+            align-items: center;
+            flex-wrap: wrap;
+            gap: 8px;
+            border-bottom: 1px solid var(--accent-blue);
+            box-shadow: 0 4px 20px rgba(0,0,0,0.5);
+        }
+
+        .toolbar-logo {
+            display: flex;
+            align-items: center;
+            margin-right: 15px;
+        }
+        .toolbar-logo img { height: 28px; margin-right: 8px; filter: drop-shadow(0 0 6px #00f2ff); }
+        .toolbar-title {
+            color: var(--accent-cyan);
+            font-size: 18px; font-weight: 800;
+            text-transform: uppercase; letter-spacing: 2px;
+        }
+
+        button {
+            background: var(--button-bg);
+            border: 1px solid var(--button-border);
+            color: white;
+            padding: 8px 14px;
+            border-radius: 4px;
+            font-size: 12px; font-weight: 600;
+            cursor: pointer;
+            transition: all 0.2s;
+            text-transform: uppercase; letter-spacing: 0.5px;
+        }
+        button:hover { background: var(--accent-blue); border-color: var(--accent-cyan); box-shadow: 0 0 12px rgba(0, 242, 255, 0.2); }
+        .btn-primary { background: #238636; border-color: #2ea043; }
+        .btn-primary:hover { background: #2ea043; }
+        .btn-warning { background: #d29922; color: #1f1f1f; border-color: #e2a83a; }
+        .btn-warning:hover { background: #e2a83a; }
+        .btn-speak { background: #7c3aed; border-color: #8b5cf6; }
+        .btn-speak:hover { background: #8b5cf6; }
+
+        .canvas-container {
+            flex: 1;
+            background: #000;
+            position: relative;
+            overflow: hidden;
+        }
+        canvas { display: block; width: 100%; height: 100%; cursor: grab; }
+        canvas:active { cursor: grabbing; }
+
+        .property-panel {
+            position: absolute;
+            top: 20px;
+            right: 20px;
+            width: 280px;
+            max-height: 80vh;
+            background: var(--panel-bg);
+            backdrop-filter: blur(10px);
+            border: 1px solid var(--accent-blue);
+            border-radius: 8px;
+            padding: 15px;
+            z-index: 100;
+            overflow-y: auto;
+            transition: transform 0.3s ease;
+        }
+
+        .property-panel.hidden { transform: translateX(320px); }
+
+        .panel-header {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            border-bottom: 1px solid rgba(255,255,255,0.1);
+            padding-bottom: 10px;
+            margin-bottom: 15px;
+            color: var(--accent-cyan);
+            font-weight: bold;
+            font-size: 0.9rem;
+        }
+
+        .panel-header button {
+            background: none;
+            border: none;
+            color: var(--accent-cyan);
+            font-size: 1.2rem;
+            cursor: pointer;
+            padding: 0;
+        }
+
+        .prop-group { margin-bottom: 12px; }
+        .prop-label { font-size: 0.75rem; color: #94a3b8; display: block; }
+        .prop-value { font-size: 0.9rem; color: white; font-weight: 500; }
+
+        .port-item {
+            background: rgba(255,255,255,0.05);
+            margin-top: 5px;
+            padding: 5px 8px;
+            border-radius: 4px;
+            font-size: 0.8rem;
+            display: flex;
+            justify-content: space-between;
+        }
+        .port-open { color: #10b981; }
+        .port-connected { color: #3b82f6; }
+
+        .empty-msg { color: #aaa; text-align: center; padding: 20px 0; }
+
+        .command-panel {
+            position: fixed; left: 10px; bottom: 10px;
+            width: 90%; max-width: 500px;
+            background: var(--panel-bg); border-radius: 12px;
+            border: 1px solid var(--accent-cyan);
+            z-index: 1000; display: none;
+            box-shadow: 0 4px 30px rgba(0,0,0,0.7);
+            backdrop-filter: blur(8px);
+        }
+        .command-header {
+            display: flex; justify-content: space-between; align-items: center;
+            padding: 12px 16px; border-bottom: 1px solid #3a3a4a;
+        }
+        .command-header strong { color: var(--accent-cyan); }
+        .command-buttons { display: flex; gap: 8px; padding: 12px; }
+        textarea {
+            width: calc(100% - 24px); margin: 12px;
+            background: #0f0f17; color: #eee;
+            border: 1px solid #3a3a4a; border-radius: 8px;
+            padding: 12px; font-family: 'Courier New', monospace;
+            font-size: 14px; resize: vertical; outline: none;
+        }
+        textarea:focus { border-color: var(--accent-cyan); }
+
+        .notification {
+            position: fixed; top: 20px; left: 50%; transform: translateX(-50%);
+            background: #238636; padding: 10px 20px; border-radius: 8px;
+            z-index: 2000; display: none; text-align: center;
+            font-weight: bold; box-shadow: 0 2px 15px rgba(0,0,0,0.5);
+        }
+
+        .status-bar {
+            background: #020617; padding: 8px 20px; font-size: 10px;
+            border-top: 1px solid var(--accent-blue); color: var(--accent-cyan);
+            font-family: 'Courier New', Courier, monospace;
+            display: flex; justify-content: space-between;
+        }
+
+        .elevation-panel {
+            position: fixed; bottom: 20px; right: 20px;
+            background: var(--panel-bg); padding: 8px 12px; border-radius: 8px;
+            border: 1px solid var(--accent-cyan); z-index: 900;
+            display: flex; gap: 6px; align-items: center;
+            backdrop-filter: blur(8px);
+        }
+        .elevation-panel input {
+            width: 70px; background: #0f0f17; border: 1px solid #3a3a4a;
+            color: white; border-radius: 4px; padding: 4px 6px; outline: none;
+        }
+        .elevation-panel input:focus { border-color: var(--accent-cyan); }
+
+        @media (max-width: 768px) {
+            .toolbar button { font-size: 10px; padding: 6px 8px; }
+            .property-panel { width: 260px; right: 10px; }
+            .welcome-container { width: 90%; padding: 30px 20px; }
+            .home-logo-img { width: 110px; }
+            .corp-name, .user-name { font-size: 14px; }
+        }
+    </style>
+</head>
+<body>
+
+    <div id="splash-screen">
+        <div class="splash-content">
+            <div class="corporate-header">
+                <span class="company-name">AcQuaBlue International Corp.</span>
+                <span class="powered-by">Smart Engineering Systems</span>
+            </div>
+            <div class="hex-container">
+                <img src="img/logo.PNG" alt="Logo" onerror="this.style.display='none'">
+            </div>
+            <h1 class="splash-title">SmartEngp</h1>
+            <p class="splash-subtitle">INGENIERÍA INTELIGENTE</p>
+            <div class="loading-bar-container"><div class="loading-bar-fill"></div></div>
+            <div class="splash-status" id="splash-status">Inicializando motor 3D...</div>
+            <div class="author-footer">
+                <span class="leader-by">Ingeniero Líder de Proyecto:</span>
+                <span class="engineer-name">Ing. Osnay Romero</span>
+            </div>
+        </div>
+    </div>
+
+    <div id="welcome-panel">
+        <div class="welcome-container">
+            <div class="home-logo-wrapper">
+                <img src="img/logo.PNG" alt="Logo SmartEngp" class="home-logo-img" onerror="this.style.display='none'">
+            </div>
+            <div class="header-names">
+                <h1 class="corp-name">ACQUABLUE<br>INTERNATIONAL CORP.</h1>
+                <h2 class="user-name">ING.<br>OSNAY ROMERO</h2>
+            </div>
+            <div class="button-group">
+                <button class="welcome-btn" id="welcome-new-project">➕ NUEVO PROYECTO</button>
+                <button class="welcome-btn secondary" id="welcome-open-project">📂 ABRIR PROYECTO EXISTENTE</button>
+            </div>
+        </div>
+    </div>
+
+    <div id="project-name-modal">
+        <div class="modal-content">
+            <h3>Nuevo Proyecto</h3>
+            <input type="text" id="project-name-input" placeholder="Nombre del proyecto" value="Proyecto_SmartEngp">
+            <div class="modal-actions">
+                <button class="modal-btn" id="modal-accept">Aceptar</button>
+                <button class="modal-btn cancel" id="modal-skip">Saltar</button>
+            </div>
+        </div>
+    </div>
+
+    <div class="toolbar" role="toolbar" aria-label="Barra de herramientas principal">
+        <div class="toolbar-logo">
+            <img src="img/logo.PNG" alt="Logo" style="height: 28px;" onerror="this.style.display='none'">
+            <span class="toolbar-title" aria-label="SmartEngp">SmartEngp</span>
+        </div>
+        <button id="btnOpen" aria-label="Abrir proyecto">📂 Abrir</button>
+        <button id="btnSave" aria-label="Guardar proyecto">💾 Guardar</button>
+        <button id="btnExportProject" aria-label="Exportar proyecto">📤 Exportar Proy</button>
+        <button id="btnImportProject" aria-label="Importar proyecto">📥 Importar Proy</button>
+        <button id="btnReset" aria-label="Centrar vista">🔄 Centrar</button>
+        <button id="btnCommand" class="btn-primary" aria-label="Abrir panel de comandos">🤖 Comandos</button>
+        <button id="btnAddTank" aria-label="Añadir tanque">🏭 Tanque</button>
+        <button id="btnAddPump" aria-label="Añadir bomba">⚙️ Bomba</button>
+        <button id="btnMTO" aria-label="Exportar lista de materiales">📊 MTO</button>
+        <button id="btnPDF" aria-label="Exportar PDF">📄 PDF</button>
+        <button id="btnExportPCF" aria-label="Exportar archivo PCF">📦 Export PCF</button>
+        <button id="btnImportPCF" aria-label="Importar archivo PCF">📂 Import PCF</button>
+        <button id="btnUndo" class="btn-warning" aria-label="Deshacer">↩️ Undo</button>
+        <button id="btnRedo" class="btn-warning" aria-label="Rehacer">↪️ Redo</button>
+        <button id="btnVoice" class="btn-speak" aria-label="Activar o desactivar voz">🔊 Voz ON</button>
+        <button id="btnApplyNorm" aria-label="Aplicar normas">📐 Normas</button>
+        <button id="btnSpeakSummary" class="btn-speak" aria-label="Leer resumen del proyecto">📢 Resumen</button>
+        <button id="btnRecalc" aria-label="Recalcular">🔄 Recalcular</button>
+    </div>
+
+    <div class="canvas-container" id="canvas-container">
+        <!-- El canvas 3D se creará dinámicamente por renderer3d.js -->
+        <div style="position:absolute; top:20px; left:20px; color:rgba(0,242,255,0.2); font-size:11px; pointer-events:none; text-transform:uppercase;">
+            AcQuaBlue Corp. | MODO 3D
+        </div>
+        
+        <div id="side-panel" class="property-panel hidden">
+            <div class="panel-header">
+                <span>PROPIEDADES TÉCNICAS</span>
+                <button onclick="togglePanel(false)" aria-label="Cerrar panel">×</button>
+            </div>
+            <div id="panel-content">
+                <p class="empty-msg">Seleccione un elemento para ver sus detalles</p>
+            </div>
+        </div>
+    </div>
+
+    <div id="commandPanel" class="command-panel" role="dialog" aria-label="Panel de comandos">
+        <div class="command-header">
+            <strong>🤖 Comandos IA</strong>
+            <button id="closeCommand" style="background:none;border:none;color:white;font-size:20px;padding:0;width:30px;" aria-label="Cerrar panel">✖</button>
+        </div>
+        <textarea id="commandText" rows="5" placeholder="Ejemplos:&#10;crear tanque_v TK-01 at (0,1450,0) diam 2380 altura 2900 material PE&#10;ruta desde TK-01 N1 a B-01 SUC diametro 3&#10;seleccionar TK-01&#10;leer escena&#10;ayuda"></textarea>
+        <div class="command-buttons">
+            <button id="runCommands" class="btn-primary" aria-label="Ejecutar comandos">Ejecutar</button>
+            <button id="clearCommand" aria-label="Limpiar panel">Limpiar</button>
+        </div>
+    </div>
+
+    <div id="notification" class="notification" role="status"></div>
+
+    <div class="status-bar">
+        <div id="statusMsg">SISTEMA LISTO | SmartEngp</div>
+        <div>AcQuaBlue International Corp. | Ing. Osnay Romero</div>
+    </div>
+
+    <div class="elevation-panel" id="elevationPanel">
+        <span style="font-size:12px;">📐 Elev. (mm):</span>
+        <button onclick="setElevation(0)" style="padding:2px 8px;" aria-label="Elevación 0">0</button>
+        <button onclick="setElevation(2500)" style="padding:2px 8px;" aria-label="Elevación 2.5 metros">2.5m</button>
+        <button onclick="setElevation(5000)" style="padding:2px 8px;" aria-label="Elevación 5 metros">5.0m</button>
+        <input type="number" id="customElev" value="0" step="100" aria-label="Elevación personalizada">
+        <button id="btnSetElev" style="padding:2px 8px;" aria-label="Establecer elevación">Set</button>
+    </div>
+
+    <!-- MÓDULOS (Orden según dependencias) -->
+    <script src="js/catalog.js"></script>
+    <script src="js/core.js"></script>
+    <script src="js/router.js"></script>
+    <script src="js/renderer3d.js"></script>   <!-- NUEVO: Renderizador 3D -->
+    <script src="js/io.js"></script>            <!-- NUEVO: Exportación/Importación independiente -->
+    <script src="js/commands.js"></script>
+    <script src="js/main.js"></script>
+
+    <script type="module">
+        // Inicializar el módulo 3D dinámicamente después de cargar Three.js
+        import * as THREE from 'three';
+        import { OrbitControls } from 'three/addons/controls/OrbitControls.js';
+        
+        // Exponer a window para que los otros módulos (no módulo) puedan usarlos
+        window.THREE = THREE;
+        window.OrbitControls = OrbitControls;
+        
+        console.log("✅ Three.js y OrbitControls cargados correctamente");
+    </script>
+
+    <script>
+        // Variables globales y funciones auxiliares utilizadas por el HTML
+        window.voiceEnabled = true;
+        window.currentProjectName = "Proyecto_SmartEngp";
+
+        // Stub de accesibilidad requerido por commands.js y main.js
+        window.SmartFlowAccessibility = { 
+            isVoiceEnabled: function() { return window.voiceEnabled; }, 
+            speak: function(m) { console.log("IA Voice:", m); },
+            processAccessibilityCommand: function(cmd) { return false; }
+        };
+
+        // Módulo IO (Exportación/Importación unificada)
+        window.SmartFlowIO = {
+            exportProjectJSON: function() {
+                if (typeof SmartFlowCore !== 'undefined') {
+                    const state = SmartFlowCore.exportProject();
+                    const blob = new Blob([state], { type: 'application/json' });
+                    const a = document.createElement('a');
+                    a.href = URL.createObjectURL(blob);
+                    a.download = `${window.currentProjectName || 'Proyecto'}_SmartEngp.json`;
+                    a.click();
+                }
+            },
+            importProjectJSON: function(file) {
+                const reader = new FileReader();
+                reader.onload = (ev) => {
+                    try {
+                        const state = JSON.parse(ev.target.result);
+                        if (typeof SmartFlowCore !== 'undefined') {
+                            SmartFlowCore.importState(state.data || state);
+                        }
+                    } catch (err) {
+                        console.error("Error al importar proyecto JSON", err);
+                    }
+                };
+                reader.readAsText(file);
+            },
+            importPCF: function(fileContent) {
+                // Delegar al módulo commands
+                if (typeof SmartFlowCommands !== 'undefined' && SmartFlowCommands.importPCF) {
+                    SmartFlowCommands.importPCF(fileContent);
+                }
+            },
+            exportPCF: function() {
+                // Delegar al módulo commands
+                if (typeof SmartFlowCommands !== 'undefined' && SmartFlowCommands.exportPCF) {
+                    SmartFlowCommands.exportPCF();
+                }
+            }
+        };
+
+        function setElevation(level) {
+            // La elevación ahora es solo conceptual; el renderizador 3D no la usa para dibujar
+            if (typeof SmartFlowCore !== 'undefined') {
+                SmartFlowCore.setElevation(level);
+                document.getElementById('customElev').value = level;
+            }
+        }
+
+        function togglePanel(show) {
+            const panel = document.getElementById('side-panel');
+            if (show) panel.classList.remove('hidden');
+            else panel.classList.add('hidden');
+        }
+
+        function updatePropertyPanel(obj) {
+            const content = document.getElementById('panel-content');
+            if (!obj) { togglePanel(false); return; }
+            togglePanel(true);
+            content.innerHTML = `
+                <div class="prop-group"><span class="prop-label">TAG</span><span class="prop-value">${obj.tag}</span></div>
+                <div class="prop-group"><span class="prop-label">TIPO</span><span class="prop-value">${obj.tipo || 'Tubería'}</span></div>
+                <div class="prop-group"><span class="prop-label">MATERIAL</span><span class="prop-value">${obj.material || 'N/A'}</span></div>
+                <div class="prop-group"><span class="prop-label">DIÁMETRO</span><span class="prop-value">${obj.diametro}"</span></div>
+                <hr style="border:0; border-top:1px solid rgba(255,255,255,0.1); margin:15px 0;">
+                <div class="prop-group"><span class="prop-label">PUERTOS</span>
+                    ${obj.puertos ? obj.puertos.map(p => `
+                        <div class="port-item"><span>${p.id}</span><span class="${p.status === 'open' ? 'port-open' : 'port-connected'}">${p.status === 'open' ? 'DISPONIBLE' : 'CONECTADO a ' + (p.connectedTo || '')}</span></div>
+                    `).join('') : '<p>Sin puertos</p>'}
+                </div>
+            `;
+        }
+
+        // Gestión del splash, welcome y modal
+        window.addEventListener('load', function() {
+            const splash = document.getElementById('splash-screen');
+            const welcome = document.getElementById('welcome-panel');
+            const modal = document.getElementById('project-name-modal');
+            const inputProject = document.getElementById('project-name-input');
+            const statusEl = document.getElementById('splash-status');
+            
+            const messages = [
+                "Cargando librerías de AcQuaBlue...",
+                "Inicializando motor 3D...",
+                "Optimizando escena volumétrica...",
+                "Iniciando interfaz de Ing. Osnay Romero...",
+                "¡SmartEngp Activo!"
+            ];
+            
+            let i = 0;
+            const interval = setInterval(() => {
+                if(i < messages.length) { statusEl.innerText = messages[i]; i++; }
+            }, 800);
+
+            setTimeout(() => { splash.classList.add('splash-hidden'); clearInterval(interval); }, 4500);
+            setTimeout(() => { welcome.classList.remove('welcome-hidden'); }, 4800);
+
+            document.getElementById('welcome-new-project').onclick = () => { modal.style.display = 'flex'; };
+            document.getElementById('welcome-open-project').onclick = () => {
+                document.getElementById('btnOpen')?.click();
+                welcome.classList.add('welcome-hidden');
+            };
+            document.getElementById('modal-accept').onclick = () => {
+                const name = inputProject.value.trim();
+                if (name) window.currentProjectName = name;
+                modal.style.display = 'none';
+                welcome.classList.add('welcome-hidden');
+                if (typeof SmartFlowCore !== 'undefined' && SmartFlowCore.nuevoProyecto) SmartFlowCore.nuevoProyecto();
+                document.getElementById('statusMsg').innerText = `Proyecto: ${window.currentProjectName} | Listo`;
+            };
+            document.getElementById('modal-skip').onclick = () => {
+                modal.style.display = 'none';
+                welcome.classList.add('welcome-hidden');
+                document.getElementById('statusMsg').innerText = `Proyecto: ${window.currentProjectName} | Listo`;
+            };
+        });
+    </script>
+</body>
+</html>
