@@ -1,6 +1,7 @@
 
 // ============================================================
-// MÓDULO: SMARTFLOW MAIN v6.2 (Robusto con verificaciones)
+// MÓDULO: SMARTFLOW MAIN v6.3 (Con integración de SmartFlowLabels)
+// Archivo: js/main.js
 // ============================================================
 
 (function() {
@@ -154,6 +155,7 @@
             if (typeof SmartFlowCommands !== 'undefined') SmartFlowCommands.init(SmartFlowCore, SmartFlowCatalog, SmartFlowRender, notify, ()=>{});
             if (typeof SmartFlowAccessibility !== 'undefined') SmartFlowAccessibility.init(SmartFlowCore, SmartFlowCatalog, SmartFlowRender, notify);
             if (typeof SmartFlowIO !== 'undefined') SmartFlowIO.init(SmartFlowCore, SmartFlowCatalog, notify);
+            if (typeof SmartFlowLabels !== 'undefined') SmartFlowLabels.init(SmartFlowCore);
             if (commandText && typeof SmartFlowAutocomplete !== 'undefined') SmartFlowAutocomplete.init(commandText, SmartFlowCore, SmartFlowCatalog, SmartFlowCommands);
             
             if (typeof SmartFlowCore.subscribe === 'function') {
