@@ -1,61 +1,73 @@
 
-// SmartFlowCommands v9.1 - Léxico bilingüe + Lenguaje natural (sin signos)
+// SmartFlowCommands v9.3 - Notificaciones completas + resumen
 const SmartFlowCommands = (function() {
     let _core = null;
     let _catalog = null;
     let _notifyUI = (msg, isErr) => console.log(msg);
 
-    // Diccionario bilingüe (incluye palabras clave para todos los comandos)
+    // Diccionario bilingüe
     const LEX = {
-        // Crear
         'crear': 'CREATE', 'create': 'CREATE', '+': 'CREATE',
-        // Modificar
         'modificar': 'MODIFY', 'editar': 'MODIFY', 'edit': 'MODIFY', '~': 'MODIFY',
-        // Eliminar
         'eliminar': 'DELETE', 'borrar': 'DELETE', 'delete': 'DELETE', '-': 'DELETE',
-        // Mover
         'mover': 'MOVE', 'move': 'MOVE', '>': 'MOVE',
-        // Conectar
         'conectar': 'CONNECT', 'connect': 'CONNECT',
-        // Línea con waypoints
         'linea': 'LINEA_WP', 'line': 'LINEA_WP',
-        // Info
         'info': 'INFO', '?': 'INFO', 'informacion': 'INFO',
-        // Listar
         'listar': 'LIST', 'list': 'LIST',
         '??': 'LIST_EQUIPOS', '???': 'LIST_LINEAS',
-        // Ayuda
         'ayuda': 'HELP', 'help': 'HELP', 'h': 'HELP',
-        // Deshacer/Rehacer
         'undo': 'UNDO', 'deshacer': 'UNDO', '<<': 'UNDO',
         'redo': 'REDO', 'rehacer': 'REDO', '>>': 'REDO',
-        // Nodos
         'nodos': 'NODES', 'nodes': 'NODES',
-        // Vistas
         'vista': 'VIEW', 'view': 'VIEW',
         'isometrico': 'VIEW_ISO', 'iso': 'VIEW_ISO',
         'top': 'VIEW_TOP', 'planta': 'VIEW_TOP',
         'front': 'VIEW_FRONT', 'frontal': 'VIEW_FRONT',
         'side': 'VIEW_SIDE', 'lateral': 'VIEW_SIDE',
         '.': 'VIEW_ISO', '.t': 'VIEW_TOP', '.f': 'VIEW_FRONT', '.s': 'VIEW_SIDE',
-        // Exportar
         'exportar': 'EXPORT', 'export': 'EXPORT',
         '!mto': 'EXPORT_MTO', '!pcf': 'EXPORT_PCF', '!pdf': 'EXPORT_PDF',
-        // Guardar/Cargar
         'guardar': 'SAVE', '!save': 'SAVE',
         'cargar': 'LOAD', '!load': 'LOAD',
-        // Línea suelta
         '%': 'CREATE_LINE',
-        'ruta': 'CREATE_LINE'
+        'ruta': 'CREATE_LINE',
+        'resumen': 'SUMMARY', 'summary': 'SUMMARY'
     };
 
-    function notify(msg, isErr) {
-        if (_notifyUI) _notifyUI(msg, isErr);
-        if (typeof SmartFlowAccessibility !== 'undefined' && SmartFlowAccessibility.isVoiceEnabled()) {
-            SmartFlowAccessibility.speak(msg);
+    // Función de notificación mejorada
+    function notify(msg, isErr = false) {
+        // Notificación visual (toast + barra de estado)
+        if (typeof _notifyUI === 'function') {
+            _notifyUI(msg, isErr);
+        } else {
+            // Fallback si no se inyectó
+            const statusEl = document.getElementById('statusMsg');
+            if (statusEl) {
+                statusEl.innerText = msg;
+                statusEl.style.color = isErr ? '#ef4444' : '#00f2ff';
+            }
+        }
+
+        // Voz: siempre intentar hablar
+        const speakText = msg.replace(/[✅⚠️🗑️📋📐📦↩️↪️]/g, '').trim();
+        if (speakText) {
+            // Intentar usar el módulo de accesibilidad
+            if (typeof SmartFlowAccessibility !== 'undefined' && SmartFlowAccessibility.speak) {
+                SmartFlowAccessibility.speak(speakText, isErr);
+            } else if (window.speechSynthesis) {
+                // Respaldo directo
+                window.speechSynthesis.cancel();
+                const utterance = new SpeechSynthesisUtterance(speakText);
+                utterance.lang = 'es-ES';
+                utterance.rate = 0.95;
+                window.speechSynthesis.speak(utterance);
+            }
         }
     }
 
+    // ... (resto de funciones tokenize, extractCoords, extractParams, parseNodeRef, etc. sin cambios) ...
+    // (Las incluyo aquí para tener el archivo completo, pero son idénticas a v9.2)
     function tokenize(cmd) {
         const tokens = [];
         const regex = /(\([^)]+\)|->|@|[\w\-\.]+|[<>+\-~%!?.]+)/g;
@@ -66,13 +78,11 @@ const SmartFlowCommands = (function() {
         return tokens;
     }
 
-    // Extrae coordenadas (con o sin paréntesis)
     function extractCoords(str) {
         const m = str.match(/\(?\s*(-?\d+\.?\d*)\s*[, ]\s*(-?\d+\.?\d*)\s*[, ]\s*(-?\d+\.?\d*)\s*\)?/);
         return m ? { x: parseFloat(m[1]), y: parseFloat(m[2]), z: parseFloat(m[3]) } : null;
     }
 
-    // Extrae parámetros (d=, h=, m=, s=, pos=, dir=, status=...)
     function extractParams(tokens) {
         const p = {};
         for (const t of tokens) {
@@ -103,7 +113,6 @@ const SmartFlowCommands = (function() {
         return p;
     }
 
-    // Analiza una referencia de nodo: TAG.PUERTO o TAG@POS
     function parseNodeRef(str) {
         const dot = str.indexOf('.');
         if (dot > 0) return { tag: str.substring(0, dot), port: str.substring(dot + 1) };
@@ -112,7 +121,6 @@ const SmartFlowCommands = (function() {
         return { tag: str, port: '1' };
     }
 
-    // Obtiene la posición mundial de un puerto (usando router)
     function getPortWorldPos(tag, portId) {
         const db = _core.getDb();
         const obj = db.equipos.find(e => e.tag === tag) || db.lines.find(l => l.tag === tag);
@@ -120,7 +128,6 @@ const SmartFlowCommands = (function() {
         return SmartFlowRouter.getPortPosition(obj, portId);
     }
 
-    // Encuentra codo según material y ángulo
     function findElbowForMaterial(material, angleDeg) {
         const mat = (material || '').toUpperCase();
         if (angleDeg < 15) return null;
@@ -134,13 +141,11 @@ const SmartFlowCommands = (function() {
         return is90 ? 'ELBOW_90_LR_CS' : (is45 ? 'ELBOW_45_CS' : null);
     }
 
-    // Ángulo entre dos vectores normalizados
     function angleBetweenVectors(v1, v2) {
         const dot = v1.dx * v2.dx + v1.dy * v2.dy + v1.dz * v2.dz;
         return Math.acos(Math.min(1, Math.max(-1, dot))) * 180 / Math.PI;
     }
 
-    // Inyecta codos automáticos en los quiebres de una línea
     function injectFittingsIntoLine(lineObj) {
         const pts = lineObj._cachedPoints || lineObj.points;
         if (!pts || pts.length < 2) return lineObj;
@@ -176,7 +181,6 @@ const SmartFlowCommands = (function() {
         // Detectar flecha para conexión (compatibilidad)
         let arrowIdx = tokens.indexOf('->');
         if (arrowIdx < 0) {
-            // Buscar palabra de enlace 'a' o 'to'
             const aIdx = tokens.findIndex(t => t.toLowerCase() === 'a' || t.toLowerCase() === 'to');
             if (aIdx > 0 && aIdx < tokens.length - 1) {
                 const left = tokens.slice(0, aIdx).join('');
@@ -193,7 +197,6 @@ const SmartFlowCommands = (function() {
         const first = tokens[0].toLowerCase();
         const action = LEX[first] || first.toUpperCase();
 
-        // Si es "crear linea", redirigir a CREATE_LINE (ruta)
         if (action === 'CREATE' && tokens.length >= 3 && (tokens[1].toLowerCase() === 'linea' || tokens[1].toLowerCase() === 'line')) {
             return handleCreateLineFromCreate(tokens);
         }
@@ -206,7 +209,6 @@ const SmartFlowCommands = (function() {
             case 'DELETE': return handleDelete(tokens);
             case 'MOVE': return handleMove(tokens);
             case 'CONNECT':
-                // Si llegó con 'conectar' pero sin 'a' ni '->', asumir estructura directa
                 if (tokens.length >= 3) {
                     const left = tokens[1];
                     const right = tokens.slice(2).join('');
@@ -221,11 +223,10 @@ const SmartFlowCommands = (function() {
             case 'LIST_EQUIPOS': listEquipos(); return true;
             case 'LIST_LINEAS': listLineas(); return true;
             case 'HELP': showHelp(); return true;
-            case 'UNDO': if (_core) _core.undo(); notify('Deshacer'); return true;
-            case 'REDO': if (_core) _core.redo(); notify('Rehacer'); return true;
+            case 'UNDO': if (_core) _core.undo(); notify('Deshacer: última acción revertida'); return true;
+            case 'REDO': if (_core) _core.redo(); notify('Rehacer: última acción restablecida'); return true;
             case 'NODES': return handleNodes(tokens);
             case 'VIEW':
-                // Manejar "vista top", "vista front", etc.
                 if (tokens.length >= 2) {
                     const sub = tokens[1].toLowerCase();
                     if (sub === 'iso' || sub === 'isometrico') setView('iso');
@@ -244,19 +245,19 @@ const SmartFlowCommands = (function() {
             case 'EXPORT':
                 if (tokens.length >= 2) {
                     const type = tokens[1].toLowerCase();
-                    if (type === 'mto') { if (typeof SmartFlowIO !== 'undefined') SmartFlowIO.exportMTO(); else notify('IO no disponible', true); }
-                    else if (type === 'pcf') { if (typeof SmartFlowIO !== 'undefined') SmartFlowIO.exportPCF(); else notify('IO no disponible', true); }
-                    else if (type === 'pdf') { if (typeof SmartFlowIO !== 'undefined') SmartFlowIO.exportPDF(); else notify('IO no disponible', true); }
+                    if (type === 'mto') { if (typeof SmartFlowIO !== 'undefined') SmartFlowIO.exportMTO(); else notify('Exportación MTO no disponible', true); }
+                    else if (type === 'pcf') { if (typeof SmartFlowIO !== 'undefined') SmartFlowIO.exportPCF(); else notify('Exportación PCF no disponible', true); }
+                    else if (type === 'pdf') { if (typeof SmartFlowIO !== 'undefined') SmartFlowIO.exportPDF(); else notify('Exportación PDF no disponible', true); }
                     else notify('Exportación no reconocida. Use: exportar mto|pcf|pdf', true);
                 } else notify('Especifique: exportar mto|pcf|pdf', true);
                 return true;
-            case 'EXPORT_MTO': if (typeof SmartFlowIO !== 'undefined') SmartFlowIO.exportMTO(); else notify('IO no disponible', true); return true;
-            case 'EXPORT_PCF': if (typeof SmartFlowIO !== 'undefined') SmartFlowIO.exportPCF(); else notify('IO no disponible', true); return true;
-            case 'EXPORT_PDF': if (typeof SmartFlowIO !== 'undefined') SmartFlowIO.exportPDF(); else notify('IO no disponible', true); return true;
+            case 'EXPORT_MTO': if (typeof SmartFlowIO !== 'undefined') SmartFlowIO.exportMTO(); else notify('Exportación MTO no disponible', true); return true;
+            case 'EXPORT_PCF': if (typeof SmartFlowIO !== 'undefined') SmartFlowIO.exportPCF(); else notify('Exportación PCF no disponible', true); return true;
+            case 'EXPORT_PDF': if (typeof SmartFlowIO !== 'undefined') SmartFlowIO.exportPDF(); else notify('Exportación PDF no disponible', true); return true;
             case 'SAVE': {
                 const state = _core.exportProject();
                 localStorage.setItem('smartengp_v2_project', state);
-                notify('Proyecto guardado');
+                notify('Proyecto guardado correctamente');
                 return true;
             }
             case 'LOAD': {
@@ -265,20 +266,19 @@ const SmartFlowCommands = (function() {
                     try {
                         const parsed = JSON.parse(data);
                         _core.importState(parsed.data || parsed);
-                        notify('Proyecto cargado');
-                    } catch (e) { notify('Error al cargar', true); }
+                        notify('Proyecto cargado correctamente');
+                    } catch (e) { notify('Error al cargar proyecto', true); }
                 } else { notify('No hay proyecto guardado', true); }
                 return true;
             }
+            case 'SUMMARY': return resumen();
         }
 
         return false;
     }
 
-    // -------------------- HANDLERS DE COMANDOS --------------------
+    // -------------------- HANDLERS --------------------
     function handleCreateEquipo(tokens) {
-        // crear TIPO TAG en X,Y,Z [params]
-        // Quitar 'crear' y buscar 'en' o 'at'
         const enIdx = tokens.findIndex(t => t.toLowerCase() === 'en' || t.toLowerCase() === 'at');
         if (enIdx < 0) {
             notify('Formato: crear TIPO TAG en X,Y,Z [d=DIAM] [h=ALTURA] [m=MATERIAL]', true);
@@ -301,14 +301,16 @@ const SmartFlowCommands = (function() {
         if (eq) {
             _core.addEquipment(eq);
             if (_core.setSelected) _core.setSelected({ type: 'equipment', obj: eq });
-            notify(`${eqDef.nombre} ${tag} creado en (${coords.x},${coords.y},${coords.z})`);
+            const dims = [];
+            if (eq.diametro) dims.push(`⌀${eq.diametro}mm`);
+            if (eq.altura) dims.push(`H=${eq.altura}mm`);
+            if (eq.largo) dims.push(`L=${eq.largo}mm`);
+            notify(`✅ Equipo ${tag} (${eqDef.nombre}) creado en (${coords.x},${coords.y},${coords.z}) ${dims.join(' ')} Material: ${eq.material || 'N/D'} Spec: ${eq.spec || 'N/D'}`);
         }
         return true;
     }
 
     function handleCreateLineFromCreate(tokens) {
-        // crear linea TAG ruta X1,Y1,Z1 X2,Y2,Z2 ... [params]
-        // tokens[0] = crear, tokens[1] = linea, tokens[2] = TAG, tokens[3] = ruta (opcional)
         let tagIdx = 2;
         if (tokens[2].toLowerCase() === 'ruta') tagIdx = 3;
         if (tagIdx >= tokens.length) { notify('Falta tag de línea', true); return true; }
@@ -337,12 +339,11 @@ const SmartFlowCommands = (function() {
         newLine = injectFittingsIntoLine(newLine);
         _core.addLine(newLine);
         if (_core.setSelected) _core.setSelected({ type: 'line', obj: newLine });
-        notify(`Línea ${tag} creada (${newLine.diameter}" ${newLine.material}, ${points.length} puntos, ${newLine.components.length} accesorios automáticos)`);
+        notify(`✅ Línea ${tag} creada: ${newLine.diameter}" ${newLine.material}, ${points.length} puntos, ${newLine.components.length} accesorios automáticos`);
         return true;
     }
 
     function handleCreateLine(tokens) {
-        // % TAG X1,Y1,Z1 X2,Y2,Z2 ... [params]   o   ruta TAG X1,Y1,Z1 ...
         let tagIdx = 1;
         if (tokens[0] === '%') tagIdx = 1;
         else if (tokens[0].toLowerCase() === 'ruta') tagIdx = 1;
@@ -371,12 +372,11 @@ const SmartFlowCommands = (function() {
         newLine = injectFittingsIntoLine(newLine);
         _core.addLine(newLine);
         if (_core.setSelected) _core.setSelected({ type: 'line', obj: newLine });
-        notify(`Línea ${tag} creada (${newLine.diameter}" ${newLine.material}, ${points.length} puntos, ${newLine.components.length} accesorios automáticos)`);
+        notify(`✅ Línea ${tag} creada: ${newLine.diameter}" ${newLine.material}, ${points.length} puntos, ${newLine.components.length} accesorios automáticos`);
         return true;
     }
 
     function handleLineWithWaypoints(tokens) {
-        // linea TAG desde EQP.PUERTO por x,y,z ... hasta EQP.PUERTO [params]
         const desdeIdx = tokens.findIndex(t => t.toLowerCase() === 'desde');
         const porIdx = tokens.findIndex(t => t.toLowerCase() === 'por');
         const hastaIdx = tokens.findIndex(t => t.toLowerCase() === 'hasta');
@@ -438,9 +438,10 @@ const SmartFlowCommands = (function() {
         if (toObj && toObj.puertos) {
             const destPort = toObj.puertos.find(p => p.id === hasta.port);
             if (destPort && Math.abs(diameter - (destPort.diametro || diameter)) > 0.1) {
+                const reducerTag = `RED-${Date.now().toString(36)}`;
                 newLine.components.push({
                     type: 'CONCENTRIC_REDUCER',
-                    tag: `RED-${Date.now().toString(36)}`,
+                    tag: reducerTag,
                     param: 0.95,
                     fromDiam: diameter,
                     toDiam: destPort.diametro
@@ -464,12 +465,11 @@ const SmartFlowCommands = (function() {
         _core.syncPhysicalData();
         _core._saveState();
 
-        notify(`Línea ${tag} creada con ${waypoints.length} waypoints y ${newLine.components.length} accesorios automáticos`);
+        notify(`✅ Línea ${tag} creada desde ${desde.tag}.${desde.port} hasta ${hasta.tag}.${hasta.port} con ${waypoints.length} waypoints, ${newLine.diameter}" ${newLine.material}, ${newLine.components.length} accesorios automáticos`);
         return true;
     }
 
     function handleModify(tokens) {
-        // modificar TAG [prop=valor]   o   modificar TAG.PUERTO [pos=, dir=, diam=]
         if (tokens.length < 3) { notify('Uso: modificar TAG [prop=valor] o modificar TAG.PUERTO [pos=x,y,z] [dir=dx,dy,dz] [diam=4]', true); return true; }
         const tagOrRef = tokens[1];
         const dotIdx = tagOrRef.indexOf('.');
@@ -484,7 +484,7 @@ const SmartFlowCommands = (function() {
             if (params.status) cambios.status = params.status;
             if (Object.keys(cambios).length === 0) { notify('Propiedades de puerto no reconocidas', true); return true; }
             const ok = _core.updatePuerto(tag, puertoId, cambios);
-            if (ok) notify(`Puerto ${puertoId} de ${tag} modificado`);
+            if (ok) notify(`✅ Puerto ${puertoId} de ${tag} modificado`);
             else notify(`No se pudo modificar el puerto ${puertoId}`, true);
             return true;
         }
@@ -503,7 +503,7 @@ const SmartFlowCommands = (function() {
             if (params.spec) updates.spec = params.spec;
             if (Object.keys(updates).length) {
                 _core.updateEquipment(tag, updates);
-                notify(`${tag} modificado: ${JSON.stringify(updates)}`);
+                notify(`✅ Equipo ${tag} modificado: ${JSON.stringify(updates)}`);
             } else { notify('Sin cambios para aplicar', true); }
             return true;
         }
@@ -515,7 +515,7 @@ const SmartFlowCommands = (function() {
             if (params.spec) updates.spec = params.spec;
             if (Object.keys(updates).length) {
                 _core.updateLine(tag, updates);
-                notify(`${tag} modificado: ${JSON.stringify(updates)}`);
+                notify(`✅ Línea ${tag} modificada: ${JSON.stringify(updates)}`);
             } else { notify('Sin cambios para aplicar', true); }
             return true;
         }
@@ -524,18 +524,24 @@ const SmartFlowCommands = (function() {
     }
 
     function handleDelete(tokens) {
-        // eliminar TAG
         if (tokens.length < 2) { notify('Uso: eliminar TAG', true); return true; }
         const tag = tokens[1];
         const db = _core.getDb();
-        if (db.equipos.some(e => e.tag === tag)) { _core.deleteEquipment(tag); notify(`${tag} eliminado`); return true; }
-        if (db.lines.some(l => l.tag === tag)) { _core.deleteLine(tag); notify(`${tag} eliminado`); return true; }
+        if (db.equipos.some(e => e.tag === tag)) {
+            _core.deleteEquipment(tag);
+            notify(`🗑️ Equipo ${tag} eliminado`);
+            return true;
+        }
+        if (db.lines.some(l => l.tag === tag)) {
+            _core.deleteLine(tag);
+            notify(`🗑️ Línea ${tag} eliminada`);
+            return true;
+        }
         notify(`${tag} no encontrado`, true);
         return true;
     }
 
     function handleMove(tokens) {
-        // mover TAG a X,Y,Z
         const aIdx = tokens.findIndex(t => t.toLowerCase() === 'a' || t.toLowerCase() === 'to');
         if (aIdx < 0) { notify('Uso: mover TAG a X,Y,Z', true); return true; }
         const tag = tokens[1];
@@ -545,7 +551,7 @@ const SmartFlowCommands = (function() {
         const db = _core.getDb();
         if (db.equipos.find(e => e.tag === tag)) {
             _core.updateEquipment(tag, { posX: coords.x, posY: coords.y, posZ: coords.z });
-            notify(`${tag} movido a (${coords.x},${coords.y},${coords.z})`);
+            notify(`✅ Equipo ${tag} movido a (${coords.x},${coords.y},${coords.z})`);
         } else {
             notify(`Solo se pueden mover equipos. ${tag} no es un equipo.`, true);
         }
@@ -560,15 +566,20 @@ const SmartFlowCommands = (function() {
         const right = parseNodeRef(rightSide[0]);
         if (!left.tag || !right.tag) { notify('Origen o destino inválido', true); return true; }
         const params = extractParams(rightSide.slice(1));
-        if (typeof SmartFlowRouter !== 'undefined') {
-            SmartFlowRouter.routeBetweenPorts(
-                left.tag, left.port,
-                right.tag, right.port,
-                params.diametro || 4,
-                params.material || 'PPR',
-                params.spec || 'PPR_PN12_5'
-            );
-        } else {
+        const diam = params.diametro || 4;
+        const mat = params.material || 'PPR';
+        const spec = params.spec || 'PPR_PN12_5';
+
+        // Llamar al router y luego notificar con los accesorios añadidos
+        const result = typeof SmartFlowRouter !== 'undefined' 
+            ? SmartFlowRouter.routeBetweenPorts(left.tag, left.port, right.tag, right.port, diam, mat, spec)
+            : null;
+        
+        if (result) {
+            const accesorios = result.components || [];
+            const acList = accesorios.map(c => c.type).join(', ');
+            notify(`✅ Conexión ${result.tag} creada: ${left.tag}.${left.port} → ${right.tag}.${right.port} | ${diam}" ${mat} ${spec} ${acList ? '| Accesorios: ' + acList : ''}`);
+        } else if (typeof SmartFlowRouter === 'undefined') {
             notify('Router no disponible', true);
         }
         return true;
@@ -659,6 +670,43 @@ const SmartFlowCommands = (function() {
         }
     }
 
+    function resumen() {
+        const db = _core.getDb();
+        const equipos = db.equipos || [];
+        const lines = db.lines || [];
+
+        let tanques = 0, bombas = 0, otros = 0;
+        equipos.forEach(e => {
+            if (e.tipo.includes('tanque')) tanques++;
+            else if (e.tipo.includes('bomba')) bombas++;
+            else otros++;
+        });
+
+        let totalCodos = 0, totalValvulas = 0, totalReductores = 0;
+        let longitudTotal = 0;
+        lines.forEach(l => {
+            const pts = l._cachedPoints || l.points;
+            if (pts && pts.length >= 2) {
+                for (let i = 0; i < pts.length - 1; i++) {
+                    longitudTotal += Math.hypot(pts[i+1].x - pts[i].x, pts[i+1].y - pts[i].y, pts[i+1].z - pts[i].z);
+                }
+            }
+            if (l.components) {
+                l.components.forEach(c => {
+                    if (c.type && c.type.includes('ELBOW')) totalCodos++;
+                    else if (c.type && c.type.includes('VALVE')) totalValvulas++;
+                    else if (c.type && c.type.includes('REDUC')) totalReductores++;
+                });
+            }
+        });
+
+        const msg = `Resumen del proyecto: ${equipos.length} equipos (${tanques} tanques, ${bombas} bombas, ${otros} otros). ` +
+                    `${lines.length} líneas. Longitud total de tubería: ${(longitudTotal/1000).toFixed(2)} metros. ` +
+                    `Componentes: ${totalCodos} codos, ${totalValvulas} válvulas, ${totalReductores} reductores.`;
+        notify(msg);
+        return true;
+    }
+
     function showHelp() {
         const help = [
             '═══ SMARTFLOW 3D - COMANDOS ═══',
@@ -666,10 +714,8 @@ const SmartFlowCommands = (function() {
             '  crear TIPO TAG en X,Y,Z [d=DIAM] [h=ALTURA] [m=MAT]',
             'CREAR LÍNEA SUELTA (colectores, distribuidores):',
             '  crear linea TAG ruta X1,Y1,Z1 X2,Y2,Z2 ... [d=DIAM] [m=MAT]',
-            '  (inyecta codos automáticamente en los quiebres)',
             'CREAR LÍNEA CON WAYPOINTS:',
             '  linea TAG desde EQP.PUERTO por x,y,z ... hasta EQP.PUERTO [d=DIAM] [m=MAT]',
-            '  (inyecta codos y reductores automáticos)',
             'CONECTAR:',
             '  conectar EQP1.PUERTO1 a EQP2.PUERTO2 [d=DIAM] [m=MAT]',
             '  EQP1.PUERTO1 a LINEA@0.5',
@@ -679,7 +725,7 @@ const SmartFlowCommands = (function() {
             'MOVER:',
             '  mover TAG a X,Y,Z',
             'ELIMINAR: eliminar TAG',
-            'CONSULTAR: info TAG  listar equipos  listar lineas  nodos TAG',
+            'CONSULTAR: info TAG  listar equipos  listar lineas  nodos TAG  resumen',
             'VISTAS: vista iso  vista top  vista front  vista side',
             'OTROS: deshacer  rehacer  ayuda  exportar mto/pcf/pdf  guardar  cargar'
         ].join('\n');
@@ -704,7 +750,7 @@ const SmartFlowCommands = (function() {
         _core = coreInstance;
         _catalog = catalogInstance;
         _notifyUI = notifyFn;
-        console.log("Commands v9.1 lenguaje natural listo");
+        console.log("Commands v9.3 notificaciones completas + resumen listo");
     }
 
     return { init, executeCommand, executeBatch };
