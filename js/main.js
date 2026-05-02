@@ -1,6 +1,6 @@
 
 // ============================================================
-// MÓDULO: SMARTFLOW MAIN v6.3 (Con integración de SmartFlowLabels)
+// MÓDULO: SMARTFLOW MAIN v6.4 (Con auto-centrado al añadir equipos)
 // Archivo: js/main.js
 // ============================================================
 
@@ -17,7 +17,7 @@
     const propertyPanel = document.getElementById('side-panel');
     const customElev = document.getElementById('customElev');
     
-    // Botones (todos)
+    // Botones
     const btnNew = document.getElementById('btnNew');
     const btnOpen = document.getElementById('btnOpen');
     const btnSave = document.getElementById('btnSave');
@@ -56,6 +56,9 @@
     let toolMode = 'select';
     let voiceEnabled = true;
     let _unsubscribe = null;
+    let previousEquiposCount = 0;
+    let previousLinesCount = 0;
+    let isFirstLoad = true;
     
     // -------------------- UI Helpers --------------------
     function notify(msg, isErr = false) {
@@ -83,10 +86,13 @@
         }
     }
     
+    // Función autoCenter mejorada: usa fitCameraToEquipments o fallback a vista iso
     function autoCenter() {
-        if (typeof SmartFlowRender !== 'undefined' && SmartFlowRender.setView) {
+        if (typeof SmartFlowRender !== 'undefined' && SmartFlowRender.fitCameraToEquipments) {
+            SmartFlowRender.fitCameraToEquipments();
+        } else if (typeof SmartFlowRender !== 'undefined' && SmartFlowRender.setView) {
             SmartFlowRender.setView('iso');
-            notify("Vista isométrica centrada.", false);
+            notify("Vista isométrica centrada (modo estándar).", false);
         } else {
             notify("Función de centrado no disponible.", true);
         }
@@ -134,7 +140,7 @@
     function setElevation(level) { if(typeof SmartFlowCore !== 'undefined' && SmartFlowCore.setElevation) SmartFlowCore.setElevation(level); if(customElev) customElev.value=level; }
     function toggleVoice() { voiceEnabled=!voiceEnabled; if(typeof SmartFlowCore !== 'undefined' && SmartFlowCore.setVoice) SmartFlowCore.setVoice(voiceEnabled); if(btnVoice) btnVoice.textContent=voiceEnabled?"Voz ON":"Voz OFF"; }
     
-    // -------------------- Inicialización de módulos (con verificaciones) --------------------
+    // -------------------- Inicialización de módulos --------------------
     function initModules() {
         try {
             if (typeof SmartFlowCore !== 'undefined') {
@@ -158,12 +164,34 @@
             if (typeof SmartFlowLabels !== 'undefined') SmartFlowLabels.init(SmartFlowCore);
             if (commandText && typeof SmartFlowAutocomplete !== 'undefined') SmartFlowAutocomplete.init(commandText, SmartFlowCore, SmartFlowCatalog, SmartFlowCommands);
             
+            // Contar elementos iniciales
+            previousEquiposCount = SmartFlowCore.getEquipos().length;
+            previousLinesCount = SmartFlowCore.getLines().length;
+            
             if (typeof SmartFlowCore.subscribe === 'function') {
                 _unsubscribe = SmartFlowCore.subscribe(() => {
                     const selected = SmartFlowCore.getSelected();
                     if (selected && selected.obj) updatePropertyPanel(selected.obj);
                     else if (propertyPanel && !propertyPanel.classList.contains('hidden')) togglePanel(false);
                     render();
+                    
+                    // Detectar si se agregó un equipo o línea nueva
+                    const currentEquipos = SmartFlowCore.getEquipos().length;
+                    const currentLines = SmartFlowCore.getLines().length;
+                    
+                    if (currentEquipos > previousEquiposCount || currentLines > previousLinesCount) {
+                        previousEquiposCount = currentEquipos;
+                        previousLinesCount = currentLines;
+                        // Esperar a que se renderice el nuevo objeto
+                        setTimeout(() => {
+                            if (typeof SmartFlowRender !== 'undefined' && SmartFlowRender.fitCameraToEquipments) {
+                                SmartFlowRender.fitCameraToEquipments();
+                            }
+                        }, 150);
+                    } else {
+                        previousEquiposCount = currentEquipos;
+                        previousLinesCount = currentLines;
+                    }
                 });
             }
             
@@ -216,15 +244,16 @@
         window.addEventListener('mouseup', () => { dragging = false; draggedEquip = null; canvasContainer.style.cursor = 'default'; });
     }
     
-    // -------------------- Botones (con verificaciones) --------------------
+    // -------------------- Botones --------------------
     function bindEvents() {
         const vincular = (id, accion) => { const el = document.getElementById(id); if (el) el.onclick = accion; else console.warn("Botón no encontrado:", id); };
+        
         vincular('btnNew', nuevoProyecto);
         vincular('btnOpen', cargarProyecto);
         vincular('btnSave', guardarProyecto);
         vincular('btnExportProject', exportarProyectoArchivo);
         vincular('btnImportProject', importarProyectoArchivo);
-        vincular('btnReset', autoCenter);
+        vincular('btnReset', autoCenter);  // AHORA USA autoCenter QUE LLAMA A fitCameraToEquipments
         vincular('btnTopView', () => { if (typeof SmartFlowRender !== 'undefined') SmartFlowRender.setView('top'); });
         vincular('btnFrontView', () => { if (typeof SmartFlowRender !== 'undefined') SmartFlowRender.setView('front'); });
         vincular('btnSideView', () => { if (typeof SmartFlowRender !== 'undefined') SmartFlowRender.setView('side'); });
@@ -308,7 +337,14 @@
         setupKeyboardShortcuts();
         setTool('select');
         setElevation(0);
-        setTimeout(() => { if (typeof SmartFlowCore !== 'undefined' && SmartFlowCore.getCamera) autoCenter(); }, 100);
+        // Al arrancar, centrar la vista después de que todo esté cargado
+        setTimeout(() => {
+            if (typeof SmartFlowRender !== 'undefined' && SmartFlowRender.fitCameraToEquipments) {
+                SmartFlowRender.fitCameraToEquipments();
+            } else if (typeof SmartFlowCore !== 'undefined' && SmartFlowCore.getCamera) {
+                autoCenter();
+            }
+        }, 200);
     }
     
     if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', init);
