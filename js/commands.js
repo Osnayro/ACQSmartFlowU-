@@ -1,29 +1,52 @@
 
-// SmartFlowCommands v9.0 - Léxico bilingüe + Edición de puertos + Waypoints con auto-accesorios
+// SmartFlowCommands v9.1 - Léxico bilingüe + Lenguaje natural (sin signos)
 const SmartFlowCommands = (function() {
     let _core = null;
     let _catalog = null;
     let _notifyUI = (msg, isErr) => console.log(msg);
 
-    // Diccionario bilingüe
+    // Diccionario bilingüe (incluye palabras clave para todos los comandos)
     const LEX = {
+        // Crear
         'crear': 'CREATE', 'create': 'CREATE', '+': 'CREATE',
+        // Modificar
         'modificar': 'MODIFY', 'editar': 'MODIFY', 'edit': 'MODIFY', '~': 'MODIFY',
+        // Eliminar
         'eliminar': 'DELETE', 'borrar': 'DELETE', 'delete': 'DELETE', '-': 'DELETE',
+        // Mover
         'mover': 'MOVE', 'move': 'MOVE', '>': 'MOVE',
-        'conectar': 'CONNECT', 'connect': 'CONNECT', '->': 'CONNECT',
+        // Conectar
+        'conectar': 'CONNECT', 'connect': 'CONNECT',
+        // Línea con waypoints
         'linea': 'LINEA_WP', 'line': 'LINEA_WP',
+        // Info
         'info': 'INFO', '?': 'INFO', 'informacion': 'INFO',
+        // Listar
         'listar': 'LIST', 'list': 'LIST',
         '??': 'LIST_EQUIPOS', '???': 'LIST_LINEAS',
+        // Ayuda
         'ayuda': 'HELP', 'help': 'HELP', 'h': 'HELP',
+        // Deshacer/Rehacer
         'undo': 'UNDO', 'deshacer': 'UNDO', '<<': 'UNDO',
         'redo': 'REDO', 'rehacer': 'REDO', '>>': 'REDO',
+        // Nodos
         'nodos': 'NODES', 'nodes': 'NODES',
+        // Vistas
+        'vista': 'VIEW', 'view': 'VIEW',
+        'isometrico': 'VIEW_ISO', 'iso': 'VIEW_ISO',
+        'top': 'VIEW_TOP', 'planta': 'VIEW_TOP',
+        'front': 'VIEW_FRONT', 'frontal': 'VIEW_FRONT',
+        'side': 'VIEW_SIDE', 'lateral': 'VIEW_SIDE',
         '.': 'VIEW_ISO', '.t': 'VIEW_TOP', '.f': 'VIEW_FRONT', '.s': 'VIEW_SIDE',
+        // Exportar
+        'exportar': 'EXPORT', 'export': 'EXPORT',
         '!mto': 'EXPORT_MTO', '!pcf': 'EXPORT_PCF', '!pdf': 'EXPORT_PDF',
-        '!save': 'SAVE', '!load': 'LOAD',
-        '%': 'CREATE_LINE'
+        // Guardar/Cargar
+        'guardar': 'SAVE', '!save': 'SAVE',
+        'cargar': 'LOAD', '!load': 'LOAD',
+        // Línea suelta
+        '%': 'CREATE_LINE',
+        'ruta': 'CREATE_LINE'
     };
 
     function notify(msg, isErr) {
@@ -43,11 +66,13 @@ const SmartFlowCommands = (function() {
         return tokens;
     }
 
+    // Extrae coordenadas (con o sin paréntesis)
     function extractCoords(str) {
         const m = str.match(/\(?\s*(-?\d+\.?\d*)\s*[, ]\s*(-?\d+\.?\d*)\s*[, ]\s*(-?\d+\.?\d*)\s*\)?/);
         return m ? { x: parseFloat(m[1]), y: parseFloat(m[2]), z: parseFloat(m[3]) } : null;
     }
 
+    // Extrae parámetros (d=, h=, m=, s=, pos=, dir=, status=...)
     function extractParams(tokens) {
         const p = {};
         for (const t of tokens) {
@@ -69,7 +94,6 @@ const SmartFlowCommands = (function() {
             if (m) { p.spacing = parseFloat(m[1]); continue; }
             m = t.match(/^(?:out|salida|output)[=:](\w+)/i);
             if (m) { p.salida = m[1]; continue; }
-            // Edición de puertos
             m = t.match(/^pos[=:]\(?\s*(-?\d+\.?\d*)\s*[, ]\s*(-?\d+\.?\d*)\s*[, ]\s*(-?\d+\.?\d*)\s*\)?/i);
             if (m) { p.pos = { x: parseFloat(m[1]), y: parseFloat(m[2]), z: parseFloat(m[3]) }; continue; }
             m = t.match(/^dir[=:]\(?\s*(-?\d+\.?\d*)\s*[, ]\s*(-?\d+\.?\d*)\s*[, ]\s*(-?\d+\.?\d*)\s*\)?/i);
@@ -79,6 +103,7 @@ const SmartFlowCommands = (function() {
         return p;
     }
 
+    // Analiza una referencia de nodo: TAG.PUERTO o TAG@POS
     function parseNodeRef(str) {
         const dot = str.indexOf('.');
         if (dot > 0) return { tag: str.substring(0, dot), port: str.substring(dot + 1) };
@@ -87,7 +112,7 @@ const SmartFlowCommands = (function() {
         return { tag: str, port: '1' };
     }
 
-    // Helper para obtener posición de un puerto usando el router
+    // Obtiene la posición mundial de un puerto (usando router)
     function getPortWorldPos(tag, portId) {
         const db = _core.getDb();
         const obj = db.equipos.find(e => e.tag === tag) || db.lines.find(l => l.tag === tag);
@@ -95,7 +120,7 @@ const SmartFlowCommands = (function() {
         return SmartFlowRouter.getPortPosition(obj, portId);
     }
 
-    // Helper para encontrar codo según material y ángulo (replica lógica del router)
+    // Encuentra codo según material y ángulo
     function findElbowForMaterial(material, angleDeg) {
         const mat = (material || '').toUpperCase();
         if (angleDeg < 15) return null;
@@ -109,11 +134,13 @@ const SmartFlowCommands = (function() {
         return is90 ? 'ELBOW_90_LR_CS' : (is45 ? 'ELBOW_45_CS' : null);
     }
 
+    // Ángulo entre dos vectores normalizados
     function angleBetweenVectors(v1, v2) {
         const dot = v1.dx * v2.dx + v1.dy * v2.dy + v1.dz * v2.dz;
         return Math.acos(Math.min(1, Math.max(-1, dot))) * 180 / Math.PI;
     }
 
+    // Inyecta codos automáticos en los quiebres de una línea
     function injectFittingsIntoLine(lineObj) {
         const pts = lineObj._cachedPoints || lineObj.points;
         if (!pts || pts.length < 2) return lineObj;
@@ -140,13 +167,25 @@ const SmartFlowCommands = (function() {
         return lineObj;
     }
 
+    // ==================== EJECUCIÓN PRINCIPAL ====================
     function executeCommand(cmd) {
         if (!cmd || cmd.startsWith('//')) return false;
         const tokens = tokenize(cmd);
         if (!tokens.length) return false;
 
-        // Detectar flecha primero (puede estar en cualquier posición)
-        const arrowIdx = tokens.indexOf('->');
+        // Detectar flecha para conexión (compatibilidad)
+        let arrowIdx = tokens.indexOf('->');
+        if (arrowIdx < 0) {
+            // Buscar palabra de enlace 'a' o 'to'
+            const aIdx = tokens.findIndex(t => t.toLowerCase() === 'a' || t.toLowerCase() === 'to');
+            if (aIdx > 0 && aIdx < tokens.length - 1) {
+                const left = tokens.slice(0, aIdx).join('');
+                const right = tokens.slice(aIdx + 1).join(' ');
+                if (left.includes('.') || right.includes('.')) {
+                    arrowIdx = aIdx;
+                }
+            }
+        }
         if (arrowIdx > 0) {
             return handleConnect(tokens, arrowIdx);
         }
@@ -154,13 +193,29 @@ const SmartFlowCommands = (function() {
         const first = tokens[0].toLowerCase();
         const action = LEX[first] || first.toUpperCase();
 
+        // Si es "crear linea", redirigir a CREATE_LINE (ruta)
+        if (action === 'CREATE' && tokens.length >= 3 && (tokens[1].toLowerCase() === 'linea' || tokens[1].toLowerCase() === 'line')) {
+            return handleCreateLineFromCreate(tokens);
+        }
+
         switch (action) {
-            case 'CREATE': return handleCreate(tokens);
+            case 'CREATE': return handleCreateEquipo(tokens);
             case 'CREATE_LINE': return handleCreateLine(tokens);
             case 'LINEA_WP': return handleLineWithWaypoints(tokens);
             case 'MODIFY': return handleModify(tokens);
             case 'DELETE': return handleDelete(tokens);
             case 'MOVE': return handleMove(tokens);
+            case 'CONNECT':
+                // Si llegó con 'conectar' pero sin 'a' ni '->', asumir estructura directa
+                if (tokens.length >= 3) {
+                    const left = tokens[1];
+                    const right = tokens.slice(2).join('');
+                    if (left.includes('.') && right.includes('.')) {
+                        return handleConnect(['', left, 'a', right], 2);
+                    }
+                }
+                notify('Formato de conexión. Use: conectar ORIGEN a DESTINO', true);
+                return true;
             case 'INFO': return handleInfo(tokens);
             case 'LIST': return handleList(tokens);
             case 'LIST_EQUIPOS': listEquipos(); return true;
@@ -169,10 +224,32 @@ const SmartFlowCommands = (function() {
             case 'UNDO': if (_core) _core.undo(); notify('Deshacer'); return true;
             case 'REDO': if (_core) _core.redo(); notify('Rehacer'); return true;
             case 'NODES': return handleNodes(tokens);
+            case 'VIEW':
+                // Manejar "vista top", "vista front", etc.
+                if (tokens.length >= 2) {
+                    const sub = tokens[1].toLowerCase();
+                    if (sub === 'iso' || sub === 'isometrico') setView('iso');
+                    else if (sub === 'top' || sub === 'planta') setView('top');
+                    else if (sub === 'front' || sub === 'frontal') setView('front');
+                    else if (sub === 'side' || sub === 'lateral') setView('side');
+                    else notify('Vista no reconocida. Use: vista iso|top|front|side', true);
+                } else {
+                    setView('iso');
+                }
+                return true;
             case 'VIEW_ISO': setView('iso'); return true;
             case 'VIEW_TOP': setView('top'); return true;
             case 'VIEW_FRONT': setView('front'); return true;
             case 'VIEW_SIDE': setView('side'); return true;
+            case 'EXPORT':
+                if (tokens.length >= 2) {
+                    const type = tokens[1].toLowerCase();
+                    if (type === 'mto') { if (typeof SmartFlowIO !== 'undefined') SmartFlowIO.exportMTO(); else notify('IO no disponible', true); }
+                    else if (type === 'pcf') { if (typeof SmartFlowIO !== 'undefined') SmartFlowIO.exportPCF(); else notify('IO no disponible', true); }
+                    else if (type === 'pdf') { if (typeof SmartFlowIO !== 'undefined') SmartFlowIO.exportPDF(); else notify('IO no disponible', true); }
+                    else notify('Exportación no reconocida. Use: exportar mto|pcf|pdf', true);
+                } else notify('Especifique: exportar mto|pcf|pdf', true);
+                return true;
             case 'EXPORT_MTO': if (typeof SmartFlowIO !== 'undefined') SmartFlowIO.exportMTO(); else notify('IO no disponible', true); return true;
             case 'EXPORT_PCF': if (typeof SmartFlowIO !== 'undefined') SmartFlowIO.exportPCF(); else notify('IO no disponible', true); return true;
             case 'EXPORT_PDF': if (typeof SmartFlowIO !== 'undefined') SmartFlowIO.exportPDF(); else notify('IO no disponible', true); return true;
@@ -198,22 +275,22 @@ const SmartFlowCommands = (function() {
         return false;
     }
 
-    function handleCreate(tokens) {
-        if (tokens.length < 4) { notify('Uso: + TIPO TAG X,Y,Z [d=DIAM] [h=ALTURA] [m=MATERIAL]', true); return true; }
+    // -------------------- HANDLERS DE COMANDOS --------------------
+    function handleCreateEquipo(tokens) {
+        // crear TIPO TAG en X,Y,Z [params]
+        // Quitar 'crear' y buscar 'en' o 'at'
+        const enIdx = tokens.findIndex(t => t.toLowerCase() === 'en' || t.toLowerCase() === 'at');
+        if (enIdx < 0) {
+            notify('Formato: crear TIPO TAG en X,Y,Z [d=DIAM] [h=ALTURA] [m=MATERIAL]', true);
+            return true;
+        }
         const tipo = tokens[1];
         const tag = tokens[2];
-        let coords = null, coordIdx = 3;
-        for (let i = 3; i < Math.min(tokens.length, 6); i++) {
-            coords = extractCoords(tokens[i]);
-            if (coords) { coordIdx = i; break; }
-        }
-        if (!coords) {
-            const joined = tokens.slice(3).join('');
-            coords = extractCoords(joined);
-            coordIdx = tokens.length;
-        }
+        const coordTokens = tokens.slice(enIdx + 1);
+        const coordStr = coordTokens.join('');
+        const coords = extractCoords(coordStr);
         if (!coords) { notify('Coordenadas inválidas', true); return true; }
-        const params = extractParams(tokens.slice(coordIdx + 1));
+        const params = extractParams(coordTokens.slice(1));
         const eqDef = _catalog.getEquipment(tipo);
         if (!eqDef) {
             const tipos = _catalog.listEquipmentTypes().join(', ');
@@ -229,12 +306,51 @@ const SmartFlowCommands = (function() {
         return true;
     }
 
-    function handleCreateLine(tokens) {
-        // % TAG X1,Y1,Z1 X2,Y2,Z2 ... [params]
-        if (tokens.length < 4) { notify('Uso: % TAG X1,Y1,Z1 X2,Y2,Z2 [d=DIAM] [m=MATERIAL]', true); return true; }
-        const tag = tokens[1];
+    function handleCreateLineFromCreate(tokens) {
+        // crear linea TAG ruta X1,Y1,Z1 X2,Y2,Z2 ... [params]
+        // tokens[0] = crear, tokens[1] = linea, tokens[2] = TAG, tokens[3] = ruta (opcional)
+        let tagIdx = 2;
+        if (tokens[2].toLowerCase() === 'ruta') tagIdx = 3;
+        if (tagIdx >= tokens.length) { notify('Falta tag de línea', true); return true; }
+        const tag = tokens[tagIdx];
+        const rutaIdx = tokens.findIndex(t => t.toLowerCase() === 'ruta');
         const points = [];
-        let i = 2;
+        let startIdx = rutaIdx >= 0 ? rutaIdx + 1 : tagIdx + 1;
+        let i = startIdx;
+        while (i < tokens.length) {
+            const coord = extractCoords(tokens[i]);
+            if (coord) { points.push(coord); i++; }
+            else break;
+        }
+        if (points.length < 2) { notify('Se requieren al menos 2 puntos', true); return true; }
+        const params = extractParams(tokens.slice(i));
+        let newLine = {
+            tag,
+            diameter: params.diametro || 4,
+            material: params.material || 'PPR',
+            spec: params.spec || 'PPR_PN12_5',
+            points,
+            _cachedPoints: points,
+            waypoints: points.slice(1, -1),
+            components: []
+        };
+        newLine = injectFittingsIntoLine(newLine);
+        _core.addLine(newLine);
+        if (_core.setSelected) _core.setSelected({ type: 'line', obj: newLine });
+        notify(`Línea ${tag} creada (${newLine.diameter}" ${newLine.material}, ${points.length} puntos, ${newLine.components.length} accesorios automáticos)`);
+        return true;
+    }
+
+    function handleCreateLine(tokens) {
+        // % TAG X1,Y1,Z1 X2,Y2,Z2 ... [params]   o   ruta TAG X1,Y1,Z1 ...
+        let tagIdx = 1;
+        if (tokens[0] === '%') tagIdx = 1;
+        else if (tokens[0].toLowerCase() === 'ruta') tagIdx = 1;
+        else { notify('Formato: % TAG X1,Y1,Z1 ...', true); return true; }
+        if (tokens.length < tagIdx + 2) { notify('Uso: % TAG X1,Y1,Z1 X2,Y2,Z2 [d=DIAM] [m=MATERIAL]', true); return true; }
+        const tag = tokens[tagIdx];
+        const points = [];
+        let i = tagIdx + 1;
         while (i < tokens.length) {
             const coord = extractCoords(tokens[i]);
             if (coord) { points.push(coord); i++; }
@@ -260,13 +376,13 @@ const SmartFlowCommands = (function() {
     }
 
     function handleLineWithWaypoints(tokens) {
-        // LINEA TAG DESDE EQUIPO.PUERTO POR x,y,z x,y,z ... HASTA EQUIPO.PUERTO [params]
-        const desdeIdx = tokens.findIndex(t => t.toUpperCase() === 'DESDE');
-        const porIdx = tokens.findIndex(t => t.toUpperCase() === 'POR');
-        const hastaIdx = tokens.findIndex(t => t.toUpperCase() === 'HASTA');
+        // linea TAG desde EQP.PUERTO por x,y,z ... hasta EQP.PUERTO [params]
+        const desdeIdx = tokens.findIndex(t => t.toLowerCase() === 'desde');
+        const porIdx = tokens.findIndex(t => t.toLowerCase() === 'por');
+        const hastaIdx = tokens.findIndex(t => t.toLowerCase() === 'hasta');
 
         if (desdeIdx < 0 || hastaIdx < 0) {
-            notify('Uso: LINEA TAG DESDE EQP.PUERTO POR x,y,z ... HASTA EQP.PUERTO [d=DIAM] [m=MAT]', true);
+            notify('Uso: linea TAG desde EQP.PUERTO por x,y,z ... hasta EQP.PUERTO [d=DIAM] [m=MAT]', true);
             return true;
         }
 
@@ -316,7 +432,7 @@ const SmartFlowCommands = (function() {
         };
         newLine = injectFittingsIntoLine(newLine);
 
-        // Analizar si hay diferencia de diámetros y agregar reductor en el extremo destino
+        // Reductor si hay diferencia de diámetros
         const db = _core.getDb();
         const toObj = db.equipos.find(e => e.tag === hasta.tag) || db.lines.find(l => l.tag === hasta.tag);
         if (toObj && toObj.puertos) {
@@ -353,12 +469,11 @@ const SmartFlowCommands = (function() {
     }
 
     function handleModify(tokens) {
-        // ~ TAG [prop=valor] o ~ TAG.PUERTO [prop=valor]
-        if (tokens.length < 3) { notify('Uso: ~ TAG [prop=valor] o ~ TAG.PUERTO [pos=x,y,z] [dir=dx,dy,dz] [diam=4]', true); return true; }
+        // modificar TAG [prop=valor]   o   modificar TAG.PUERTO [pos=, dir=, diam=]
+        if (tokens.length < 3) { notify('Uso: modificar TAG [prop=valor] o modificar TAG.PUERTO [pos=x,y,z] [dir=dx,dy,dz] [diam=4]', true); return true; }
         const tagOrRef = tokens[1];
         const dotIdx = tagOrRef.indexOf('.');
         if (dotIdx > 0) {
-            // Edición de puerto
             const tag = tagOrRef.substring(0, dotIdx);
             const puertoId = tagOrRef.substring(dotIdx + 1);
             const params = extractParams(tokens.slice(2));
@@ -374,7 +489,6 @@ const SmartFlowCommands = (function() {
             return true;
         }
 
-        // Modificación de equipo/línea
         const tag = tagOrRef;
         const params = extractParams(tokens.slice(2));
         const db = _core.getDb();
@@ -410,7 +524,8 @@ const SmartFlowCommands = (function() {
     }
 
     function handleDelete(tokens) {
-        if (tokens.length < 2) { notify('Uso: - TAG', true); return true; }
+        // eliminar TAG
+        if (tokens.length < 2) { notify('Uso: eliminar TAG', true); return true; }
         const tag = tokens[1];
         const db = _core.getDb();
         if (db.equipos.some(e => e.tag === tag)) { _core.deleteEquipment(tag); notify(`${tag} eliminado`); return true; }
@@ -420,9 +535,12 @@ const SmartFlowCommands = (function() {
     }
 
     function handleMove(tokens) {
-        if (tokens.length < 3) { notify('Uso: > TAG X,Y,Z', true); return true; }
+        // mover TAG a X,Y,Z
+        const aIdx = tokens.findIndex(t => t.toLowerCase() === 'a' || t.toLowerCase() === 'to');
+        if (aIdx < 0) { notify('Uso: mover TAG a X,Y,Z', true); return true; }
         const tag = tokens[1];
-        const coords = extractCoords(tokens.slice(2).join(''));
+        const coordStr = tokens.slice(aIdx + 1).join('');
+        const coords = extractCoords(coordStr);
         if (!coords) { notify('Coordenadas inválidas', true); return true; }
         const db = _core.getDb();
         if (db.equipos.find(e => e.tag === tag)) {
@@ -435,18 +553,17 @@ const SmartFlowCommands = (function() {
     }
 
     function handleConnect(tokens, arrowIdx) {
-        const left = tokens.slice(0, arrowIdx).join('');
-        const rightTokens = tokens.slice(arrowIdx + 1);
-        if (!rightTokens.length) { notify('Falta destino después de ->', true); return true; }
-        const from = parseNodeRef(left);
-        const rightStr = rightTokens[0];
-        const to = parseNodeRef(rightStr);
-        if (!from.tag || !to.tag) { notify('Origen o destino inválido', true); return true; }
-        const params = extractParams(rightTokens.slice(1));
+        const leftSide = tokens.slice(0, arrowIdx);
+        const rightSide = tokens.slice(arrowIdx + 1);
+        if (!rightSide.length) { notify('Falta destino después de la palabra de enlace', true); return true; }
+        const left = parseNodeRef(leftSide.join(''));
+        const right = parseNodeRef(rightSide[0]);
+        if (!left.tag || !right.tag) { notify('Origen o destino inválido', true); return true; }
+        const params = extractParams(rightSide.slice(1));
         if (typeof SmartFlowRouter !== 'undefined') {
             SmartFlowRouter.routeBetweenPorts(
-                from.tag, from.port,
-                to.tag, to.port,
+                left.tag, left.port,
+                right.tag, right.port,
                 params.diametro || 4,
                 params.material || 'PPR',
                 params.spec || 'PPR_PN12_5'
@@ -458,7 +575,7 @@ const SmartFlowCommands = (function() {
     }
 
     function handleInfo(tokens) {
-        if (tokens.length < 2) { notify('Uso: ? TAG', true); return true; }
+        if (tokens.length < 2) { notify('Uso: info TAG', true); return true; }
         const tag = tokens[1];
         const db = _core.getDb();
         const eq = db.equipos.find(e => e.tag === tag);
@@ -489,11 +606,13 @@ const SmartFlowCommands = (function() {
             notify(`Componentes disponibles: ${types.sort().join(', ')}`);
         } else if (sub === 'equipment' || sub === 'equipos') {
             listEquipos();
+        } else if (sub === 'líneas' || sub === 'lineas') {
+            listLineas();
         } else if (sub === 'specs' || sub === 'especificaciones') {
             const specs = _catalog.listSpecs();
             notify(`Especificaciones: ${specs.sort().join(', ')}`);
         } else {
-            notify('Use: list equipos | list componentes | list especificaciones');
+            notify('Use: listar equipos | listar lineas | listar componentes | listar especificaciones');
         }
         return true;
     }
@@ -544,24 +663,25 @@ const SmartFlowCommands = (function() {
         const help = [
             '═══ SMARTFLOW 3D - COMANDOS ═══',
             'CREAR EQUIPO:',
-            '  + TIPO TAG X,Y,Z [d=DIAM] [h=ALTURA] [m=MAT]',
+            '  crear TIPO TAG en X,Y,Z [d=DIAM] [h=ALTURA] [m=MAT]',
             'CREAR LÍNEA SUELTA (colectores, distribuidores):',
-            '  % TAG X1,Y1,Z1 X2,Y2,Z2 ... [d=DIAM] [m=MAT]',
+            '  crear linea TAG ruta X1,Y1,Z1 X2,Y2,Z2 ... [d=DIAM] [m=MAT]',
             '  (inyecta codos automáticamente en los quiebres)',
             'CREAR LÍNEA CON WAYPOINTS:',
-            '  LINEA TAG DESDE EQP.PUERTO POR x,y,z ... HASTA EQP.PUERTO [d=DIAM] [m=MAT]',
+            '  linea TAG desde EQP.PUERTO por x,y,z ... hasta EQP.PUERTO [d=DIAM] [m=MAT]',
             '  (inyecta codos y reductores automáticos)',
             'CONECTAR:',
-            '  TAG1.PUERTO1 -> TAG2.PUERTO2 [d=DIAM] [m=MAT]',
-            '  TAG1.PUERTO1 -> LINEA@0.5',
+            '  conectar EQP1.PUERTO1 a EQP2.PUERTO2 [d=DIAM] [m=MAT]',
+            '  EQP1.PUERTO1 a LINEA@0.5',
             'MODIFICAR:',
-            '  ~ TAG d=3000 m=HDPE',
-            '  ~ TAG.PUERTO pos=500,200,0 dir=0,1,0 diam=4 status=open',
-            '  > TAG X,Y,Z (mover equipo)',
-            'ELIMINAR: - TAG',
-            'CONSULTAR: ? TAG  ?? (equipos)  ??? (líneas)  nodos TAG',
-            'VISTAS: .  .t  .f  .s',
-            'OTROS: <<  >>  h  !mto  !pcf  !pdf  !save  !load'
+            '  modificar TAG d=3000 m=HDPE',
+            '  modificar TAG.PUERTO pos=500,200,0 dir=0,1,0 diam=4 status=open',
+            'MOVER:',
+            '  mover TAG a X,Y,Z',
+            'ELIMINAR: eliminar TAG',
+            'CONSULTAR: info TAG  listar equipos  listar lineas  nodos TAG',
+            'VISTAS: vista iso  vista top  vista front  vista side',
+            'OTROS: deshacer  rehacer  ayuda  exportar mto/pcf/pdf  guardar  cargar'
         ].join('\n');
         notify(help);
     }
@@ -584,7 +704,7 @@ const SmartFlowCommands = (function() {
         _core = coreInstance;
         _catalog = catalogInstance;
         _notifyUI = notifyFn;
-        console.log("Commands v9.0 bilingüe completo listo");
+        console.log("Commands v9.1 lenguaje natural listo");
     }
 
     return { init, executeCommand, executeBatch };
