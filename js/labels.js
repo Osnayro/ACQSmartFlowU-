@@ -1,5 +1,5 @@
 
-// SmartFlowLabels v1.1 - Corregido
+// SmartFlowLabels v1.2 - Corregido removeFromParent
 const SmartFlowLabels = (function() {
     let _core = null;
     let _scene = null;
@@ -21,6 +21,7 @@ const SmartFlowLabels = (function() {
     };
 
     function createConnectorLine(start, end) {
+        if (typeof THREE === 'undefined') return null;
         const geom = new THREE.BufferGeometry().setFromPoints([start.clone(), end.clone()]);
         const mat = new THREE.LineDashedMaterial({
             color: _config.lineColor,
@@ -34,6 +35,7 @@ const SmartFlowLabels = (function() {
     }
 
     function createLabel(text, position) {
+        if (typeof THREE === 'undefined' || !THREE.CSS2DObject) return null;
         const div = document.createElement('div');
         div.innerHTML = text.replace(/\n/g, '<br>');
         Object.assign(div.style, {
@@ -96,6 +98,22 @@ const SmartFlowLabels = (function() {
         return { anchor: mid, endPoint, text };
     }
 
+    function removeLabelForTag(tag) {
+        if (!_itemsMap.has(tag)) return;
+        const item = _itemsMap.get(tag);
+        if (item.line && _scene) _scene.remove(item.line);
+        if (item.label) {
+            // Verificar si tiene removeFromParent (CSS2DObject)
+            if (typeof item.label.removeFromParent === 'function') {
+                item.label.removeFromParent();
+            } else if (item.label.parent) {
+                // Fallback: remover del padre manualmente
+                item.label.parent.remove(item.label);
+            }
+        }
+        _itemsMap.delete(tag);
+    }
+
     function updateLabelForObject(obj) {
         const tag = obj.tag;
         let data;
@@ -112,17 +130,10 @@ const SmartFlowLabels = (function() {
         const { anchor, endPoint, text } = data;
         const line = createConnectorLine(anchor, endPoint);
         const label = createLabel(text, endPoint);
+        if (!line || !label) return;
         _scene.add(line);
         _scene.add(label);
         _itemsMap.set(tag, { line, label });
-    }
-
-    function removeLabelForTag(tag) {
-        if (!_itemsMap.has(tag)) return;
-        const item = _itemsMap.get(tag);
-        if (item.line && _scene) _scene.remove(item.line);
-        if (item.label) item.label.removeFromParent();
-        _itemsMap.delete(tag);
     }
 
     function updateAllLabels() {
@@ -151,8 +162,8 @@ const SmartFlowLabels = (function() {
             console.warn("Labels: escena no disponible");
             return;
         }
-        if (typeof THREE === 'undefined' || !THREE.CSS2DRenderer) {
-            console.warn("Labels: CSS2DRenderer no disponible");
+        if (typeof THREE === 'undefined' || !THREE.CSS2DRenderer || !THREE.CSS2DObject) {
+            console.warn("Labels: CSS2DRenderer/CSS2DObject no disponible. Etiquetas deshabilitadas.");
             return;
         }
         const container = document.getElementById('canvas-container');
@@ -192,7 +203,7 @@ const SmartFlowLabels = (function() {
             }
         });
 
-        console.log("Labels v1.1 corregido listo");
+        console.log("Labels v1.2 corregido listo");
     }
 
     return { init };
