@@ -1,5 +1,5 @@
 
-// SmartFlowRouter v7.3 - Codos en todos los quiebres + línea recta para distancias cortas
+// SmartFlowRouter v7.4 - Ruta directa para distancias < 1000 mm
 const SmartFlowRouter = (function() {
     let _core = null;
     let _catalog = null;
@@ -252,9 +252,10 @@ const SmartFlowRouter = (function() {
         const finalSpec = spec || toObj.spec || 'PPR_PN12_5';
         const dist = _dist(startPos, endPos);
 
-        // Ruta directa para distancias cortas (<500 mm)
+        // ** NUEVO: Para distancias menores de 1000 mm, usar ruta directa **
         let route;
-        if (dist < 500) {
+        let usarRutaDirecta = dist < 1000;
+        if (usarRutaDirecta) {
             route = [startPos, endPos];
         } else {
             route = calculateRoute(startPos, endPos, ['x','z','y']);
@@ -262,7 +263,7 @@ const SmartFlowRouter = (function() {
 
         let comps = injectElbowsInRoute(route, finalMat);
 
-        // Codos en extremos (ángulo >= 15°)
+        // Codos en extremos (ángulo > 15°)
         const dirFrom = getPortDirection(fromObj, fromPort);
         const firstSeg = _norm(_sub(route[1], route[0]));
         const angleFrom = angleBetweenVectors(dirFrom, firstSeg);
@@ -317,7 +318,7 @@ const SmartFlowRouter = (function() {
         }
         _core.syncPhysicalData();
         _core._saveState();
-        _notifyUI(`Ruta ${newTag} creada (${fromTag}.${fromPort} → ${toTag}.${nuevoPuertoId}) con ${comps.length} accesorios`, false);
+        _notifyUI(`Ruta ${newTag} creada (${fromTag}.${fromPort} → ${toTag}.${nuevoPuertoId}) ${usarRutaDirecta ? '(línea recta)' : '(ortogonal)'} con ${comps.length} accesorios`, false);
         return newLine;
     }
 
@@ -325,7 +326,7 @@ const SmartFlowRouter = (function() {
         _core = core;
         _catalog = catalog;
         if (notifyFn) _notifyUI = notifyFn;
-        console.log("Router v7.3 con codos en todos los quiebres + línea recta corta listo");
+        console.log("Router v7.4 con ruta directa < 1000 mm listo");
     }
 
     return {
