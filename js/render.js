@@ -1,6 +1,6 @@
 
 // ============================================================
-// SMARTFLOW RENDER v6.2 (Zoom suave y focusOnObject)
+// SMARTFLOW RENDER v6.3 (Zoom suave, focusOnObject y fitCameraToEquipments)
 // Archivo: js/render.js
 // ============================================================
 
@@ -17,7 +17,6 @@ const SmartFlowRender = (function() {
     let _targetPos = new THREE.Vector3();
     let _targetLookAt = new THREE.Vector3();
     const _transitionSpeed = 0.08;
-    let _originalAnimate = null;
     
     // ==================== 1. CONFIGURACIÓN DE POST-PROCESADO ====================
     function setupEffects() {
@@ -29,7 +28,6 @@ const SmartFlowRender = (function() {
             return;
         }
         
-        // Verificar que los complementos de post-procesado estén disponibles
         if (typeof THREE.EffectComposer !== 'undefined' && 
             typeof THREE.RenderPass !== 'undefined' && 
             typeof THREE.OutlinePass !== 'undefined') {
@@ -73,7 +71,44 @@ const SmartFlowRender = (function() {
         _isAnimating = true;
     }
     
-    // ==================== 3. RESALTADO DE SELECCIÓN ====================
+    // ==================== 3. FIT CAMERA TO ALL EQUIPMENTS (Zoom Extents) ====================
+    function fitCameraToEquipments() {
+        const scene = _core.getScene();
+        const camera = _core.getCamera();
+        const controls = _core.getControls();
+        if (!scene || !camera || !controls) return;
+        
+        const bounds = new THREE.Box3();
+        scene.traverse((child) => {
+            if (child.isMesh && child.visible) {
+                bounds.expandByObject(child);
+            }
+        });
+        
+        if (bounds.isEmpty()) {
+            _notifyUI("No hay objetos en la escena", true);
+            return;
+        }
+        
+        const center = bounds.getCenter(new THREE.Vector3());
+        const size = bounds.getSize(new THREE.Vector3());
+        const maxDim = Math.max(size.x, size.y, size.z);
+        const fov = camera.fov * (Math.PI / 180);
+        let distance = Math.abs(maxDim / 2 / Math.tan(fov / 2)) * 1.5;
+        
+        const angleRad = 45 * (Math.PI / 180);
+        const posX = center.x + distance * Math.sin(angleRad);
+        const posZ = center.z + distance * Math.cos(angleRad);
+        const posY = center.y + distance * 0.6;
+        
+        camera.position.set(posX, posY, posZ);
+        controls.target.copy(center);
+        controls.update();
+        
+        _notifyUI("Vista ajustada a todos los equipos", false);
+    }
+    
+    // ==================== 4. RESALTADO DE SELECCIÓN ====================
     function updateSelectionHighlight() {
         const selected = _core.getSelected();
         
@@ -84,7 +119,6 @@ const SmartFlowRender = (function() {
                 if (mesh) {
                     _outlinePass.selectedObjects = [mesh];
                     _currentHighlighted = mesh;
-                    // DISPARADOR DE ZOOM SUAVE
                     focusOnObject(mesh);
                 } else {
                     _outlinePass.selectedObjects = [];
@@ -95,7 +129,6 @@ const SmartFlowRender = (function() {
                 _currentHighlighted = null;
             }
         } else {
-            // Fallback: cambiar material emisivo
             if (_currentHighlighted && _currentHighlighted.material) {
                 _currentHighlighted.material.emissiveIntensity = 0;
             }
@@ -114,7 +147,7 @@ const SmartFlowRender = (function() {
         }
     }
     
-    // ==================== 4. VISTAS PREDEFINIDAS ====================
+    // ==================== 5. VISTAS PREDEFINIDAS ====================
     function setView(type) {
         const camera = _core.getCamera();
         const controls = _core.getControls();
@@ -136,7 +169,7 @@ const SmartFlowRender = (function() {
         _notifyUI(`Vista cambiada a: ${type.toUpperCase()}`, false);
     }
     
-    // ==================== 5. PUENTE CON LA UI (PANEL DE INFORMACIÓN) ====================
+    // ==================== 6. PUENTE CON LA UI (PANEL DE INFORMACIÓN) ====================
     function createInfoPanel() {
         let panel = document.getElementById('selectionInfo');
         if (!panel) {
@@ -192,7 +225,7 @@ const SmartFlowRender = (function() {
         });
     }
     
-    // ==================== 6. INICIALIZACIÓN CON ANIMACIÓN SUAVE ====================
+    // ==================== 7. INICIALIZACIÓN CON ANIMACIÓN SUAVE ====================
     function init(coreInstance) {
         _core = coreInstance;
         if (!_core) return;
@@ -224,10 +257,10 @@ const SmartFlowRender = (function() {
         }
         
         window.set3DView = setView;
-        console.log("✔ SmartFlowRender v6.2 listo (zoom suave y focusOnObject)");
+        console.log("✔ SmartFlowRender v6.3 listo (zoom suave, focusOnObject y fitCameraToEquipments)");
     }
     
-    // ==================== 7. NOTIFICACIÓN INTERNA ====================
+    // ==================== 8. NOTIFICACIÓN INTERNA ====================
     function _notifyUI(msg, isErr) {
         const statusEl = document.getElementById('statusMsg');
         if (statusEl) {
@@ -241,6 +274,7 @@ const SmartFlowRender = (function() {
     return {
         init: init,
         setView: setView,
+        fitCameraToEquipments: fitCameraToEquipments,
         updateSelectionHighlight: updateSelectionHighlight,
         getComposer: () => _composer,
         getOutlinePass: () => _outlinePass
