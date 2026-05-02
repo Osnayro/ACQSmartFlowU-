@@ -1,5 +1,5 @@
 
-// SmartFlowRouter v7.0 - Corregido
+// SmartFlowRouter v7.3 - Codos en todos los quiebres + línea recta para distancias cortas
 const SmartFlowRouter = (function() {
     let _core = null;
     let _catalog = null;
@@ -23,6 +23,48 @@ const SmartFlowRouter = (function() {
             }
         }
         return cleaned;
+    }
+
+    function angleBetweenVectors(v1, v2) {
+        const dot = v1.dx * v2.dx + v1.dy * v2.dy + v1.dz * v2.dz;
+        return Math.acos(Math.min(1, Math.max(-1, dot))) * 180 / Math.PI;
+    }
+
+    function findElbow(material, angleDeg) {
+        const mat = (material || '').toUpperCase();
+        if (angleDeg < 15) return null;
+        const is90 = angleDeg > 60;
+        const is45 = angleDeg >= 15 && angleDeg <= 60;
+        if (mat.includes('PPR')) return is90 ? 'ELBOW_90_PPR' : (is45 ? 'ELBOW_45_PPR' : null);
+        if (mat.includes('HDPE')) return is90 ? 'ELBOW_90_HDPE' : null;
+        if (mat.includes('PVC')) return is90 ? 'ELBOW_90_PVC' : null;
+        if (mat.includes('ACERO') || mat.includes('CARBONO')) return is90 ? 'ELBOW_90_LR_CS' : (is45 ? 'ELBOW_45_CS' : null);
+        if (mat.includes('INOX')) return is90 ? 'ELBOW_90_SANITARY' : null;
+        return is90 ? 'ELBOW_90_LR_CS' : (is45 ? 'ELBOW_45_CS' : null);
+    }
+
+    function injectElbowsInRoute(points, material) {
+        if (!points || points.length < 2) return [];
+        const elbows = [];
+        for (let i = 1; i < points.length - 1; i++) {
+            const seg1 = { dx: points[i].x - points[i-1].x, dy: points[i].y - points[i-1].y, dz: points[i].z - points[i-1].z };
+            const seg2 = { dx: points[i+1].x - points[i].x, dy: points[i+1].y - points[i].y, dz: points[i+1].z - points[i].z };
+            const len1 = Math.hypot(seg1.dx, seg1.dy, seg1.dz) || 1;
+            const len2 = Math.hypot(seg2.dx, seg2.dy, seg2.dz) || 1;
+            const v1 = { dx: seg1.dx/len1, dy: seg1.dy/len1, dz: seg1.dz/len1 };
+            const v2 = { dx: seg2.dx/len2, dy: seg2.dy/len2, dz: seg2.dz/len2 };
+            const angle = angleBetweenVectors(v1, v2);
+            const elbowType = findElbow(material, angle);
+            if (elbowType) {
+                elbows.push({
+                    type: elbowType,
+                    tag: `${elbowType}-${Date.now().toString(36)}`,
+                    param: i / (points.length - 1),
+                    angle: Math.round(angle)
+                });
+            }
+        }
+        return elbows;
     }
 
     function getPortPosition(obj, portId) {
@@ -67,19 +109,6 @@ const SmartFlowRouter = (function() {
         return {dx:1, dy:0, dz:0};
     }
 
-    function findElbow(material, diameter, angleDeg) {
-        const mat = (material || '').toUpperCase();
-        if (angleDeg < 15) return null;
-        const is90 = angleDeg > 60;
-        const is45 = angleDeg >= 15 && angleDeg <= 60;
-        if (mat.includes('PPR')) return is90 ? 'ELBOW_90_PPR' : (is45 ? 'ELBOW_45_PPR' : null);
-        if (mat.includes('HDPE')) return is90 ? 'ELBOW_90_HDPE' : null;
-        if (mat.includes('PVC')) return is90 ? 'ELBOW_90_PVC' : null;
-        if (mat.includes('ACERO') || mat.includes('CARBONO')) return is90 ? 'ELBOW_90_LR_CS' : (is45 ? 'ELBOW_45_CS' : null);
-        if (mat.includes('INOX')) return is90 ? 'ELBOW_90_SANITARY' : null;
-        return is90 ? 'ELBOW_90_LR_CS' : (is45 ? 'ELBOW_45_CS' : null);
-    }
-
     function insertarAccesorioEnLinea(lineTag, punto, diamNuevo, forzarTee = false) {
         const db = _core.getDb();
         const linea = db.lines.find(l => l.tag === lineTag);
@@ -120,7 +149,7 @@ const SmartFlowRouter = (function() {
             return null;
         }
         const diamLinea = linea.diameter || 4;
-        const diffDiam = Math.abs(diamNuevo - diamLinea) > 0.1;
+        const diffDiam = Math.abs(diamNuevo - diamLinea) > 0.01;
         const tipoAccesorio = diffDiam ? 'TEE_REDUCING' : 'TEE_EQUAL';
         const compEnCatalogo = _catalog?.getComponent(tipoAccesorio);
         if (!compEnCatalogo) {
@@ -221,31 +250,54 @@ const SmartFlowRouter = (function() {
         }
         const finalMat = material || toObj.material || 'PPR';
         const finalSpec = spec || toObj.spec || 'PPR_PN12_5';
-        let route = calculateRoute(startPos, endPos, ['x','z','y']);
-        const comps = [];
+        const dist = _dist(startPos, endPos);
+
+        // Ruta directa para distancias cortas (<500 mm)
+        let route;
+        if (dist < 500) {
+            route = [startPos, endPos];
+        } else {
+            route = calculateRoute(startPos, endPos, ['x','z','y']);
+        }
+
+        let comps = injectElbowsInRoute(route, finalMat);
+
+        // Codos en extremos (ángulo >= 15°)
         const dirFrom = getPortDirection(fromObj, fromPort);
         const firstSeg = _norm(_sub(route[1], route[0]));
-        const angleFrom = Math.acos(Math.min(1, Math.abs(_dot(dirFrom, firstSeg)))) * 180 / Math.PI;
-        if (angleFrom > 15) {
-            const elbow = findElbow(finalMat, diameter, angleFrom);
+        const angleFrom = angleBetweenVectors(dirFrom, firstSeg);
+        if (angleFrom >= 15) {
+            const elbow = findElbow(finalMat, angleFrom);
             if (elbow) comps.push({ type: elbow, tag: `${elbow}-${Date.now().toString(36)}`, param: 0.0, angle: Math.round(angleFrom) });
         }
+
         const dirTo = getPortDirection(toObj, nuevoPuertoId);
         const lastSeg = _norm(_sub(endPos, route[route.length-2]));
-        const angleTo = Math.acos(Math.min(1, Math.abs(_dot(dirTo, lastSeg)))) * 180 / Math.PI;
-        if (angleTo > 15) {
-            const elbow = findElbow(finalMat, diameter, angleTo);
+        const angleTo = angleBetweenVectors(dirTo, lastSeg);
+        if (angleTo >= 15) {
+            const elbow = findElbow(finalMat, angleTo);
             if (elbow) comps.push({ type: elbow, tag: `${elbow}-${Date.now().toString(36)}`, param: 1.0, angle: Math.round(angleTo) });
         }
-        const diamOrig = (fromObj.puertos?.find(p => p.id === fromPort)?.diametro) || diameter;
-        const diamDest = (toObj.puertos?.find(p => p.id === nuevoPuertoId)?.diametro) || diameter;
-        if (Math.abs(diamOrig - diamDest) > 0.1) {
-            comps.push({ type: 'CONCENTRIC_REDUCER', tag: `RED-${Date.now().toString(36)}`, param: 0.5, fromDiam: diamOrig, toDiam: diamDest });
+
+        // Reductor solo si hay diferencia real de diámetros (>0.01)
+        const diamOrig = parseFloat((fromObj.puertos?.find(p => p.id === fromPort)?.diametro) || diameter);
+        const diamDest = parseFloat((toObj.puertos?.find(p => p.id === nuevoPuertoId)?.diametro) || diameter);
+        if (Math.abs(diamOrig - diamDest) > 0.01) {
+            comps.push({
+                type: 'CONCENTRIC_REDUCER',
+                tag: `RED-${Date.now().toString(36)}`,
+                param: 0.95,
+                fromDiam: diamOrig,
+                toDiam: diamDest
+            });
         }
+
         const newTag = `L-${db.lines.length + 1}`;
         const newLine = {
             tag: newTag,
-            diameter, material: finalMat, spec: finalSpec,
+            diameter,
+            material: finalMat,
+            spec: finalSpec,
             points: route,
             _cachedPoints: route,
             waypoints: route.slice(1, -1),
@@ -253,7 +305,10 @@ const SmartFlowRouter = (function() {
             destination: { objType: toObj.posX !== undefined ? 'equipment' : 'line', equipTag: toTag, portId: nuevoPuertoId },
             components: comps
         };
+
         _core.addLine(newLine);
+
+        // Marcar puertos conectados
         const fromPortObj = fromObj.puertos?.find(p => p.id === fromPort);
         if (fromPortObj) { fromPortObj.status = 'connected'; fromPortObj.connectedLine = newTag; }
         if (toObj.puertos) {
@@ -262,7 +317,7 @@ const SmartFlowRouter = (function() {
         }
         _core.syncPhysicalData();
         _core._saveState();
-        _notifyUI(`Ruta ${newTag} creada (${fromTag}.${fromPort} → ${toTag}.${nuevoPuertoId})`, false);
+        _notifyUI(`Ruta ${newTag} creada (${fromTag}.${fromPort} → ${toTag}.${nuevoPuertoId}) con ${comps.length} accesorios`, false);
         return newLine;
     }
 
@@ -270,7 +325,7 @@ const SmartFlowRouter = (function() {
         _core = core;
         _catalog = catalog;
         if (notifyFn) _notifyUI = notifyFn;
-        console.log("Router v7.0 corregido listo");
+        console.log("Router v7.3 con codos en todos los quiebres + línea recta corta listo");
     }
 
     return {
