@@ -4,15 +4,13 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no">
-    <title>SmartEngp 3D | AcQuaBlue - Ingeniería Inteligente</title>
+    <title>SmartEngp | AcQuaBlue - Ingeniería Inteligente</title>
     
-    <!-- Carga unificada de Three.js y complementos -->
+    <!-- Three.js y complementos (para modo 3D) -->
     <script src="https://cdn.jsdelivr.net/npm/three@0.128.0/build/three.min.js"></script>
     <script src="https://cdn.jsdelivr.net/npm/three@0.128.0/examples/js/controls/OrbitControls.js"></script>
-    <script src="https://cdn.jsdelivr.net/npm/three@0.128.0/examples/js/renderers/CSS2DRenderer.js"></script>
     <script src="https://cdn.jsdelivr.net/npm/three@0.128.0/examples/js/postprocessing/EffectComposer.js"></script>
     <script src="https://cdn.jsdelivr.net/npm/three@0.128.0/examples/js/postprocessing/RenderPass.js"></script>
-    <script src="https://cdn.jsdelivr.net/npm/three@0.128.0/examples/js/postprocessing/ShaderPass.js"></script>
     <script src="https://cdn.jsdelivr.net/npm/three@0.128.0/examples/js/postprocessing/OutlinePass.js"></script>
     <script src="https://cdn.jsdelivr.net/npm/three@0.128.0/examples/js/shaders/CopyShader.js"></script>
     
@@ -46,14 +44,11 @@
 
         /* Splash Screen */
         #splash-screen {
-            position: fixed;
-            top: 0; left: 0;
+            position: fixed; top: 0; left: 0;
             width: 100%; height: 100%;
             background: radial-gradient(circle at center, #10172a 0%, #020617 100%);
             z-index: 10000;
-            display: flex;
-            justify-content: center;
-            align-items: center;
+            display: flex; justify-content: center; align-items: center;
             transition: opacity 0.8s ease, visibility 0.8s;
         }
         .splash-content { text-align: center; width: 350px; }
@@ -61,8 +56,7 @@
         .company-name { font-size: 11px; letter-spacing: 3px; color: #fff; opacity: 0.6; text-transform: uppercase; display: block; }
         .powered-by { font-size: 8px; color: var(--accent-cyan); letter-spacing: 1px; text-transform: uppercase; }
         .hex-container {
-            width: 120px; height: 120px;
-            margin: 0 auto 30px;
+            width: 120px; height: 120px; margin: 0 auto 30px;
             border: 1px solid var(--accent-cyan);
             clip-path: polygon(50% 0%, 100% 25%, 100% 75%, 50% 100%, 0% 75%, 0% 25%);
             display: flex; justify-content: center; align-items: center;
@@ -87,19 +81,15 @@
 
         /* Welcome Panel */
         #welcome-panel {
-            position: fixed;
-            top: 0; left: 0;
+            position: fixed; top: 0; left: 0;
             width: 100%; height: 100%;
             background: var(--primary-bg);
             z-index: 9000;
-            display: flex;
-            justify-content: center;
-            align-items: center;
+            display: flex; justify-content: center; align-items: center;
             transition: opacity 0.6s ease, visibility 0.6s;
         }
         .welcome-container {
-            width: 600px;
-            padding: 40px;
+            width: 600px; padding: 40px;
             background: rgba(15, 23, 42, 0.85);
             border: 1px solid var(--accent-cyan);
             border-radius: 16px;
@@ -114,14 +104,11 @@
         .user-name { color: #fff; text-align: right; }
         .button-group { display: flex; flex-direction: column; gap: 16px; }
         .welcome-btn {
-            background: transparent;
-            border: 1px solid var(--accent-cyan);
-            color: var(--accent-cyan);
-            padding: 16px 24px;
+            background: transparent; border: 1px solid var(--accent-cyan);
+            color: var(--accent-cyan); padding: 16px 24px;
             font-size: 18px; font-weight: bold;
             text-transform: uppercase; letter-spacing: 3px;
-            border-radius: 8px;
-            cursor: pointer;
+            border-radius: 8px; cursor: pointer;
             transition: all 0.3s;
         }
         .welcome-btn:hover { background: var(--accent-cyan); color: #000; box-shadow: 0 0 30px rgba(0,242,255,0.4); }
@@ -129,7 +116,7 @@
         .welcome-btn.secondary:hover { background: #334155; border-color: #94a3b8; color: white; }
         .welcome-hidden { opacity: 0; visibility: hidden; pointer-events: none; }
 
-        /* Modal proyecto */
+        /* Modal para nombre de proyecto */
         #project-name-modal {
             position: fixed; top: 0; left: 0;
             width: 100%; height: 100%;
@@ -197,15 +184,30 @@
         .btn-speak { background: #7c3aed; border-color: #8b5cf6; }
         .btn-speak:hover { background: #8b5cf6; }
 
-        /* Canvas container (Three.js) */
+        /* Contenedor principal con ambos canvas */
         #canvas-container {
             flex: 1;
             background: #000;
             position: relative;
             overflow: hidden;
         }
+        #isoCanvas {
+            display: block;
+            width: 100%;
+            height: 100%;
+            cursor: grab;
+        }
+        #isoCanvas:active { cursor: grabbing; }
+        #three-container {
+            display: none;
+            width: 100%;
+            height: 100%;
+            position: absolute;
+            top: 0;
+            left: 0;
+        }
 
-        /* Property panel (derecha) */
+        /* Panel de propiedades */
         .property-panel {
             position: absolute;
             top: 20px;
@@ -250,7 +252,7 @@
         .port-connected { color: #3b82f6; }
         .empty-msg { color: #aaa; text-align: center; padding: 20px 0; }
 
-        /* Command panel */
+        /* Panel de comandos */
         .command-panel {
             position: fixed; left: 10px; bottom: 10px;
             width: 90%; max-width: 500px;
@@ -275,7 +277,7 @@
         }
         textarea:focus { border-color: var(--accent-cyan); }
 
-        /* Notification */
+        /* Notificación */
         .notification {
             position: fixed; top: 20px; left: 50%; transform: translateX(-50%);
             background: #238636; padding: 10px 20px; border-radius: 8px;
@@ -283,7 +285,7 @@
             font-weight: bold; box-shadow: 0 2px 15px rgba(0,0,0,0.5);
         }
 
-        /* Status bar */
+        /* Barra de estado */
         .status-bar {
             background: #020617; padding: 8px 20px; font-size: 10px;
             border-top: 1px solid var(--accent-blue); color: var(--accent-cyan);
@@ -291,7 +293,7 @@
             display: flex; justify-content: space-between;
         }
 
-        /* Tools panel flotante */
+        /* Panel de herramientas flotante */
         .tools-panel {
             position: fixed; left: 20px; top: 100px;
             background: var(--panel-bg); border-radius: 12px;
@@ -302,7 +304,7 @@
         .tools-panel button { padding: 6px 12px; font-size: 12px; }
         .tools-panel button.active { background: var(--accent-blue); color: white; }
 
-        /* Elevation panel */
+        /* Panel de elevación */
         .elevation-panel {
             position: fixed; bottom: 20px; right: 20px;
             background: var(--panel-bg); padding: 8px 12px; border-radius: 8px;
@@ -310,7 +312,11 @@
             display: flex; gap: 6px; align-items: center;
             backdrop-filter: blur(8px);
         }
-        .elevation-panel input { width: 70px; background: #0f0f17; border: 1px solid #3a3a4a; color: white; border-radius: 4px; padding: 4px 6px; }
+        .elevation-panel input {
+            width: 70px; background: #0f0f17; border: 1px solid #3a3a4a;
+            color: white; border-radius: 4px; padding: 4px 6px; outline: none;
+        }
+        .elevation-panel input:focus { border-color: var(--accent-cyan); }
 
         @media (max-width: 768px) {
             .toolbar button { font-size: 10px; padding: 6px 8px; }
@@ -323,7 +329,7 @@
 </head>
 <body>
 
-    <!-- Splash screen -->
+    <!-- Splash Screen -->
     <div id="splash-screen">
         <div class="splash-content">
             <div class="corporate-header">
@@ -334,9 +340,9 @@
                 <img src="img/logo.PNG" alt="Logo" onerror="this.style.display='none'">
             </div>
             <h1 class="splash-title">SmartEngp</h1>
-            <p class="splash-subtitle">INGENIERÍA INTELIGENTE 3D</p>
+            <p class="splash-subtitle">INGENIERÍA INTELIGENTE</p>
             <div class="loading-bar-container"><div class="loading-bar-fill"></div></div>
-            <div class="splash-status" id="splash-status">Inicializando motor Three.js...</div>
+            <div class="splash-status" id="splash-status">Inicializando protocolos SmartEngp...</div>
             <div class="author-footer">
                 <span class="leader-by">Ingeniero Líder de Proyecto:</span>
                 <span class="engineer-name">Ing. Osnay Romero</span>
@@ -344,7 +350,7 @@
         </div>
     </div>
 
-    <!-- Welcome panel -->
+    <!-- Panel de bienvenida -->
     <div id="welcome-panel">
         <div class="welcome-container">
             <img src="img/logo.PNG" alt="Logo SmartEngp" class="home-logo-img" onerror="this.style.display='none'">
@@ -353,7 +359,7 @@
                 <h2 class="user-name">ING.<br>OSNAY ROMERO</h2>
             </div>
             <div class="button-group">
-                <button class="welcome-btn" id="welcome-new-project">➕ NUEVO PROYECTO 3D</button>
+                <button class="welcome-btn" id="welcome-new-project">➕ NUEVO PROYECTO</button>
                 <button class="welcome-btn secondary" id="welcome-open-project">📂 ABRIR PROYECTO EXISTENTE</button>
             </div>
         </div>
@@ -362,8 +368,8 @@
     <!-- Modal para nombre de proyecto -->
     <div id="project-name-modal">
         <div class="modal-content">
-            <h3>Nuevo Proyecto 3D</h3>
-            <input type="text" id="project-name-input" placeholder="Nombre del proyecto" value="Proyecto_SmartEngp3D">
+            <h3>Nuevo Proyecto</h3>
+            <input type="text" id="project-name-input" placeholder="Nombre del proyecto" value="Proyecto_SmartEngp">
             <div class="modal-actions">
                 <button class="modal-btn" id="modal-accept">Aceptar</button>
                 <button class="modal-btn cancel" id="modal-skip">Saltar</button>
@@ -371,20 +377,26 @@
         </div>
     </div>
 
-    <!-- Toolbar principal -->
+    <!-- Toolbar unificada -->
     <div class="toolbar" role="toolbar" aria-label="Barra de herramientas principal">
         <div class="toolbar-logo">
             <img src="img/logo.PNG" alt="Logo" style="height: 28px;" onerror="this.style.display='none'">
-            <span class="toolbar-title">SmartEngp 3D</span>
+            <span class="toolbar-title" aria-label="SmartEngp">SmartEngp</span>
         </div>
         <button id="btnOpen" aria-label="Abrir proyecto">📂 Abrir</button>
         <button id="btnSave" aria-label="Guardar proyecto">💾 Guardar</button>
         <button id="btnExportProject" aria-label="Exportar proyecto">📤 Exportar Proy</button>
         <button id="btnImportProject" aria-label="Importar proyecto">📥 Importar Proy</button>
-        <button id="btnReset" aria-label="Centrar vista isométrica">🎥 Isométrico</button>
+        <button id="btnReset" aria-label="Centrar vista">🔄 Centrar</button>
+        
+        <!-- Botones de vista 3D -->
         <button id="btnTopView" aria-label="Vista superior">⬇️ Top</button>
         <button id="btnFrontView" aria-label="Vista frontal">➡️ Front</button>
         <button id="btnSideView" aria-label="Vista lateral">⬅️ Side</button>
+        
+        <!-- Toggle 2D/3D -->
+        <button id="btnToggle3D" aria-label="Alternar vista 2D/3D" style="background:#7c3aed;border-color:#8b5cf6;">🧊 3D</button>
+        
         <button id="btnCommand" class="btn-primary" aria-label="Abrir panel de comandos">🤖 Comandos</button>
         <button id="btnAddTank" aria-label="Añadir tanque">🏭 Tanque</button>
         <button id="btnAddPump" aria-label="Añadir bomba">⚙️ Bomba</button>
@@ -401,17 +413,24 @@
         <button id="btnToggleCatalog" aria-label="Mostrar catálogo">📦 Catálogo</button>
     </div>
 
-    <!-- Contenedor principal: aquí Three.js creará el canvas -->
-    <div id="canvas-container" class="canvas-container"></div>
-
-    <!-- Panel de propiedades lateral -->
-    <div id="side-panel" class="property-panel hidden">
-        <div class="panel-header">
-            <span>PROPIEDADES TÉCNICAS</span>
-            <button onclick="togglePanel(false)" aria-label="Cerrar panel">×</button>
+    <!-- Contenedor de canvas (2D + 3D) -->
+    <div id="canvas-container" class="canvas-container">
+        <canvas id="isoCanvas" aria-label="Vista isométrica 2D"></canvas>
+        <div id="three-container" aria-label="Vista 3D"></div>
+        
+        <div style="position:absolute; top:20px; left:20px; color:rgba(0,242,255,0.2); font-size:11px; pointer-events:none; text-transform:uppercase;">
+            AcQuaBlue Corp. | MODO <span id="mode-indicator">ISOMÉTRICO</span>
         </div>
-        <div id="panel-content">
-            <p class="empty-msg">Seleccione un elemento para ver sus detalles</p>
+        
+        <!-- Panel de propiedades lateral -->
+        <div id="side-panel" class="property-panel hidden">
+            <div class="panel-header">
+                <span>PROPIEDADES TÉCNICAS</span>
+                <button onclick="togglePanel(false)" aria-label="Cerrar panel">×</button>
+            </div>
+            <div id="panel-content">
+                <p class="empty-msg">Seleccione un elemento para ver sus detalles</p>
+            </div>
         </div>
     </div>
 
@@ -421,7 +440,7 @@
             <strong>🤖 Comandos IA</strong>
             <button id="closeCommand" style="background:none;border:none;color:white;font-size:20px;padding:0;width:30px;" aria-label="Cerrar panel">✖</button>
         </div>
-        <textarea id="commandText" rows="5" placeholder="Ejemplos:&#10;crear tanque_v TK-01 at (0,1450,0) diam 2380 altura 2900 material PE&#10;ruta desde TK-01 N1 a B-01 SUC diametro 3&#10;seleccionar TK-01&#10;leer escena&#10;ayuda"></textarea>
+        <textarea id="commandText" rows="5" placeholder="Ejemplos:&#10;crear tanque_v TK-01 en (0,1450,0) d=2380 h=2900 m=PE&#10;ruta desde TK-01 N1 a B-01 SUC d=3&#10;vista iso&#10;ayuda"></textarea>
         <div class="command-buttons">
             <button id="runCommands" class="btn-primary" aria-label="Ejecutar comandos">Ejecutar</button>
             <button id="clearCommand" aria-label="Limpiar panel">Limpiar</button>
@@ -433,16 +452,16 @@
 
     <!-- Barra de estado -->
     <div class="status-bar">
-        <div id="statusMsg">SISTEMA 3D LISTO | SmartEngp</div>
+        <div id="statusMsg">SISTEMA LISTO | SmartEngp</div>
         <div>AcQuaBlue International Corp. | Ing. Osnay Romero</div>
     </div>
 
-    <!-- Panel de herramientas flotantes -->
+    <!-- Panel de herramientas flotante -->
     <div class="tools-panel" id="toolsPanel" role="toolbar" aria-label="Herramientas de dibujo">
         <button id="toolSelect" class="active" aria-label="Seleccionar">🔍 Seleccionar</button>
         <button id="toolMoveEq" aria-label="Mover equipo">✋ Mover equipo</button>
         <button id="toolEditPipe" aria-label="Editar tubería">✏️ Editar tubería</button>
-        <button id="toolAddPoint" aria-label="Añadir punto">➕ Add punto</button>
+        <button id="toolAddPoint" aria-label="Añadir punto">➕ Añadir punto</button>
     </div>
 
     <!-- Panel de elevación -->
@@ -455,27 +474,38 @@
         <button id="btnSetElev" style="padding:2px 8px;" aria-label="Establecer elevación">Set</button>
     </div>
 
-    <!-- Módulos de la aplicación (orden correcto) -->
-    <script src="js/core.js"></script>
+    <!-- MÓDULOS (Orden correcto) -->
     <script src="js/catalog.js"></script>
+    <script src="js/core.js"></script>
     <script src="js/router.js"></script>
-    <script src="js/render.js"></script>
+    <script src="js/renderer.js"></script>
     <script src="js/commands.js"></script>
     <script src="js/accessibility.js"></script>
     <script src="js/autocomplete.js"></script>
-    <script src="js/labels.js"></script>
-    <script src="js/io.js"></script>
+    <script src="js/render.js"></script>
     <script src="js/main.js"></script>
 
     <script>
         // Variables globales y funciones auxiliares
         window.voiceEnabled = true;
-        window.currentProjectName = "Proyecto_SmartEngp3D";
+        window.currentProjectName = "Proyecto_SmartEngp";
 
+        // Stub de accesibilidad (por si no se carga el módulo)
+        if (!window.SmartFlowAccessibility) {
+            window.SmartFlowAccessibility = { 
+                isVoiceEnabled: function() { return window.voiceEnabled; }, 
+                speak: function(m) { console.log("IA Voice:", m); },
+                processAccessibilityCommand: function(cmd) { return false; }
+            };
+        }
+
+        // Funciones globales llamadas desde los botones
         function setElevation(level) {
-            if (SmartFlowCore && SmartFlowCore.setElevation) SmartFlowCore.setElevation(level);
-            const elevInput = document.getElementById('customElev');
-            if (elevInput) elevInput.value = level;
+            if (typeof SmartFlowCore !== 'undefined' && typeof SmartFlowRenderer !== 'undefined') {
+                SmartFlowCore.setElevation(level);
+                SmartFlowRenderer.setElevation(level);
+                document.getElementById('customElev').value = level;
+            }
         }
 
         function togglePanel(show) {
@@ -486,16 +516,7 @@
             }
         }
 
-        // Stub de accesibilidad para commands.js (se reemplazará por el módulo real)
-        if (!window.SmartFlowAccessibility) {
-            window.SmartFlowAccessibility = {
-                isVoiceEnabled: () => window.voiceEnabled,
-                speak: (msg) => console.log("[VOZ]", msg),
-                processAccessibilityCommand: (cmd) => false
-            };
-        }
-
-        // Manejo de splash, welcome y modal
+        // Gestión de splash, welcome y modal
         window.addEventListener('load', function() {
             const splash = document.getElementById('splash-screen');
             const welcome = document.getElementById('welcome-panel');
@@ -505,11 +526,12 @@
             
             const messages = [
                 "Cargando librerías de AcQuaBlue...",
-                "Iniciando motor Three.js con post-procesado...",
-                "Sincronizando modelos 3D...",
-                "Optimizando efectos visuales...",
-                "¡SmartEngp 3D Activo!"
+                "Sincronizando modelos de objetos inteligentes...",
+                "Optimizando motor gráfico isométrico...",
+                "Iniciando interfaz de Ing. Osnay Romero...",
+                "¡SmartEngp Activo!"
             ];
+            
             let i = 0;
             const interval = setInterval(() => {
                 if(i < messages.length) { statusEl.innerText = messages[i]; i++; }
@@ -517,7 +539,7 @@
 
             setTimeout(() => { splash.classList.add('splash-hidden'); clearInterval(interval); }, 4500);
             setTimeout(() => { welcome.classList.remove('welcome-hidden'); }, 4800);
-            
+
             document.getElementById('welcome-new-project').onclick = () => { modal.style.display = 'flex'; };
             document.getElementById('welcome-open-project').onclick = () => {
                 document.getElementById('btnOpen')?.click();
@@ -528,7 +550,7 @@
                 if (name) window.currentProjectName = name;
                 modal.style.display = 'none';
                 welcome.classList.add('welcome-hidden');
-                if (SmartFlowCore && SmartFlowCore.clearProject) SmartFlowCore.clearProject();
+                if (typeof SmartFlowCore !== 'undefined' && SmartFlowCore.nuevoProyecto) SmartFlowCore.nuevoProyecto();
                 document.getElementById('statusMsg').innerText = `Proyecto: ${window.currentProjectName} | Listo`;
             };
             document.getElementById('modal-skip').onclick = () => {
