@@ -1,18 +1,16 @@
 
 // ============================================================
-// SMARTFLOW RENDER v6.3 (Zoom suave, focusOnObject y fitCameraToEquipments)
+// SMARTFLOW RENDER v7.0 (3D PostFX + Zoom suave + Vistas)
 // Archivo: js/render.js
 // ============================================================
 
 const SmartFlowRender = (function() {
-    // --- Recursos de Three.js (obtenidos del Core) ---
+    let _core = null;
     let _composer = null;
     let _outlinePass = null;
     let _currentHighlighted = null;
-    let _infoPanel = null;
-    let _core = null;
     
-    // --- Variables para animación de cámara ---
+    // Animación suave de cámara
     let _isAnimating = false;
     let _targetPos = new THREE.Vector3();
     let _targetLookAt = new THREE.Vector3();
@@ -54,7 +52,7 @@ const SmartFlowRender = (function() {
         }
     }
     
-    // ==================== 2. FUNCIÓN DE ENFOQUE (ZOOM-TO-FIT) ====================
+    // ==================== 2. ZOOM A OBJETO (FOCUS) ====================
     function focusOnObject(mesh) {
         if (!mesh || !_core.getControls()) return;
         const camera = _core.getCamera();
@@ -71,7 +69,7 @@ const SmartFlowRender = (function() {
         _isAnimating = true;
     }
     
-    // ==================== 3. FIT CAMERA TO ALL EQUIPMENTS (Zoom Extents) ====================
+    // ==================== 3. AJUSTAR CÁMARA A TODOS LOS EQUIPOS ====================
     function fitCameraToEquipments() {
         const scene = _core.getScene();
         const camera = _core.getCamera();
@@ -86,7 +84,7 @@ const SmartFlowRender = (function() {
         });
         
         if (bounds.isEmpty()) {
-            _notifyUI("No hay objetos en la escena", true);
+            console.log("No hay objetos en la escena");
             return;
         }
         
@@ -96,6 +94,7 @@ const SmartFlowRender = (function() {
         const fov = camera.fov * (Math.PI / 180);
         let distance = Math.abs(maxDim / 2 / Math.tan(fov / 2)) * 1.5;
         
+        // Mantener vista isométrica (45°)
         const angleRad = 45 * (Math.PI / 180);
         const posX = center.x + distance * Math.sin(angleRad);
         const posZ = center.z + distance * Math.cos(angleRad);
@@ -104,8 +103,6 @@ const SmartFlowRender = (function() {
         camera.position.set(posX, posY, posZ);
         controls.target.copy(center);
         controls.update();
-        
-        _notifyUI("Vista ajustada a todos los equipos", false);
     }
     
     // ==================== 4. RESALTADO DE SELECCIÓN ====================
@@ -129,6 +126,7 @@ const SmartFlowRender = (function() {
                 _currentHighlighted = null;
             }
         } else {
+            // Fallback sin post-procesado: cambiamos emissive
             if (_currentHighlighted && _currentHighlighted.material) {
                 _currentHighlighted.material.emissiveIntensity = 0;
             }
@@ -166,116 +164,29 @@ const SmartFlowRender = (function() {
             controls.target.copy(target);
             controls.update();
         }
-        _notifyUI(`Vista cambiada a: ${type.toUpperCase()}`, false);
     }
     
-    // ==================== 6. PUENTE CON LA UI (PANEL DE INFORMACIÓN) ====================
-    function createInfoPanel() {
-        let panel = document.getElementById('selectionInfo');
-        if (!panel) {
-            panel = document.createElement('div');
-            panel.id = 'selectionInfo';
-            panel.style.cssText = `
-                position: fixed; bottom: 80px; right: 20px;
-                background: rgba(15, 23, 42, 0.9); backdrop-filter: blur(8px);
-                border: 1px solid #00f2ff; border-radius: 8px;
-                padding: 12px; font-family: 'Courier New', monospace;
-                font-size: 12px; color: #e0e6ed; width: 280px;
-                pointer-events: none; z-index: 1000;
-                box-shadow: 0 4px 15px rgba(0,0,0,0.5);
-            `;
-            document.body.appendChild(panel);
-        }
-        return panel;
-    }
-    
-    function updateInfoPanel(selected) {
-        if (!_infoPanel) _infoPanel = createInfoPanel();
-        if (selected && selected.obj) {
-            const obj = selected.obj;
-            const pos = { x: obj.posX || 0, y: obj.posY || 0, z: obj.posZ || 0 };
-            _infoPanel.innerHTML = `
-                <div style="color: #00f2ff; font-weight: bold; border-bottom: 1px solid #334155; margin-bottom: 8px; padding-bottom: 4px;">
-                    📌 ${obj.tag}
-                </div>
-                <div><span style="color:#94a3b8;">TIPO:</span> ${selected.type.toUpperCase()}</div>
-                <div><span style="color:#94a3b8;">MATERIAL:</span> ${obj.material || 'N/A'}</div>
-                <div><span style="color:#94a3b8;">DIÁMETRO:</span> ${obj.diameter || obj.diametro || '-'}"</div>
-                <div><span style="color:#94a3b8;">POSICIÓN:</span> X:${Math.round(pos.x)} Y:${Math.round(pos.y)} Z:${Math.round(pos.z)}</div>
-                ${obj.spec ? `<div><span style="color:#94a3b8;">SPEC:</span> ${obj.spec}</div>` : ''}
-                ${obj.puertos ? `<div style="margin-top:6px;"><span style="color:#94a3b8;">PUERTOS:</span> ${obj.puertos.map(p => p.id).join(', ')}</div>` : ''}
-            `;
-        } else {
-            _infoPanel.innerHTML = `
-                <div style="color: #00f2ff; font-weight: bold; border-bottom: 1px solid #334155; margin-bottom: 8px;">
-                    🔍 SIN SELECCIÓN
-                </div>
-                <div style="color:#94a3b8;">Haga clic en un equipo o tubería para ver sus propiedades técnicas.</div>
-            `;
-        }
-    }
-    
-    function initUIBridge() {
-        if (!_core) return;
-        _infoPanel = createInfoPanel();
-        _core.subscribe(() => {
-            const selected = _core.getSelected();
-            updateInfoPanel(selected);
-            updateSelectionHighlight();
-        });
-    }
-    
-    // ==================== 7. INICIALIZACIÓN CON ANIMACIÓN SUAVE ====================
+    // ==================== 6. INICIALIZACIÓN ====================
     function init(coreInstance) {
         _core = coreInstance;
         if (!_core) return;
+        
         setupEffects();
-        initUIBridge();
         
-        // Reemplazar el bucle de animación del Core para interpolar cámara
-        const originalAnimate = _core.getAnimate();
-        if (originalAnimate) {
-            const newAnimate = () => {
-                if (_isAnimating) {
-                    const camera = _core.getCamera();
-                    const controls = _core.getControls();
-                    camera.position.lerp(_targetPos, _transitionSpeed);
-                    controls.target.lerp(_targetLookAt, _transitionSpeed);
-                    controls.update();
-                    if (camera.position.distanceTo(_targetPos) < 1) {
-                        _isAnimating = false;
-                    }
-                } else {
-                    if (_core.getControls()) _core.getControls().update();
-                }
-                if (_composer) _composer.render();
-                requestAnimationFrame(newAnimate);
-            };
-            _core.setAnimate(newAnimate);
-        } else {
-            console.warn("No se pudo reemplazar el bucle de animación del Core");
-        }
+        // Suscribirse a cambios de selección para resaltar
+        _core.subscribe(() => {
+            updateSelectionHighlight();
+        });
         
-        window.set3DView = setView;
-        console.log("✔ SmartFlowRender v6.3 listo (zoom suave, focusOnObject y fitCameraToEquipments)");
-    }
-    
-    // ==================== 8. NOTIFICACIÓN INTERNA ====================
-    function _notifyUI(msg, isErr) {
-        const statusEl = document.getElementById('statusMsg');
-        if (statusEl) {
-            statusEl.innerText = msg;
-            statusEl.style.color = isErr ? '#ef4444' : '#00f2ff';
-        }
-        console.log(msg);
+        console.log("✔ SmartFlowRender v7.0 listo (zoom suave, fitCamera, vistas)");
     }
     
     // ==================== API PÚBLICA ====================
     return {
-        init: init,
-        setView: setView,
-        fitCameraToEquipments: fitCameraToEquipments,
-        updateSelectionHighlight: updateSelectionHighlight,
+        init,
+        setView,
+        fitCameraToEquipments,
+        updateSelectionHighlight,
         getComposer: () => _composer,
         getOutlinePass: () => _outlinePass
     };
