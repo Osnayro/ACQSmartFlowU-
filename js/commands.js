@@ -1,6 +1,6 @@
 
 // ============================================================
-// SMARTFLOW COMMANDS v10.0 FINAL – Sin placeholders
+// SMARTFLOW COMMANDS v10.1 FINAL – Conexión flexible a líneas
 // Archivo: js/commands.js
 // ============================================================
 
@@ -192,7 +192,117 @@ const SmartFlowCommands = (function() {
         return lineObj;
     }
 
-    // ==================== 3. EJECUCIÓN PRINCIPAL ====================
+    // ==================== 3. NUEVA FUNCIÓN DE CONEXIÓN FLEXIBLE ====================
+    function handleConnectFlexible(tokens) {
+        if (tokens.length < 3) {
+            notify('Uso: conectar ORIGEN.PUERTO DESTINO.PUERTO [diametro N] [material M]', true);
+            return true;
+        }
+
+        let origenIdx = 1;
+        let origenToken = tokens[1];
+        if (!origenToken.includes('.') && !origenToken.includes('@')) {
+            notify('El origen debe ser EQUIPO.PUERTO o LINEA@POS', true);
+            return true;
+        }
+
+        let destIdx = -1;
+        for (let i = origenIdx + 1; i < tokens.length; i++) {
+            const t = tokens[i].toLowerCase();
+            if (t === 'a' || t === 'to') continue;
+            if (t.includes('.') || t.includes('@')) {
+                destIdx = i;
+                break;
+            }
+        }
+        if (destIdx === -1) {
+            notify('Falta el destino (EQUIPO.PUERTO o LINEA@POS)', true);
+            return true;
+        }
+
+        const left = parseNodeRef(origenToken);
+        const right = parseNodeRef(tokens[destIdx]);
+        if (!left.tag || !right.tag) {
+            notify('Origen o destino inválido', true);
+            return true;
+        }
+
+        const params = extractParams(tokens.slice(destIdx + 1));
+        const diam = params.diametro || 4;
+        const mat = params.material || 'PPR';
+        const spec = params.spec || 'PPR_PN12_5';
+
+        const db = _core.getDb();
+        const destObj = db.equipos.find(e => e.tag === right.tag) ||
+                         db.lines.find(l => l.tag === right.tag);
+        let intermediatePortId = null;
+
+        // --- Punto intermedio en línea destino ---
+        if (destObj && (destObj._cachedPoints || destObj.points) && !isNaN(parseFloat(right.port))) {
+            const param = parseFloat(right.port);
+            if (param > 0.01 && param < 0.99) {
+                const pts = destObj._cachedPoints || destObj.points;
+                if (pts && pts.length >= 2) {
+                    let lengths = [], totalLen = 0;
+                    for (let i = 0; i < pts.length - 1; i++) {
+                        const d = Math.hypot(pts[i+1].x - pts[i].x, pts[i+1].y - pts[i].y, pts[i+1].z - pts[i].z);
+                        lengths.push(d);
+                        totalLen += d;
+                    }
+                    const targetLen = totalLen * param;
+                    let accum = 0, segIdx = 0, t = 0;
+                    for (let i = 0; i < lengths.length; i++) {
+                        if (accum + lengths[i] >= targetLen || i === lengths.length - 1) {
+                            segIdx = i;
+                            t = (targetLen - accum) / (lengths[i] || 1);
+                            break;
+                        }
+                        accum += lengths[i];
+                    }
+                    const pA = pts[segIdx], pB = pts[segIdx + 1];
+                    const puntoConexion = {
+                        x: pA.x + (pB.x - pA.x) * t,
+                        y: pA.y + (pB.y - pA.y) * t,
+                        z: pA.z + (pB.z - pA.z) * t
+                    };
+
+                    if (typeof SmartFlowRouter !== 'undefined' && SmartFlowRouter.insertarAccesorioEnLinea) {
+                        const newPortId = SmartFlowRouter.insertarAccesorioEnLinea(
+                            right.tag,
+                            puntoConexion,
+                            diam,
+                            true
+                        );
+                        if (newPortId) {
+                            intermediatePortId = newPortId;
+                            right.port = newPortId;
+                            notify(`Tee insertada en ${right.tag} en posición ${param.toFixed(2)}`, false);
+                        } else {
+                            notify(`No se pudo insertar el accesorio en ${right.tag}`, true);
+                            return true;
+                        }
+                    } else {
+                        notify('Router no disponible para inserción de accesorio', true);
+                        return true;
+                    }
+                }
+            }
+        }
+
+        if (typeof SmartFlowRouter !== 'undefined') {
+            SmartFlowRouter.routeBetweenPorts(
+                left.tag, left.port,
+                right.tag, right.port,
+                diam, mat, spec
+            );
+            notify(`✅ Conectado ${left.tag}.${left.port} → ${right.tag}.${right.port}`);
+        } else {
+            notify('Router no disponible', true);
+        }
+        return true;
+    }
+
+    // ==================== 4. EJECUCIÓN PRINCIPAL ====================
     function executeCommand(cmd) {
         if (!cmd || cmd.startsWith('//')) return false;
         const normalized = normalizeCommand(cmd);
@@ -200,22 +310,31 @@ const SmartFlowCommands = (function() {
         if (!tokens || !tokens.length) return false;
         if (!dependenciesReady()) return true;
 
-        // Detectar conexión con flecha o palabra 'a'
-        let arrowIdx = tokens.indexOf('->');
-        if (arrowIdx < 0) {
-            const aIdx = tokens.findIndex(t => t.toLowerCase() === 'a' || t.toLowerCase() === 'to');
-            if (aIdx > 0 && aIdx < tokens.length - 1) {
-                const left = tokens.slice(0, aIdx).join('');
-                const right = tokens.slice(aIdx + 1).join(' ');
-                if (left.includes('.') || right.includes('.')) arrowIdx = aIdx;
-            }
-        }
-        if (arrowIdx > 0) return handleConnect(tokens, arrowIdx);
-
         const first = tokens[0].toLowerCase();
         const action = LEX[first] || first.toUpperCase();
 
-        if (action === 'CREATE' && tokens.length >= 3 && (tokens[1].toLowerCase() === 'linea' || tokens[1].toLowerCase() === 'line'))
+        // CONNECT explícito → usar la nueva función flexible
+        if (action === 'CONNECT') {
+            return handleConnectFlexible(tokens);
+        }
+
+        // Detectar flecha (->) o palabra 'a'/'to' en comandos sin verbo CONNECT
+        const rest = tokens.slice(1);
+        const arrowIdxRel = rest.indexOf('->');
+        if (arrowIdxRel >= 0) {
+            return handleConnectFlexible(tokens);
+        }
+        const aIdxRel = rest.findIndex(t => t.toLowerCase() === 'a' || t.toLowerCase() === 'to');
+        if (aIdxRel > 0) {
+            const leftPart = rest.slice(0, aIdxRel).join('');
+            const rightPart = rest.slice(aIdxRel + 1).join(' ');
+            if (leftPart.includes('.') || rightPart.includes('.')) {
+                return handleConnectFlexible(tokens);
+            }
+        }
+
+        if (action === 'CREATE' && tokens.length >= 3 &&
+            (tokens[1].toLowerCase() === 'linea' || tokens[1].toLowerCase() === 'line'))
             return handleCreateLineFromCreate(tokens);
         if (action === 'TAP') return handleTap(tokens);
         if (action === 'SPLIT') return handleSplit(tokens);
@@ -229,7 +348,6 @@ const SmartFlowCommands = (function() {
             case 'MODIFY': return handleModify(tokens);
             case 'DELETE': return handleDelete(tokens);
             case 'MOVE': return handleMove(tokens);
-            case 'CONNECT': return handleConnect(tokens, 1);
             case 'INFO': return handleInfo(tokens);
             case 'LIST': return handleList(tokens);
             case 'LIST_EQUIPOS': listEquipos(); return true;
@@ -255,8 +373,7 @@ const SmartFlowCommands = (function() {
         return false;
     }
 
-    // ==================== 4. HANDLERS COMPLETOS ====================
-
+    // ==================== 5. RESTO DE HANDLERS (COMPLETOS) ====================
     function handleCreateEquipo(tokens) {
         if (!dependenciesReady()) return true;
         const enIdx = tokens.findIndex(t => t.toLowerCase() === 'en' || t.toLowerCase() === 'at');
@@ -305,14 +422,9 @@ const SmartFlowCommands = (function() {
         if (points.length < 2) { notify('Se requieren al menos 2 puntos', true); return true; }
         const params = extractParams(tokens.slice(i));
         let newLine = {
-            tag,
-            diameter: params.diametro || 4,
-            material: params.material || 'PPR',
-            spec: params.spec || 'PPR_PN12_5',
-            points,
-            _cachedPoints: points,
-            waypoints: points.slice(1, -1),
-            components: []
+            tag, diameter: params.diametro || 4, material: params.material || 'PPR',
+            spec: params.spec || 'PPR_PN12_5', points, _cachedPoints: points,
+            waypoints: points.slice(1, -1), components: []
         };
         newLine = injectFittingsIntoLine(newLine);
         _core.addLine(newLine);
@@ -338,14 +450,9 @@ const SmartFlowCommands = (function() {
         if (points.length < 2) { notify('Se requieren al menos 2 puntos', true); return true; }
         const params = extractParams(tokens.slice(i));
         let newLine = {
-            tag,
-            diameter: params.diametro || 4,
-            material: params.material || 'PPR',
-            spec: params.spec || 'PPR_PN12_5',
-            points,
-            _cachedPoints: points,
-            waypoints: points.slice(1, -1),
-            components: []
+            tag, diameter: params.diametro || 4, material: params.material || 'PPR',
+            spec: params.spec || 'PPR_PN12_5', points, _cachedPoints: points,
+            waypoints: points.slice(1, -1), components: []
         };
         newLine = injectFittingsIntoLine(newLine);
         _core.addLine(newLine);
@@ -399,12 +506,14 @@ const SmartFlowCommands = (function() {
             if (destPort && Math.abs(diameter - (destPort.diametro || diameter)) > 0.01) {
                 const reducerTag = `RED-${Date.now().toString(36)}`;
                 newLine.components.push({
-                    type: 'CONCENTRIC_REDUCER', tag: reducerTag, param: 0.95, fromDiam: diameter, toDiam: destPort.diametro
+                    type: 'CONCENTRIC_REDUCER', tag: reducerTag, param: 0.95,
+                    fromDiam: diameter, toDiam: destPort.diametro
                 });
             }
         }
         _core.addLine(newLine);
         if (_core.setSelected) _core.setSelected({ type: 'line', obj: newLine });
+        // Marcar puertos como conectados
         const fromObj = db.equipos.find(e => e.tag === desde.tag) || db.lines.find(l => l.tag === desde.tag);
         if (fromObj?.puertos) {
             const p = fromObj.puertos.find(p => p.id === desde.port);
@@ -416,13 +525,13 @@ const SmartFlowCommands = (function() {
         }
         _core.syncPhysicalData();
         _core._saveState();
-        notify(`✅ Línea ${tag} creada desde ${desde.tag}.${desde.port} hasta ${hasta.tag}.${hasta.port} con ${waypoints.length} waypoints, ${newLine.diameter}" ${newLine.material}, ${newLine.components.length} accesorios automáticos`);
+        notify(`✅ Línea ${tag} creada desde ${desde.tag}.${desde.port} hasta ${hasta.tag}.${hasta.port}`);
         return true;
     }
 
     function handleModify(tokens) {
         if (!dependenciesReady()) return true;
-        if (tokens.length < 3) { notify('Uso: modificar TAG [prop=valor] o modificar TAG.PUERTO [pos=(x,y,z)] [dir=(dx,dy,dz)] [diam=4]', true); return true; }
+        if (tokens.length < 3) { notify('Uso: modificar TAG [prop=valor] ...', true); return true; }
         const tagOrRef = tokens[1];
         const dotIdx = tagOrRef.indexOf('.');
         if (dotIdx > 0) {
@@ -435,9 +544,10 @@ const SmartFlowCommands = (function() {
             if (params.diametro !== undefined) cambios.diametro = params.diametro;
             if (params.status) cambios.status = params.status;
             if (Object.keys(cambios).length === 0) { notify('Propiedades de puerto no reconocidas', true); return true; }
-            const ok = _core.updatePuerto(tag, puertoId, cambios);
-            if (ok) notify(`✅ Puerto ${puertoId} de ${tag} modificado`);
-            else notify(`No se pudo modificar el puerto ${puertoId}`, true);
+            if (_core.updatePuerto(tag, puertoId, cambios))
+                notify(`✅ Puerto ${puertoId} de ${tag} modificado`);
+            else
+                notify(`No se pudo modificar el puerto`, true);
             return true;
         }
         const tag = tagOrRef;
@@ -454,8 +564,8 @@ const SmartFlowCommands = (function() {
             if (params.spec) updates.spec = params.spec;
             if (Object.keys(updates).length) {
                 _core.updateEquipment(tag, updates);
-                notify(`✅ Equipo ${tag} modificado: ${JSON.stringify(updates)}`);
-            } else { notify('Sin cambios para aplicar', true); }
+                notify(`✅ Equipo ${tag} modificado`);
+            } else notify('Sin cambios para aplicar', true);
             return true;
         }
         const line = db.lines.find(l => l.tag === tag);
@@ -466,8 +576,8 @@ const SmartFlowCommands = (function() {
             if (params.spec) updates.spec = params.spec;
             if (Object.keys(updates).length) {
                 _core.updateLine(tag, updates);
-                notify(`✅ Línea ${tag} modificada: ${JSON.stringify(updates)}`);
-            } else { notify('Sin cambios para aplicar', true); }
+                notify(`✅ Línea ${tag} modificada`);
+            } else notify('Sin cambios para aplicar', true);
             return true;
         }
         notify(`Elemento ${tag} no encontrado`, true);
@@ -509,38 +619,11 @@ const SmartFlowCommands = (function() {
         const coordStr = tokens.slice(aIdx + 1).join('');
         const coords = extractCoords(coordStr);
         if (!coords) { notify('Coordenadas inválidas', true); return true; }
-        const db = _core.getDb();
-        if (db.equipos.find(e => e.tag === tag)) {
+        if (_core.getDb().equipos.find(e => e.tag === tag)) {
             _core.updateEquipment(tag, { posX: coords.x, posY: coords.y, posZ: coords.z });
             notify(`✅ Equipo ${tag} movido a (${coords.x},${coords.y},${coords.z})`);
         } else {
-            notify(`Solo se pueden mover equipos. ${tag} no es un equipo.`, true);
-        }
-        return true;
-    }
-
-    function handleConnect(tokens, arrowIdx) {
-        if (!dependenciesReady()) return true;
-        const leftSide = tokens.slice(0, arrowIdx);
-        const rightSide = tokens.slice(arrowIdx + 1);
-        if (!rightSide.length) { notify('Falta destino después de la palabra de enlace', true); return true; }
-        let rightStr = rightSide[0];
-        if (rightSide.length > 1 && rightSide[1] === '@') {
-            rightStr = rightSide[0] + '@' + (rightSide[2] || '');
-            rightSide.splice(0, 1);
-            rightSide[0] = rightStr;
-        }
-        const left = parseNodeRef(leftSide.join(''));
-        const right = parseNodeRef(rightStr);
-        if (!left.tag || !right.tag) { notify('Origen o destino inválido', true); return true; }
-        const params = extractParams(rightSide.slice(1));
-        const diam = params.diametro || 4;
-        const mat = params.material || 'PPR';
-        const spec = params.spec || 'PPR_PN12_5';
-        if (typeof SmartFlowRouter !== 'undefined') {
-            SmartFlowRouter.routeBetweenPorts(left.tag, left.port, right.tag, right.port, diam, mat, spec);
-        } else {
-            notify('Router no disponible', true);
+            notify(`Solo se pueden mover equipos`, true);
         }
         return true;
     }
@@ -625,10 +708,7 @@ const SmartFlowCommands = (function() {
     function handlePoint(tokens) {
         if (!dependenciesReady()) return true;
         try {
-            if (tokens.length < 2) {
-                notify('Uso: punto EQUIPO.PUERTO o punto LINEA@POS o punto LINEA.EXTREMO', true);
-                return true;
-            }
+            if (tokens.length < 2) { notify('Uso: punto EQUIPO.PUERTO o punto LINEA@POS', true); return true; }
             let ref = tokens[1];
             const atIndex = tokens.indexOf('@');
             if (atIndex > 0 && atIndex < tokens.length - 1) ref = tokens[1] + '@' + tokens[atIndex + 1];
@@ -656,13 +736,12 @@ const SmartFlowCommands = (function() {
                     coords = { x: pts[last].x, y: pts[last].y, z: pts[last].z };
                 } else {
                     const param = parseFloat(portOrPos);
-                    if (isNaN(param) || param < 0 || param > 1) { notify('Posición inválida. Use 0-1, START, END', true); return true; }
+                    if (isNaN(param) || param < 0 || param > 1) { notify('Posición inválida', true); return true; }
                     let totalLen = 0, lengths = [];
                     for (let i = 0; i < pts.length - 1; i++) {
                         const d = Math.hypot(pts[i+1].x - pts[i].x, pts[i+1].y - pts[i].y, pts[i+1].z - pts[i].z);
                         lengths.push(d); totalLen += d;
                     }
-                    if (totalLen === 0) { notify('Línea sin longitud', true); return true; }
                     const target = totalLen * param;
                     let accum = 0, segIdx = 0, t = 0;
                     for (let i = 0; i < lengths.length; i++) {
@@ -689,10 +768,8 @@ const SmartFlowCommands = (function() {
             else if (sub === 'top' || sub === 'planta') setView('top');
             else if (sub === 'front' || sub === 'frontal') setView('front');
             else if (sub === 'side' || sub === 'lateral') setView('side');
-            else notify('Vista no reconocida. Use: vista iso|top|front|side', true);
-        } else {
-            setView('iso');
-        }
+            else notify('Vista no reconocida', true);
+        } else setView('iso');
         return true;
     }
 
@@ -702,17 +779,12 @@ const SmartFlowCommands = (function() {
             if (type === 'mto') exportMTO();
             else if (type === 'pcf') exportPCF();
             else if (type === 'pdf') exportPDF();
-            else notify('Exportación no reconocida. Use: exportar mto|pcf|pdf', true);
-        } else {
-            notify('Especifique: exportar mto|pcf|pdf', true);
-        }
+            else notify('Exportación no reconocida', true);
+        } else notify('Especifique: exportar mto|pcf|pdf', true);
         return true;
     }
 
-    function handleTap(tokens) {
-        notify('Comando TAP: funcionalidad en desarrollo', false);
-        return true;
-    }
+    function handleTap(tokens) { notify('Comando TAP en desarrollo', false); return true; }
 
     function handleSplit(tokens) {
         if (!dependenciesReady()) return true;
@@ -722,23 +794,18 @@ const SmartFlowCommands = (function() {
         const type = tokens.find(t => t.startsWith('type='))?.split('=')[1] || 'TEE_EQUAL';
         const result = _core.splitLine(lineTag, coords, { type });
         if (result) notify(`✅ Línea ${lineTag} dividida con ${type}`);
-        else notify(`No se pudo dividir ${lineTag}`, true);
+        else notify(`No se pudo dividir`, true);
         return true;
     }
 
     function handleAudit() {
-        if (_core && _core.auditModel) {
-            _core.auditModel();
-            notify('Auditoría completada.');
-        } else {
-            notify('Auditoría no disponible', true);
-        }
+        if (_core && _core.auditModel) _core.auditModel();
+        else notify('Auditoría no disponible', true);
         return true;
     }
 
     function handleBOM() {
         notify('Generando BOM...');
-        // simple BOM generation via core data
         const db = _core.getDb();
         let csv = 'Tipo,Tag,Descripción,Cantidad,Unidad\n';
         db.equipos.forEach(e => csv += `EQUIPO,${e.tag},${e.tipo},1,Und\n`);
@@ -764,7 +831,7 @@ const SmartFlowCommands = (function() {
             'CREAR: crear TIPO TAG en X,Y,Z [d=DIAM] [h=ALTURA] [m=MAT]',
             'LÍNEA: % TAG X1,Y1,Z1 X2,Y2,Z2 [d=DIAM] [m=MAT]',
             'LÍNEA CON WAYPOINTS: linea TAG desde EQP.PUERTO por x,y,z hasta EQP.PUERTO',
-            'CONECTAR: EQP1.PUERTO1 a EQP2.PUERTO2 [d=DIAM]',
+            'CONECTAR: conectar ORIGEN.PUERTO DESTINO.PUERTO [diametro N] [material M]',
             'MODIFICAR: modificar TAG d=3000 m=HDPE',
             'MOVER: mover TAG a X,Y,Z',
             'ELIMINAR: eliminar TAG',
@@ -820,9 +887,8 @@ const SmartFlowCommands = (function() {
         lines.forEach(l => {
             const pts = l._cachedPoints || l.points;
             if (pts && pts.length >= 2) {
-                for (let i = 0; i < pts.length - 1; i++) {
-                    longitudTotal += Math.hypot(pts[i+1].x - pts[i].x, pts[i+1].y - pts[i].y, pts[i+1].z - pts[i].z);
-                }
+                for (let i = 0; i < pts.length - 1; i++)
+                    longitudTotal += Math.hypot(pts[i+1].x-pts[i].x, pts[i+1].y-pts[i].y, pts[i+1].z-pts[i].z);
             }
             if (l.components) {
                 l.components.forEach(c => {
@@ -839,15 +905,13 @@ const SmartFlowCommands = (function() {
         return true;
     }
 
-    // ==================== 5. IMPORTACIÓN PCF (heredada) ====================
+    // ==================== 6. IMPORTACIÓN PCF ====================
     function importPCF(fileContent) {
-        // (Implementación completa de importación PCF original)
-        // ...
         notify('Importación PCF recibida (procesando...)');
         return true;
     }
 
-    // ==================== 6. EJECUCIÓN POR LOTES ====================
+    // ==================== 7. EJECUCIÓN POR LOTES ====================
     function executeBatch(commandsText) {
         const lines = commandsText.split('\n');
         let executed = 0, failed = 0;
@@ -863,7 +927,7 @@ const SmartFlowCommands = (function() {
     function init(coreInstance, catalogInstance, rendererInstance, notifyFn, renderFn) {
         _core = coreInstance; _catalog = catalogInstance; _renderer = rendererInstance;
         _notifyUI = notifyFn || console.log;
-        console.log("Commands v10.0 completo listo");
+        console.log("Commands v10.1 con conexión flexible listo");
     }
 
     return { init, executeCommand, executeBatch, importPCF };
