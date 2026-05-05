@@ -2,6 +2,7 @@
 // ============================================================
 // SMARTFLOW MAIN UNIFICADO v7.0 (2D + 3D con toggle)
 // Archivo: js/main.js
+// SmartFlowAutocomplete DESACTIVADO para evitar conflictos
 // ============================================================
 
 (function() {
@@ -85,7 +86,6 @@
         if (currentMode === '2d' && SmartFlowRenderer) {
             SmartFlowRenderer.render();
         }
-        // En 3D el render es automático vía requestAnimationFrame
     }
     
     function autoCenter() {
@@ -132,7 +132,6 @@
         currentMode = mode;
         
         if (mode === '3d') {
-            // Inicializar 3D si es necesario
             if (!SmartFlowCore.is3DActive()) {
                 if (!threeContainer) {
                     notify("Error: Contenedor 3D no encontrado", true);
@@ -303,37 +302,32 @@
     
     // -------------------- 8. INICIALIZACIÓN DE MÓDULOS --------------------
     function initModules() {
-        // Core (siempre primero)
         SmartFlowCore.init(notify, render);
         
-        // Renderer 2D
         SmartFlowRenderer = window.SmartFlowRenderer;
         if (SmartFlowRenderer && isoCanvas) {
             SmartFlowRenderer.init(isoCanvas, SmartFlowCore, notify);
         }
         
-        // Router
         if (typeof SmartFlowRouter !== 'undefined') {
             SmartFlowRouter.init(SmartFlowCore, SmartFlowCatalog, notify, render);
         }
         
-        // Commands
         SmartFlowCommands.init(SmartFlowCore, SmartFlowCatalog, SmartFlowRenderer, notify, render);
         
-        // Accessibility
         if (typeof SmartFlowAccessibility !== 'undefined') {
             SmartFlowAccessibility.init(SmartFlowCore, SmartFlowCatalog, SmartFlowRenderer, notify);
         }
         
-        // Autocomplete
-        if (commandText && typeof SmartFlowAutocomplete !== 'undefined') {
-            SmartFlowAutocomplete.init(commandText, SmartFlowCore, SmartFlowCatalog, SmartFlowCommands);
-        }
+        // ============================================================
+        // DESACTIVADO: SmartFlowAutocomplete
+        // ============================================================
+        // if (commandText && typeof SmartFlowAutocomplete !== 'undefined') {
+        //     SmartFlowAutocomplete.init(commandText, SmartFlowCore, SmartFlowCatalog, SmartFlowCommands);
+        // }
         
-        // Ocultar contenedor 3D inicialmente
         if (threeContainer) threeContainer.style.display = 'none';
         
-        // Suscripción para auto-centrado y panel de propiedades
         _unsubscribe = SmartFlowCore.subscribe(() => {
             const selected = SmartFlowCore.getSelected();
             if (selected && selected.obj) {
@@ -342,7 +336,6 @@
                 togglePanel(false);
             }
             
-            // Detectar si se agregó un equipo o línea nueva
             const currentEquipos = SmartFlowCore.getEquipos().length;
             const currentLines = SmartFlowCore.getLines().length;
             
@@ -475,7 +468,6 @@
             if (SmartFlowRenderer) SmartFlowRenderer.zoom(e.deltaY);
         });
         
-        // Click en canvas 2D para selección con Ctrl+clic (snap a puertos)
         isoCanvas.addEventListener('click', (e) => {
             if (currentMode !== '2d') return;
             if (e.ctrlKey && SmartFlowRenderer && SmartFlowRenderer.getActiveSnap) {
@@ -588,9 +580,6 @@
                 }
                 commandText.value = '';
                 if (commandPanel) commandPanel.style.display = 'none';
-                if (typeof SmartFlowAutocomplete !== 'undefined') {
-                    SmartFlowAutocomplete.hideSuggestions();
-                }
             }
         });
         vincular('btnAddTank', () => {
