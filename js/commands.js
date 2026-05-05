@@ -1,6 +1,6 @@
 
 // ============================================================
-// SMARTFLOW COMMANDS v10.5 – Conexión directa + accesorios automáticos
+// SMARTFLOW COMMANDS v10.6 – Conexión directa + cálculo local de direcciones
 // Archivo: js/commands.js
 // ============================================================
 
@@ -217,7 +217,7 @@ const SmartFlowCommands = (function() {
         return null;
     }
 
-    // ==================== 4. CONEXIÓN DIRECTA (NO ROUTER) ====================
+    // ==================== 4. CONEXIÓN DIRECTA CORREGIDA ====================
     function handleConnectDirecto(tokens) {
         if (tokens.length < 3) {
             notify('Uso: conectar ORIGEN.PUERTO DESTINO.PUERTO [diametro N] [material M]', true);
@@ -264,6 +264,36 @@ const SmartFlowCommands = (function() {
         if (!fromObj) { notify(`Origen ${left.tag} no encontrado`, true); return true; }
         if (!toObj) { notify(`Destino ${right.tag} no encontrado`, true); return true; }
 
+        // ---- Función local para obtener dirección de puerto ----
+        function getPortDirectionLocal(obj, portId) {
+            if (!obj) return { dx: 1, dy: 0, dz: 0 };
+            if (obj.posX !== undefined) {
+                const puerto = obj.puertos?.find(p => p.id === portId);
+                if (puerto && puerto.orientacion) return puerto.orientacion;
+                return { dx: 1, dy: 0, dz: 0 };
+            }
+            const pts = obj._cachedPoints || obj.points3D || obj.points;
+            if (pts && pts.length >= 2) {
+                if (portId === '0') {
+                    const dx = pts[1].x - pts[0].x;
+                    const dy = pts[1].y - pts[0].y;
+                    const dz = pts[1].z - pts[0].z;
+                    const len = Math.hypot(dx, dy, dz) || 1;
+                    return { dx: dx/len, dy: dy/len, dz: dz/len };
+                }
+                if (portId === '1') {
+                    const last = pts.length - 1;
+                    const dx = pts[last].x - pts[last-1].x;
+                    const dy = pts[last].y - pts[last-1].y;
+                    const dz = pts[last].z - pts[last-1].z;
+                    const len = Math.hypot(dx, dy, dz) || 1;
+                    return { dx: dx/len, dy: dy/len, dz: dz/len };
+                }
+            }
+            return { dx: 1, dy: 0, dz: 0 };
+        }
+
+        // ---- Obtener posición de puerto origen ----
         let startPos = null;
         if (typeof SmartFlowRouter !== 'undefined') {
             startPos = SmartFlowRouter.getPortPosition(fromObj, left.port);
@@ -284,8 +314,8 @@ const SmartFlowCommands = (function() {
 
         let nuevoPuertoId = right.port;
         let endPos = null;
-        let intermediatePortId = null;
 
+        // ---- Manejo de punto intermedio en línea destino ----
         const isLineDest = toObj._cachedPoints || toObj.points3D || toObj.points;
         if (isLineDest && !isNaN(parseFloat(right.port))) {
             const param = parseFloat(right.port);
@@ -320,7 +350,6 @@ const SmartFlowCommands = (function() {
                             right.tag, puntoConexion, diam, true
                         );
                         if (newPortId) {
-                            intermediatePortId = newPortId;
                             nuevoPuertoId = newPortId;
                             toObj = db.lines.find(l => l.tag === right.tag);
                             notify(`Tee insertada en ${right.tag} en posición ${param.toFixed(2)}`, false);
@@ -336,6 +365,7 @@ const SmartFlowCommands = (function() {
             }
         }
 
+        // ---- Obtener posición del puerto destino ----
         if (typeof SmartFlowRouter !== 'undefined') {
             endPos = SmartFlowRouter.getPortPosition(toObj, nuevoPuertoId);
         }
@@ -358,8 +388,8 @@ const SmartFlowCommands = (function() {
         const directPath = [startPos, endPos];
         const newComponents = [];
 
-        // Codo en origen
-        const fromDir = SmartFlowRouter ? SmartFlowRouter.getPortDirection(fromObj, left.port) : {dx:1, dy:0, dz:0};
+        // ---- Codo en origen ----
+        const fromDir = getPortDirectionLocal(fromObj, left.port);
         const firstSeg = {
             dx: directPath[1].x - directPath[0].x,
             dy: directPath[1].y - directPath[0].y,
@@ -382,8 +412,8 @@ const SmartFlowCommands = (function() {
             }
         }
 
-        // Codo en destino
-        const toDir = SmartFlowRouter ? SmartFlowRouter.getPortDirection(toObj, nuevoPuertoId) : {dx:1, dy:0, dz:0};
+        // ---- Codo en destino ----
+        const toDir = getPortDirectionLocal(toObj, nuevoPuertoId);
         const lastSeg = {
             dx: directPath[1].x - directPath[0].x,
             dy: directPath[1].y - directPath[0].y,
@@ -406,7 +436,7 @@ const SmartFlowCommands = (function() {
             }
         }
 
-        // Reductor si destino es extremo de línea y hay diferencia de diámetros
+        // ---- Reductor si destino es extremo de línea y hay diferencia de diámetros ----
         if (isLineDest && (nuevoPuertoId === '0' || nuevoPuertoId === '1')) {
             const destDiameter = toObj.diameter || 4;
             if (Math.abs(diam - destDiameter) > 0.1) {
@@ -467,7 +497,6 @@ const SmartFlowCommands = (function() {
             return handleConnectDirecto(tokens);
         }
 
-        // Detectar conexiones sin el verbo "conectar" (flecha -> o palabra "a"/"to")
         const rest = tokens.slice(1);
         const arrowIdxRel = rest.indexOf('->');
         if (arrowIdxRel >= 0) {
@@ -522,7 +551,7 @@ const SmartFlowCommands = (function() {
         return false;
     }
 
-    // ==================== 6. RESTO DE HANDLERS ====================
+    // ==================== 6. RESTO DE HANDLERS (completos) ====================
     function handleCreateEquipo(tokens) {
         if (!dependenciesReady()) return true;
         const enIdx = tokens.findIndex(t => t.toLowerCase() === 'en' || t.toLowerCase() === 'at');
@@ -1053,7 +1082,7 @@ const SmartFlowCommands = (function() {
         return true;
     }
 
-    // ==================== 7. IMPORTACIÓN PCF Y EJECUCIÓN POR LOTES ====================
+    // ==================== 7. IMPORTACIÓN PCF Y LOTES ====================
     function importPCF(fileContent) {
         notify('Importación PCF recibida (procesando...)');
         return true;
@@ -1074,7 +1103,7 @@ const SmartFlowCommands = (function() {
     function init(coreInstance, catalogInstance, rendererInstance, notifyFn, renderFn) {
         _core = coreInstance; _catalog = catalogInstance; _renderer = rendererInstance;
         _notifyUI = notifyFn || console.log;
-        console.log("Commands v10.5 con conexión directa listo");
+        console.log("Commands v10.6 listo (conexión directa corregida)");
     }
 
     return { init, executeCommand, executeBatch, importPCF };
