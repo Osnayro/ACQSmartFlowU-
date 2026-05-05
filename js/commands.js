@@ -1,6 +1,6 @@
 
 // ============================================================
-// SMARTFLOW COMMANDS v10.6 – Conexión directa + cálculo local de direcciones
+// SMARTFLOW COMMANDS v10.7 – Conexión directa autónoma (sin router)
 // Archivo: js/commands.js
 // ============================================================
 
@@ -217,7 +217,7 @@ const SmartFlowCommands = (function() {
         return null;
     }
 
-    // ==================== 4. CONEXIÓN DIRECTA CORREGIDA ====================
+    // ==================== 4. CONEXIÓN DIRECTA AUTÓNOMA ====================
     function handleConnectDirecto(tokens) {
         if (tokens.length < 3) {
             notify('Uso: conectar ORIGEN.PUERTO DESTINO.PUERTO [diametro N] [material M]', true);
@@ -264,7 +264,6 @@ const SmartFlowCommands = (function() {
         if (!fromObj) { notify(`Origen ${left.tag} no encontrado`, true); return true; }
         if (!toObj) { notify(`Destino ${right.tag} no encontrado`, true); return true; }
 
-        // ---- Función local para obtener dirección de puerto ----
         function getPortDirectionLocal(obj, portId) {
             if (!obj) return { dx: 1, dy: 0, dz: 0 };
             if (obj.posX !== undefined) {
@@ -295,19 +294,20 @@ const SmartFlowCommands = (function() {
 
         // ---- Obtener posición de puerto origen ----
         let startPos = null;
-        if (typeof SmartFlowRouter !== 'undefined') {
-            startPos = SmartFlowRouter.getPortPosition(fromObj, left.port);
-        }
-        if (!startPos) {
-            if (fromObj.posX !== undefined) {
-                const port = fromObj.puertos?.find(p => p.id === left.port);
-                if (port) {
-                    startPos = {
-                        x: fromObj.posX + (port.relX || 0),
-                        y: fromObj.posY + (port.relY || 0),
-                        z: fromObj.posZ + (port.relZ || 0)
-                    };
-                }
+        if (fromObj.posX !== undefined) {
+            const port = fromObj.puertos?.find(p => p.id === left.port);
+            if (port) {
+                startPos = {
+                    x: fromObj.posX + (port.relX || 0),
+                    y: fromObj.posY + (port.relY || 0),
+                    z: fromObj.posZ + (port.relZ || 0)
+                };
+            }
+        } else {
+            const pts = fromObj._cachedPoints || fromObj.points3D || fromObj.points;
+            if (pts && pts.length >= 2) {
+                if (left.port === '0') startPos = pts[0];
+                else if (left.port === '1') startPos = pts[pts.length - 1];
             }
         }
         if (!startPos) { notify('No se pudo obtener la posición del puerto origen', true); return true; }
@@ -345,40 +345,66 @@ const SmartFlowCommands = (function() {
                         z: pA.z + (pB.z - pA.z) * t
                     };
 
-                    if (typeof SmartFlowRouter !== 'undefined' && SmartFlowRouter.insertarAccesorioEnLinea) {
-                        const newPortId = SmartFlowRouter.insertarAccesorioEnLinea(
-                            right.tag, puntoConexion, diam, true
-                        );
-                        if (newPortId) {
-                            nuevoPuertoId = newPortId;
-                            toObj = db.lines.find(l => l.tag === right.tag);
-                            notify(`Tee insertada en ${right.tag} en posición ${param.toFixed(2)}`, false);
-                        } else {
-                            notify(`No se pudo insertar accesorio en ${right.tag}`, true);
-                            return true;
-                        }
-                    } else {
-                        notify('Router no disponible para inserción', true);
+                    const lineMaterial = toObj.material || 'PPR';
+                    const diamLinea = toObj.diameter || 4;
+                    const diffDiam = Math.abs(diam - diamLinea) > 0.1;
+
+                    let tipoAccesorio = diffDiam ? 'TEE_REDUCING' : 'TEE';
+                    let compId = findComponentInCatalogDirect(tipoAccesorio, lineMaterial);
+                    if (!compId) {
+                        notify(`No se encontró componente para tee en ${toObj.tag}`, true);
                         return true;
                     }
+
+                    const compDef = SmartFlowCatalog.getComponent(compId);
+                    if (!compDef || !compDef.generarPuertos) {
+                        notify(`El componente ${compId} no tiene generador de puertos`, true);
+                        return true;
+                    }
+
+                    const accesorioDef = { tag: compId, generarPuertos: compDef.generarPuertos };
+                    const result = _core.injectAccessory(right.tag, param, accesorioDef);
+                    if (!result) {
+                        notify(`No se pudo insertar ${compId} en ${right.tag}`, true);
+                        return true;
+                    }
+
+                    toObj = db.lines.find(l => l.tag === right.tag);
+                    if (toObj) {
+                        if (!toObj.components) toObj.components = [];
+                        toObj.components.push({
+                            type: compId,
+                            tag: _core.generateShortTag ? _core.generateShortTag(compId) : (compId + '-' + Date.now().toString(36)),
+                            param: param
+                        });
+                        _core.updateLine(right.tag, { components: toObj.components });
+                    }
+
+                    const lineaActualizada = db.lines.find(l => l.tag === right.tag);
+                    if (lineaActualizada && lineaActualizada.puertos && lineaActualizada.puertos.length > 0) {
+                        nuevoPuertoId = lineaActualizada.puertos[lineaActualizada.puertos.length - 1].id;
+                    }
+                    notify(`Tee insertada en ${right.tag} en posición ${param.toFixed(2)}`, false);
                 }
             }
         }
 
         // ---- Obtener posición del puerto destino ----
-        if (typeof SmartFlowRouter !== 'undefined') {
-            endPos = SmartFlowRouter.getPortPosition(toObj, nuevoPuertoId);
-        }
-        if (!endPos) {
-            if (toObj.posX !== undefined) {
-                const port = toObj.puertos?.find(p => p.id === nuevoPuertoId);
-                if (port) {
-                    endPos = {
-                        x: toObj.posX + (port.relX || 0),
-                        y: toObj.posY + (port.relY || 0),
-                        z: toObj.posZ + (port.relZ || 0)
-                    };
-                }
+        toObj = db.equipos.find(e => e.tag === right.tag) || db.lines.find(l => l.tag === right.tag);
+        if (toObj.posX !== undefined) {
+            const port = toObj.puertos?.find(p => p.id === nuevoPuertoId);
+            if (port) {
+                endPos = {
+                    x: toObj.posX + (port.relX || 0),
+                    y: toObj.posY + (port.relY || 0),
+                    z: toObj.posZ + (port.relZ || 0)
+                };
+            }
+        } else {
+            const pts = toObj._cachedPoints || toObj.points3D || toObj.points;
+            if (pts && pts.length >= 2) {
+                if (nuevoPuertoId === '0') endPos = pts[0];
+                else if (nuevoPuertoId === '1') endPos = pts[pts.length - 1];
             }
         }
         if (!endPos) { notify('No se pudo obtener la posición del puerto destino', true); return true; }
@@ -551,7 +577,7 @@ const SmartFlowCommands = (function() {
         return false;
     }
 
-    // ==================== 6. RESTO DE HANDLERS (completos) ====================
+    // ==================== 6. HANDLERS COMPLETOS ====================
     function handleCreateEquipo(tokens) {
         if (!dependenciesReady()) return true;
         const enIdx = tokens.findIndex(t => t.toLowerCase() === 'en' || t.toLowerCase() === 'at');
@@ -1103,7 +1129,7 @@ const SmartFlowCommands = (function() {
     function init(coreInstance, catalogInstance, rendererInstance, notifyFn, renderFn) {
         _core = coreInstance; _catalog = catalogInstance; _renderer = rendererInstance;
         _notifyUI = notifyFn || console.log;
-        console.log("Commands v10.6 listo (conexión directa corregida)");
+        console.log("Commands v10.7 listo (conexión directa autónoma)");
     }
 
     return { init, executeCommand, executeBatch, importPCF };
