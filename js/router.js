@@ -1,6 +1,6 @@
 
 // ============================================================
-// MÓDULO 6: SMARTFLOW ROUTER v3.0 – Inserción visual de accesorios + distancias cortas
+// MÓDULO 6: SMARTFLOW ROUTER v3.2 – Reductor en línea nueva + auto‑codo robusto
 // Archivo: js/router.js
 // ============================================================
 
@@ -49,6 +49,10 @@ const SmartFlowRouter = (function() {
         return { x: v.x / len, y: v.y / len, z: v.z / len };
     }
     function dotProduct(v1, v2) { return v1.x * v2.x + v1.y * v2.y + v1.z * v2.z; }
+    function angleBetweenVectors(v1, v2) {
+        const dot = dotProduct(v1, v2);
+        return Math.acos(Math.min(1, Math.max(-1, dot))) * 180 / Math.PI;
+    }
     
     function projectPointOnSegment(p, a, b) {
         const ab = subtractPoints(b, a);
@@ -100,6 +104,41 @@ const SmartFlowRouter = (function() {
     }
 
     // -------------------- BÚSQUEDA DE COMPONENTES --------------------
+    function findComponentInCatalog(tipoBase, lineMaterial) {
+        ensureInitialized();
+        const catalog = _catalog || window.SmartFlowCatalog;
+        if (!catalog) return null;
+        const allTypes = catalog.listComponentTypes();
+        const mat = lineMaterial.toUpperCase();
+        let prefix = '';
+        if (mat.includes('PPR')) prefix = 'PPR';
+        else if (mat.includes('HDPE')) prefix = 'HDPE';
+        else if (mat.includes('PVC')) prefix = 'PVC';
+        else if (mat.includes('ACERO') || mat.includes('CARBONO')) prefix = 'CS';
+        else if (mat.includes('INOX')) prefix = 'SS';
+
+        // Normalizar alias: TEE -> TEE_EQUAL, REDUCER -> CONCENTRIC_REDUCER
+        let tipo = tipoBase;
+        if (tipo === 'TEE') tipo = 'TEE_EQUAL';
+        else if (tipo === 'REDUCER') tipo = 'CONCENTRIC_REDUCER';
+
+        // Generar candidatos
+        const candidates = [];
+        if (prefix) {
+            candidates.push(tipo + '_' + prefix);
+        }
+        candidates.push(tipo);
+
+        for (const c of candidates) {
+            if (allTypes.includes(c)) return c;
+        }
+        // Fallback: buscar cualquier componente que contenga el tipo
+        for (const t of allTypes) {
+            if (t.includes(tipo)) return t;
+        }
+        return null;
+    }
+
     function findElbowForLine(material, angleDeg) {
         const mat = material.toUpperCase();
         const is90 = (Math.abs(angleDeg - 90) < 10);
@@ -115,34 +154,7 @@ const SmartFlowRouter = (function() {
         return is90 ? 'ELBOW_90_LR_CS' : 'ELBOW_45_CS';
     }
 
-    function findComponentInCatalog(desiredType, lineMaterial) {
-        ensureInitialized();
-        const catalog = _catalog || window.SmartFlowCatalog;
-        if (!catalog) return null;
-        const allTypes = catalog.listComponentTypes();
-        const mat = lineMaterial.toUpperCase();
-        let prefix = '';
-        if (mat.includes('PPR')) prefix = 'PPR';
-        else if (mat.includes('HDPE')) prefix = 'HDPE';
-        else if (mat.includes('PVC')) prefix = 'PVC';
-        else if (mat.includes('ACERO') || mat.includes('CARBONO')) prefix = 'CS';
-        else if (mat.includes('INOX')) prefix = 'SS';
-
-        // Construir posibles nombres
-        const candidates = [];
-        if (prefix) candidates.push(desiredType + '_' + prefix);
-        candidates.push(desiredType); // sin prefijo
-        for (const c of candidates) {
-            if (allTypes.includes(c)) return c;
-        }
-        // Búsqueda parcial
-        for (const t of allTypes) {
-            if (t.includes(desiredType.split('_')[0])) return t;
-        }
-        return null;
-    }
-
-    // -------------------- INSERCIÓN DE ACCESORIO (CORREGIDA Y CON COMPONENTE VISUAL) --------------------
+    // -------------------- INSERCIÓN DE ACCESORIO --------------------
     function insertarAccesorioEnLinea(lineTag, puntoConexion, diametroNuevaLinea, forzarTee = false) {
         ensureInitialized();
         if (!_core) { notifyUser('Core no inicializado', true); return null; }
@@ -153,7 +165,6 @@ const SmartFlowRouter = (function() {
         const pts = linea._cachedPoints || linea.points3D || linea.points;
         if (!pts || pts.length < 2) { notifyUser(`Línea ${lineTag} sin geometría`, true); return null; }
 
-        // Calcular parámetro más cercano
         let lengths = [], totalLen = 0;
         for (let i = 0; i < pts.length - 1; i++) {
             const d = distance(pts[i], pts[i+1]);
@@ -180,9 +191,8 @@ const SmartFlowRouter = (function() {
         const esExtremo = !forzarTee && ((bestSegIdx === 0 && bestT < 0.1) || (bestSegIdx === lengths.length - 1 && bestT > 0.9));
         const lineMaterial = linea.material || 'PPR';
 
-        let tipoAccesorio = 'TEE';
-        let descripcion = 'Tee igual';
-
+        let tipoAccesorio;
+        let descripcion;
         if (esExtremo && diffDiam) {
             tipoAccesorio = 'CONCENTRIC_REDUCER';
             descripcion = `Reductor concéntrico ${diamLinea}"x${diametroNuevaLinea}"`;
@@ -206,7 +216,6 @@ const SmartFlowRouter = (function() {
             return null;
         }
 
-        // Inyectar puertos (lógica original del Core)
         const accesorioDef = { tag: compId, generarPuertos: compDef.generarPuertos };
         const result = _core.injectAccessory(lineTag, param, accesorioDef);
         if (!result) {
@@ -214,7 +223,7 @@ const SmartFlowRouter = (function() {
             return null;
         }
 
-        // ***** NUEVO: Agregar componente visual a la línea *****
+        // Agregar componente visual
         const lineaActualizada = db.lines.find(l => l.tag === lineTag);
         if (lineaActualizada) {
             if (!lineaActualizada.components) lineaActualizada.components = [];
@@ -224,10 +233,9 @@ const SmartFlowRouter = (function() {
                 param: param
             });
             _core.updateLine(lineTag, { components: lineaActualizada.components });
-            notifyUser(`✅ ${descripcion} (${compId}) insertado y visible en ${lineTag}`, false);
+            notifyUser(`✅ ${descripcion} (${compId}) insertado en ${lineTag}`, false);
         }
 
-        // Devolver el nuevo puerto (el último añadido)
         if (!lineaActualizada || !lineaActualizada.puertos) return null;
         const nuevoPuerto = lineaActualizada.puertos[lineaActualizada.puertos.length - 1];
         return nuevoPuerto.id;
@@ -248,8 +256,9 @@ const SmartFlowRouter = (function() {
         if (!startPos) { notifyUser(`Puerto origen ${fromPortId} no encontrado`, true); return null; }
 
         let endPos, nuevoPuertoId = toPortId;
+        let reductorEnNuevaLinea = null;
 
-        // --- Manejo de destino en línea ---
+        // --- Destino en línea ---
         if (toObj._cachedPoints || toObj.points3D || toObj.points) {
             const pts = toObj._cachedPoints || toObj.points3D || toObj.points;
             if (!pts || pts.length < 2) {
@@ -258,20 +267,29 @@ const SmartFlowRouter = (function() {
             }
 
             if (!toPortId || toPortId === '') {
-                // Autodetectar punto más cercano
+                // autodetectar punto más cercano
                 let minDist = Infinity, bestPoint = pts[0];
                 for (let i = 0; i < pts.length - 1; i++) {
                     const proj = projectPointOnSegment(startPos, pts[i], pts[i+1]);
-                    if (proj.distance < minDist) {
-                        minDist = proj.distance;
-                        bestPoint = proj.point;
-                    }
+                    if (proj.distance < minDist) { minDist = proj.distance; bestPoint = proj.point; }
                 }
                 const puertoInsertado = insertarAccesorioEnLinea(toEquipTag, bestPoint, diameter, true);
                 if (!puertoInsertado) return null;
                 nuevoPuertoId = puertoInsertado;
                 toObj = db.lines.find(l => l.tag === toEquipTag);
             } else if (toPortId === '0' || toPortId === '1') {
+                // Extremo: si hay diferencia de diámetros, poner reductor en la nueva línea                 const diffDiam = Math.abs(diameter - (toObj.diameter || 4)) > 0.1;
+                if (diffDiam) {
+                    const reductorId = findComponentInCatalog('CONCENTRIC_REDUCER', material);
+                    if (reductorId) {
+                        reductorEnNuevaLinea = {
+                            type: reductorId,
+                            tag: reductorId + '-' + Date.now().toString().slice(-6),
+                            param: 1.0   // al final de la nueva línea
+                        };
+                        notifyUser(`⚠️ Reductor concéntrico (${reductorId}) añadido al final de la nueva línea`, false);
+                    }
+                }
                 nuevoPuertoId = toPortId;
             } else {
                 // Punto intermedio paramétrico
@@ -283,16 +301,13 @@ const SmartFlowRouter = (function() {
                 let lengths = [], totalLen = 0;
                 for (let i = 0; i < pts.length - 1; i++) {
                     const d = distance(pts[i], pts[i+1]);
-                    lengths.push(d);
-                    totalLen += d;
+                    lengths.push(d); totalLen += d;
                 }
                 const targetLen = totalLen * param;
                 let accum = 0, segIdx = 0, t = 0;
                 for (let i = 0; i < lengths.length; i++) {
                     if (accum + lengths[i] >= targetLen || i === lengths.length - 1) {
-                        segIdx = i;
-                        t = (targetLen - accum) / (lengths[i] || 1);
-                        break;
+                        segIdx = i; t = (targetLen - accum) / (lengths[i] || 1); break;
                     }
                     accum += lengths[i];
                 }
@@ -304,7 +319,7 @@ const SmartFlowRouter = (function() {
                 };
 
                 const diffDiam = Math.abs(diameter - (toObj.diameter || 4)) > 0.1;
-                const puertoInsertado = insertarAccesorioEnLinea(toEquipTag, puntoConexion, diameter, !diffDiam);
+                const puertoInsertado = insertarAccesorioEnLinea(toEquipTag, puntoConexion, diameter, true);
                 if (!puertoInsertado) return null;
                 nuevoPuertoId = puertoInsertado;
                 toObj = db.lines.find(l => l.tag === toEquipTag);
@@ -314,7 +329,7 @@ const SmartFlowRouter = (function() {
         endPos = getPortPosition(toObj, nuevoPuertoId);
         if (!endPos) { notifyUser(`No se pudo obtener la posición del puerto destino`, true); return null; }
 
-        // --- Generar waypoints de la nueva línea ---
+        // --- Generar waypoints ---
         const startDir = normalizeVector(getPortDirection(fromObj, fromPortId));
         const extStart = 500;
         const p1 = addPoints(startPos, scalePoint(startDir, extStart));
@@ -353,9 +368,9 @@ const SmartFlowRouter = (function() {
         let uniqueWaypoints = waypoints.filter((pt, i, arr) => i === 0 || distance(pt, arr[i-1]) > 1);
         if (uniqueWaypoints.length < 2) uniqueWaypoints = [p1, p4];
 
-        const tag = `L-${db.lines.length + 1}`;
-        const nuevaLinea = {
-            tag, diameter, material, spec,
+        const newLine = {
+            tag: `L-${db.lines.length + 1}`,
+            diameter, material, spec,
             origin: { objType: fromObj.posX !== undefined ? 'equipment' : 'line', equipTag: fromEquipTag, portId: fromPortId },
             destination: { objType: toObj.posX !== undefined ? 'equipment' : 'line', equipTag: toEquipTag, portId: nuevoPuertoId },
             waypoints: uniqueWaypoints.slice(1, -1),
@@ -363,66 +378,81 @@ const SmartFlowRouter = (function() {
             components: []
         };
 
-        // --- Auto‑codos en extremos ---
-        try {
-            if (uniqueWaypoints.length >= 2 && !fromObj.posX && (fromPortId === '0' || fromPortId === '1')) {
-                const fromPortDir = getPortDirection(fromObj, fromPortId);
-                const secondPoint = uniqueWaypoints[1];
-                if (secondPoint) {
-                    const newStartDir = normalizeVector(subtractPoints(secondPoint, startPos));
-                    const angleRad = Math.acos(Math.min(1, Math.abs(dotProduct(fromPortDir, newStartDir))));
-                    const angleDeg = angleRad * 180 / Math.PI;
-                    if (angleDeg > 15) {
-                        const elbowId = findElbowForLine(material, angleDeg);
-                        if (elbowId) {
-                            nuevaLinea.components.push({
-                                type: elbowId,
-                                tag: elbowId + '-' + Date.now().toString().slice(-6),
-                                param: 0.0
-                            });
-                        }
+        // --- Auto‑codo en origen ---
+        if (uniqueWaypoints.length >= 2) {
+            const fromDirection = getPortDirection(fromObj, fromPortId);
+            const firstSegmentDir = normalizeVector(subtractPoints(uniqueWaypoints[1], uniqueWaypoints[0]));
+            const angle = angleBetweenVectors(fromDirection, firstSegmentDir);
+            if (angle > 15) {
+                const elbowId = findElbowForLine(material, angle);
+                if (elbowId) {
+                    newLine.components.push({
+                        type: elbowId,
+                        tag: elbowId + '-' + Date.now().toString().slice(-6),
+                        param: 0.0
+                    });
+                    notifyUser(`✅ Codo ${Math.round(angle)}° añadido al inicio`, false);
+                }
+            }
+        }
+
+        // --- Auto‑codo en destino (extremo o puerto de accesorio) ---
+        if (uniqueWaypoints.length >= 2) {
+            const lastIdx = uniqueWaypoints.length - 1;
+            const secondLast = uniqueWaypoints[lastIdx - 1];
+            const lastPoint = uniqueWaypoints[lastIdx];
+
+            const arrivalDir = normalizeVector(subtractPoints(lastPoint, secondLast));
+            let destDir = null;
+            if (nuevoPuertoId === '0' || nuevoPuertoId === '1') {
+                destDir = getPortDirection(toObj, nuevoPuertoId);
+            } else if (toObj.puertos) {
+                const portObj = toObj.puertos.find(p => p.id === nuevoPuertoId);
+                if (portObj && portObj.orientacion) {
+                    destDir = portObj.orientacion;
+                }
+            }
+
+            if (destDir) {
+                const angle = angleBetweenVectors(arrivalDir, destDir);
+                if (angle > 15) {
+                    const elbowId = findElbowForLine(material, angle);
+                    if (elbowId) {
+                        newLine.components.push({
+                            type: elbowId,
+                            tag: elbowId + '-' + Date.now().toString().slice(-6),
+                            param: 1.0
+                        });
+                        notifyUser(`✅ Codo ${Math.round(angle)}° añadido al final`, false);
                     }
                 }
             }
-            if (uniqueWaypoints.length >= 2 && !toObj.posX && (nuevoPuertoId === '0' || nuevoPuertoId === '1')) {
-                const toPortDir = getPortDirection(toObj, nuevoPuertoId);
-                const secondLastPoint = uniqueWaypoints[uniqueWaypoints.length - 2];
-                if (secondLastPoint) {
-                    const lastSegDir = normalizeVector(subtractPoints(endPos, secondLastPoint));
-                    const angleRad = Math.acos(Math.min(1, Math.abs(dotProduct(toPortDir, lastSegDir))));
-                    const angleDeg = angleRad * 180 / Math.PI;
-                    if (angleDeg > 15) {
-                        const elbowId = findElbowForLine(material, angleDeg);
-                        if (elbowId) {
-                            nuevaLinea.components.push({
-                                type: elbowId,
-                                tag: elbowId + '-' + Date.now().toString().slice(-6),
-                                param: 1.0
-                            });
-                        }
-                    }
-                }
-            }
-        } catch (e) {}
+        }
 
-        _core.addLine(nuevaLinea);
+        // --- Reductor en la nueva línea (si se requiere) ---
+        if (reductorEnNuevaLinea) {
+            newLine.components.push(reductorEnNuevaLinea);
+        }
 
+        _core.addLine(newLine);
+
+        // Actualizar conexiones en puertos
         if (fromObj.puertos) {
             const pFrom = fromObj.puertos.find(p => p.id === fromPortId);
-            if (pFrom) pFrom.connectedLine = tag;
+            if (pFrom) pFrom.connectedLine = newLine.tag;
         }
         if (toObj.puertos) {
             const pTo = toObj.puertos.find(p => p.id === nuevoPuertoId);
-            if (pTo) pTo.connectedLine = tag;
+            if (pTo) pTo.connectedLine = newLine.tag;
         }
 
         _core.syncPhysicalData();
         _core._saveState();
         if (typeof _renderUI === 'function') _renderUI();
-        _core.setSelected({ type: 'line', obj: nuevaLinea });
+        _core.setSelected({ type: 'line', obj: newLine });
 
-        notifyUser(`✅ Ruta creada: ${tag} (${fromEquipTag}.${fromPortId} → ${toEquipTag}.${nuevoPuertoId})`, false);
-        return nuevaLinea;
+        notifyUser(`✅ Ruta creada: ${newLine.tag} (${fromEquipTag}.${fromPortId} → ${toEquipTag}.${nuevoPuertoId})`, false);
+        return newLine;
     }
 
     function init(coreInstance, catalogInstance, notifyFn, renderFn) {
@@ -430,7 +460,7 @@ const SmartFlowRouter = (function() {
         _catalog = catalogInstance;
         _notifyUI = notifyFn || ((msg, isErr) => console.log(msg));
         _renderUI = renderFn || (() => {});
-        console.log('SmartFlow Router v3.0 listo (inserción visual + distancias cortas)');
+        console.log('SmartFlow Router v3.2 listo (reductor en nueva línea + auto‑codo robusto)');
     }
 
     return {
