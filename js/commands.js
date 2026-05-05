@@ -1,6 +1,6 @@
 
 // ============================================================
-// SMARTFLOW COMMANDS v10.1 FINAL – Conexión flexible a líneas
+// SMARTFLOW COMMANDS v10.5 – Conexión directa + accesorios automáticos
 // Archivo: js/commands.js
 // ============================================================
 
@@ -148,7 +148,7 @@ const SmartFlowCommands = (function() {
         return SmartFlowRouter.getPortPosition(obj, portId);
     }
 
-    function findElbowForMaterial(material, angleDeg) {
+    function findElbowForLine(material, angleDeg) {
         const mat = (material || '').toUpperCase();
         if (angleDeg < 15) return null;
         const is90 = angleDeg > 60;
@@ -178,11 +178,11 @@ const SmartFlowCommands = (function() {
             const v1 = { dx: seg1.dx/len1, dy: seg1.dy/len1, dz: seg1.dz/len1 };
             const v2 = { dx: seg2.dx/len2, dy: seg2.dy/len2, dz: seg2.dz/len2 };
             const angle = angleBetweenVectors(v1, v2);
-            const elbowType = findElbowForMaterial(lineObj.material || 'PPR', angle);
+            const elbowType = findElbowForLine(lineObj.material || 'PPR', angle);
             if (elbowType) {
                 comps.push({
                     type: elbowType,
-                    tag: `${elbowType}-${Date.now().toString(36)}`,
+                    tag: _core && _core.generateShortTag ? _core.generateShortTag(elbowType) : (elbowType + '-' + Date.now().toString(36)),
                     param: i / (pts.length - 1),
                     angle: Math.round(angle)
                 });
@@ -192,8 +192,33 @@ const SmartFlowCommands = (function() {
         return lineObj;
     }
 
-    // ==================== 3. NUEVA FUNCIÓN DE CONEXIÓN FLEXIBLE ====================
-    function handleConnectFlexible(tokens) {
+    // ==================== 3. BÚSQUEDA DIRECTA DE COMPONENTES ====================
+    function findComponentInCatalogDirect(tipoBase, lineMaterial) {
+        const catalog = SmartFlowCatalog;
+        if (!catalog) return null;
+        const allTypes = catalog.listComponentTypes();
+        const mat = lineMaterial.toUpperCase();
+        let prefix = '';
+        if (mat.includes('PPR')) prefix = 'PPR';
+        else if (mat.includes('HDPE')) prefix = 'HDPE';
+        else if (mat.includes('PVC')) prefix = 'PVC';
+        else if (mat.includes('ACERO') || mat.includes('CARBONO')) prefix = 'CS';
+        else if (mat.includes('INOX')) prefix = 'SS';
+
+        let tipo = tipoBase;
+        if (tipo === 'TEE') tipo = 'TEE_EQUAL';
+        else if (tipo === 'REDUCER' || tipo === 'CONCENTRIC_REDUCER') tipo = 'CONCENTRIC_REDUCER';
+
+        const candidates = [];
+        if (prefix) candidates.push(tipo + '_' + prefix);
+        candidates.push(tipo);
+        for (const c of candidates) if (allTypes.includes(c)) return c;
+        for (const t of allTypes) if (t.includes(tipo)) return t;
+        return null;
+    }
+
+    // ==================== 4. CONEXIÓN DIRECTA (NO ROUTER) ====================
+    function handleConnectDirecto(tokens) {
         if (tokens.length < 3) {
             notify('Uso: conectar ORIGEN.PUERTO DESTINO.PUERTO [diametro N] [material M]', true);
             return true;
@@ -233,15 +258,39 @@ const SmartFlowCommands = (function() {
         const spec = params.spec || 'PPR_PN12_5';
 
         const db = _core.getDb();
-        const destObj = db.equipos.find(e => e.tag === right.tag) ||
-                         db.lines.find(l => l.tag === right.tag);
+        const fromObj = db.equipos.find(e => e.tag === left.tag) || db.lines.find(l => l.tag === left.tag);
+        let toObj = db.equipos.find(e => e.tag === right.tag) || db.lines.find(l => l.tag === right.tag);
+
+        if (!fromObj) { notify(`Origen ${left.tag} no encontrado`, true); return true; }
+        if (!toObj) { notify(`Destino ${right.tag} no encontrado`, true); return true; }
+
+        let startPos = null;
+        if (typeof SmartFlowRouter !== 'undefined') {
+            startPos = SmartFlowRouter.getPortPosition(fromObj, left.port);
+        }
+        if (!startPos) {
+            if (fromObj.posX !== undefined) {
+                const port = fromObj.puertos?.find(p => p.id === left.port);
+                if (port) {
+                    startPos = {
+                        x: fromObj.posX + (port.relX || 0),
+                        y: fromObj.posY + (port.relY || 0),
+                        z: fromObj.posZ + (port.relZ || 0)
+                    };
+                }
+            }
+        }
+        if (!startPos) { notify('No se pudo obtener la posición del puerto origen', true); return true; }
+
+        let nuevoPuertoId = right.port;
+        let endPos = null;
         let intermediatePortId = null;
 
-        // --- Punto intermedio en línea destino ---
-        if (destObj && (destObj._cachedPoints || destObj.points) && !isNaN(parseFloat(right.port))) {
+        const isLineDest = toObj._cachedPoints || toObj.points3D || toObj.points;
+        if (isLineDest && !isNaN(parseFloat(right.port))) {
             const param = parseFloat(right.port);
             if (param > 0.01 && param < 0.99) {
-                const pts = destObj._cachedPoints || destObj.points;
+                const pts = toObj._cachedPoints || toObj.points3D || toObj.points;
                 if (pts && pts.length >= 2) {
                     let lengths = [], totalLen = 0;
                     for (let i = 0; i < pts.length - 1; i++) {
@@ -268,21 +317,19 @@ const SmartFlowCommands = (function() {
 
                     if (typeof SmartFlowRouter !== 'undefined' && SmartFlowRouter.insertarAccesorioEnLinea) {
                         const newPortId = SmartFlowRouter.insertarAccesorioEnLinea(
-                            right.tag,
-                            puntoConexion,
-                            diam,
-                            true
+                            right.tag, puntoConexion, diam, true
                         );
                         if (newPortId) {
                             intermediatePortId = newPortId;
-                            right.port = newPortId;
+                            nuevoPuertoId = newPortId;
+                            toObj = db.lines.find(l => l.tag === right.tag);
                             notify(`Tee insertada en ${right.tag} en posición ${param.toFixed(2)}`, false);
                         } else {
-                            notify(`No se pudo insertar el accesorio en ${right.tag}`, true);
+                            notify(`No se pudo insertar accesorio en ${right.tag}`, true);
                             return true;
                         }
                     } else {
-                        notify('Router no disponible para inserción de accesorio', true);
+                        notify('Router no disponible para inserción', true);
                         return true;
                     }
                 }
@@ -290,19 +337,122 @@ const SmartFlowCommands = (function() {
         }
 
         if (typeof SmartFlowRouter !== 'undefined') {
-            SmartFlowRouter.routeBetweenPorts(
-                left.tag, left.port,
-                right.tag, right.port,
-                diam, mat, spec
-            );
-            notify(`✅ Conectado ${left.tag}.${left.port} → ${right.tag}.${right.port}`);
-        } else {
-            notify('Router no disponible', true);
+            endPos = SmartFlowRouter.getPortPosition(toObj, nuevoPuertoId);
         }
+        if (!endPos) {
+            if (toObj.posX !== undefined) {
+                const port = toObj.puertos?.find(p => p.id === nuevoPuertoId);
+                if (port) {
+                    endPos = {
+                        x: toObj.posX + (port.relX || 0),
+                        y: toObj.posY + (port.relY || 0),
+                        z: toObj.posZ + (port.relZ || 0)
+                    };
+                }
+            }
+        }
+        if (!endPos) { notify('No se pudo obtener la posición del puerto destino', true); return true; }
+
+        // ---- Crear línea directa ----
+        const newLineTag = `L-${db.lines.length + 1}`;
+        const directPath = [startPos, endPos];
+        const newComponents = [];
+
+        // Codo en origen
+        const fromDir = SmartFlowRouter ? SmartFlowRouter.getPortDirection(fromObj, left.port) : {dx:1, dy:0, dz:0};
+        const firstSeg = {
+            dx: directPath[1].x - directPath[0].x,
+            dy: directPath[1].y - directPath[0].y,
+            dz: directPath[1].z - directPath[0].z
+        };
+        const lenFirst = Math.hypot(firstSeg.dx, firstSeg.dy, firstSeg.dz) || 1;
+        const firstSegUnit = { dx: firstSeg.dx/lenFirst, dy: firstSeg.dy/lenFirst, dz: firstSeg.dz/lenFirst };
+        const dotFrom = fromDir.dx * firstSegUnit.dx + fromDir.dy * firstSegUnit.dy + fromDir.dz * firstSegUnit.dz;
+        const angleFrom = Math.acos(Math.min(1, Math.max(-1, dotFrom))) * 180 / Math.PI;
+
+        if (angleFrom > 15) {
+            const elbowId = findElbowForLine(mat, angleFrom);
+            if (elbowId) {
+                newComponents.push({
+                    type: elbowId,
+                    tag: _core.generateShortTag ? _core.generateShortTag(elbowId) : (elbowId + '-' + Date.now().toString(36)),
+                    param: 0.0
+                });
+                notify(`Codo ${Math.round(angleFrom)}° añadido al inicio de ${newLineTag}`, false);
+            }
+        }
+
+        // Codo en destino
+        const toDir = SmartFlowRouter ? SmartFlowRouter.getPortDirection(toObj, nuevoPuertoId) : {dx:1, dy:0, dz:0};
+        const lastSeg = {
+            dx: directPath[1].x - directPath[0].x,
+            dy: directPath[1].y - directPath[0].y,
+            dz: directPath[1].z - directPath[0].z
+        };
+        const lenLast = Math.hypot(lastSeg.dx, lastSeg.dy, lastSeg.dz) || 1;
+        const lastSegUnit = { dx: lastSeg.dx/lenLast, dy: lastSeg.dy/lenLast, dz: lastSeg.dz/lenLast };
+        const dotTo = toDir.dx * lastSegUnit.dx + toDir.dy * lastSegUnit.dy + toDir.dz * lastSegUnit.dz;
+        const angleTo = Math.acos(Math.min(1, Math.max(-1, dotTo))) * 180 / Math.PI;
+
+        if (angleTo > 15) {
+            const elbowId = findElbowForLine(mat, angleTo);
+            if (elbowId) {
+                newComponents.push({
+                    type: elbowId,
+                    tag: _core.generateShortTag ? _core.generateShortTag(elbowId) : (elbowId + '-' + Date.now().toString(36)),
+                    param: 1.0
+                });
+                notify(`Codo ${Math.round(angleTo)}° añadido al final de ${newLineTag}`, false);
+            }
+        }
+
+        // Reductor si destino es extremo de línea y hay diferencia de diámetros
+        if (isLineDest && (nuevoPuertoId === '0' || nuevoPuertoId === '1')) {
+            const destDiameter = toObj.diameter || 4;
+            if (Math.abs(diam - destDiameter) > 0.1) {
+                const reductorType = findComponentInCatalogDirect('CONCENTRIC_REDUCER', mat);
+                if (reductorType) {
+                    newComponents.push({
+                        type: reductorType,
+                        tag: _core.generateShortTag ? _core.generateShortTag(reductorType) : (reductorType + '-' + Date.now().toString(36)),
+                        param: 1.0
+                    });
+                    notify(`Reductor ${destDiameter}"x${diam}" añadido al final de ${newLineTag}`, false);
+                }
+            }
+        }
+
+        const nuevaLinea = {
+            tag: newLineTag,
+            diameter: diam,
+            material: mat,
+            spec: spec,
+            origin: { objType: fromObj.posX !== undefined ? 'equipment' : 'line', equipTag: left.tag, portId: left.port },
+            destination: { objType: toObj.posX !== undefined ? 'equipment' : 'line', equipTag: right.tag, portId: nuevoPuertoId },
+            waypoints: [],
+            _cachedPoints: directPath,
+            components: newComponents
+        };
+
+        _core.addLine(nuevaLinea);
+        if (_core.setSelected) _core.setSelected({ type: 'line', obj: nuevaLinea });
+
+        if (fromObj.puertos) {
+            const pFrom = fromObj.puertos.find(p => p.id === left.port);
+            if (pFrom) pFrom.connectedLine = newLineTag;
+        }
+        if (toObj.puertos) {
+            const pTo = toObj.puertos.find(p => p.id === nuevoPuertoId);
+            if (pTo) pTo.connectedLine = newLineTag;
+        }
+
+        _core.syncPhysicalData();
+        _core._saveState();
+        notify(`✅ Conectado ${left.tag}.${left.port} → ${right.tag}.${nuevoPuertoId} (línea recta)`);
         return true;
     }
 
-    // ==================== 4. EJECUCIÓN PRINCIPAL ====================
+    // ==================== 5. EJECUCIÓN PRINCIPAL ====================
     function executeCommand(cmd) {
         if (!cmd || cmd.startsWith('//')) return false;
         const normalized = normalizeCommand(cmd);
@@ -313,23 +463,22 @@ const SmartFlowCommands = (function() {
         const first = tokens[0].toLowerCase();
         const action = LEX[first] || first.toUpperCase();
 
-        // CONNECT explícito → usar la nueva función flexible
         if (action === 'CONNECT') {
-            return handleConnectFlexible(tokens);
+            return handleConnectDirecto(tokens);
         }
 
-        // Detectar flecha (->) o palabra 'a'/'to' en comandos sin verbo CONNECT
+        // Detectar conexiones sin el verbo "conectar" (flecha -> o palabra "a"/"to")
         const rest = tokens.slice(1);
         const arrowIdxRel = rest.indexOf('->');
         if (arrowIdxRel >= 0) {
-            return handleConnectFlexible(tokens);
+            return handleConnectDirecto(tokens);
         }
         const aIdxRel = rest.findIndex(t => t.toLowerCase() === 'a' || t.toLowerCase() === 'to');
         if (aIdxRel > 0) {
             const leftPart = rest.slice(0, aIdxRel).join('');
             const rightPart = rest.slice(aIdxRel + 1).join(' ');
             if (leftPart.includes('.') || rightPart.includes('.')) {
-                return handleConnectFlexible(tokens);
+                return handleConnectDirecto(tokens);
             }
         }
 
@@ -373,7 +522,7 @@ const SmartFlowCommands = (function() {
         return false;
     }
 
-    // ==================== 5. RESTO DE HANDLERS (COMPLETOS) ====================
+    // ==================== 6. RESTO DE HANDLERS ====================
     function handleCreateEquipo(tokens) {
         if (!dependenciesReady()) return true;
         const enIdx = tokens.findIndex(t => t.toLowerCase() === 'en' || t.toLowerCase() === 'at');
@@ -513,7 +662,6 @@ const SmartFlowCommands = (function() {
         }
         _core.addLine(newLine);
         if (_core.setSelected) _core.setSelected({ type: 'line', obj: newLine });
-        // Marcar puertos como conectados
         const fromObj = db.equipos.find(e => e.tag === desde.tag) || db.lines.find(l => l.tag === desde.tag);
         if (fromObj?.puertos) {
             const p = fromObj.puertos.find(p => p.id === desde.port);
@@ -905,13 +1053,12 @@ const SmartFlowCommands = (function() {
         return true;
     }
 
-    // ==================== 6. IMPORTACIÓN PCF ====================
+    // ==================== 7. IMPORTACIÓN PCF Y EJECUCIÓN POR LOTES ====================
     function importPCF(fileContent) {
         notify('Importación PCF recibida (procesando...)');
         return true;
     }
 
-    // ==================== 7. EJECUCIÓN POR LOTES ====================
     function executeBatch(commandsText) {
         const lines = commandsText.split('\n');
         let executed = 0, failed = 0;
@@ -927,7 +1074,7 @@ const SmartFlowCommands = (function() {
     function init(coreInstance, catalogInstance, rendererInstance, notifyFn, renderFn) {
         _core = coreInstance; _catalog = catalogInstance; _renderer = rendererInstance;
         _notifyUI = notifyFn || console.log;
-        console.log("Commands v10.1 con conexión flexible listo");
+        console.log("Commands v10.5 con conexión directa listo");
     }
 
     return { init, executeCommand, executeBatch, importPCF };
