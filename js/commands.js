@@ -182,6 +182,106 @@ const SmartFlowCommands = (function() {
         return lineObj;
     }
 
+    function handleConnectEquipmentToLineMidpoint(tokens) {
+        if (!dependenciesReady()) return true;
+        
+        const fromRef = tokens[1];
+        if (tokens[2] !== 'to' && tokens[2] !== 'a') return false;
+        
+        const toRef = tokens[3];
+        
+        const percentIdx = toRef.indexOf('%');
+        if (percentIdx === -1) return false;
+        
+        const lineTag = toRef.substring(0, percentIdx);
+        const percentStr = toRef.substring(percentIdx + 1);
+        let percent = parseFloat(percentStr);
+        
+        if (percent > 1 && percent <= 100) {
+            percent = percent / 100;
+        }
+        
+        if (isNaN(percent) || percent < 0 || percent > 1) {
+            notify(`Porcentaje inválido: "${percentStr}". Use 0-100 (ej: 30 = 30%)`, true);
+            return true;
+        }
+        
+        let diameter = null;
+        let material = null;
+        let spec = null;
+        
+        for (let i = 4; i < tokens.length; i++) {
+            const p = tokens[i].toLowerCase();
+            if (p === 'diameter' || p === 'diametro' || tokens[i].startsWith('d=')) {
+                const val = tokens[i].includes('=') ? tokens[i].split('=')[1] : tokens[++i];
+                diameter = parseFloat(val);
+            } else if (p === 'material' || tokens[i].startsWith('m=')) {
+                const val = tokens[i].includes('=') ? tokens[i].split('=')[1] : tokens[++i];
+                material = val.toUpperCase();
+            } else if (p === 'spec' || tokens[i].startsWith('s=')) {
+                const val = tokens[i].includes('=') ? tokens[i].split('=')[1] : tokens[++i];
+                spec = val;
+            }
+        }
+        
+        const fromNode = parseNodeRef(fromRef);
+        if (!fromNode.tag || !fromNode.port) {
+            notify('Origen inválido. Use: EQUIPO.PUERTO (ej: TK-01.SALIDA)', true);
+            return true;
+        }
+        
+        const db = _core.getDb();
+        
+        const fromEquipo = db.equipos.find(e => e.tag === fromNode.tag);
+        if (!fromEquipo) {
+            notify(`Equipo ${fromNode.tag} no encontrado`, true);
+            return true;
+        }
+        
+        const fromPort = fromEquipo.puertos?.find(p => p.id === fromNode.port);
+        if (!fromPort) {
+            notify(`Puerto ${fromNode.port} no encontrado en ${fromNode.tag}`, true);
+            return true;
+        }
+        
+        const targetLine = db.lines.find(l => l.tag === lineTag);
+        if (!targetLine) {
+            notify(`Línea ${lineTag} no encontrada`, true);
+            return true;
+        }
+        
+        const finalDiameter = diameter || fromPort.diametro || targetLine.diameter || 4;
+        const finalMaterial = material || fromEquipo.material || targetLine.material || 'PPR';
+        const finalSpec = spec || fromEquipo.spec || targetLine.spec || 'PPR_PN12_5';
+        
+        const percentDisplay = Math.round(percent * 100);
+        notify(`🔗 Conectando ${fromNode.tag}.${fromNode.port} → ${lineTag} en ${percentDisplay}%...`, false);
+        
+        if (typeof SmartFlowRouter !== 'undefined') {
+            const result = SmartFlowRouter.routeBetweenPorts(
+                fromNode.tag,
+                fromNode.port,
+                lineTag,
+                percent.toString(),
+                finalDiameter,
+                finalMaterial,
+                finalSpec
+            );
+            
+            if (result) {
+                notify(`✅ Conectado: ${fromNode.tag}.${fromNode.port} → ${lineTag} (${percentDisplay}%)`, false);
+            } else {
+                notify('❌ Error en la conexión', true);
+            }
+        } else {
+            notify('Router no disponible', true);
+        }
+        
+        return true;
+    }
+
+// ============ FIN DE LA PARTE 1 ============
+
     function handleConnectViaRouter(originalCmd) {
         if (!dependenciesReady()) return true;
 
@@ -202,7 +302,7 @@ const SmartFlowCommands = (function() {
 
         for (let i = 4; i < parts.length; i++) {
             const p = parts[i].toLowerCase();
-            if (p === 'diameter' || p === 'diametro' || p === 'd=*' || parts[i].startsWith('d=') || parts[i].startsWith('diam=')) {
+            if (p === 'diameter' || p === 'diametro' || p === 'd=*' || parts[i].startsWith('d=')) {
                 const val = parts[i].includes('=') ? parts[i].split('=')[1] : parts[++i];
                 diameter = parseFloat(val);
             } else if (p === 'material' || p === 'm=*' || parts[i].startsWith('m=')) {
@@ -237,7 +337,14 @@ const SmartFlowCommands = (function() {
         const firstWord = normalized.trim().split(/\s+/)[0].toLowerCase();
         const action = LEX[firstWord] || firstWord.toUpperCase();
 
-        if (action === 'CONNECT') return handleConnectViaRouter(normalized);
+        if (action === 'CONNECT') {
+            const tokensForConnect = tokenize(normalized);
+            const toRef = tokensForConnect[3] || '';
+            if (toRef.includes('%')) {
+                if (handleConnectEquipmentToLineMidpoint(tokensForConnect)) return true;
+            }
+            return handleConnectViaRouter(normalized);
+        }
 
         const tokens = tokenize(normalized);
         if (!tokens || !tokens.length) return false;
@@ -803,7 +910,7 @@ const SmartFlowCommands = (function() {
             'CONECTAR:',
             '  conectar EQP1.PUERTO1 a EQP2.PUERTO2 [diametro N] [material M]',
             '  Ej: conectar TK-01.N1 a B-01.SUC d=4 m=PPR',
-            '  Ej: conectar TK-01.N1 a SHd-1@0.5 d=3 m=PPR',
+            '  Ej: conectar TK-01.N1 a LINEA%30 d=3 m=PPR',
             '',
             'MODIFICAR:',
             '  modificar TAG [prop=valor]',
