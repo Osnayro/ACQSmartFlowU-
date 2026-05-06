@@ -1,9 +1,4 @@
 
-// ============================================================
-// SMARTFLOW COMMANDS v10.8 – Conexión delegada al router + soporte @
-// Archivo: js/commands.js
-// ============================================================
-
 const SmartFlowCommands = (function() {
     let _core = null;
     let _catalog = null;
@@ -194,39 +189,49 @@ const SmartFlowCommands = (function() {
         }
         if (!dependenciesReady()) return true;
 
-        const cleanTokens = [];
-        for (let i = 0; i < tokens.length; i++) {
-            if (tokens[i] === '@' && i > 0 && i < tokens.length - 1) {
-                const prev = cleanTokens.pop();
-                cleanTokens.push(prev + '@' + tokens[i + 1]);
-                i++;
-            } else {
-                cleanTokens.push(tokens[i]);
-            }
+        let origenToken = tokens[1];
+        if (tokens.length > 3 && tokens[2] === '@') {
+            origenToken = tokens[1] + '@' + tokens[3];
         }
 
-        let origenToken = cleanTokens[1];
         if (!origenToken.includes('.') && !origenToken.includes('@')) {
             notify('El origen debe ser EQUIPO.PUERTO o LINEA@POS', true);
             return true;
         }
 
         let destIdx = -1;
-        for (let i = 2; i < cleanTokens.length; i++) {
-            const t = cleanTokens[i].toLowerCase();
+        let paramsStart = tokens.length;
+        for (let i = 2; i < tokens.length; i++) {
+            const t = tokens[i].toLowerCase();
             if (t === 'a' || t === 'to') continue;
-            if (t.includes('.') || t.includes('@')) { destIdx = i; break; }
+            if (t.includes('.') || t.includes('@')) {
+                destIdx = i;
+                paramsStart = i + 1;
+                break;
+            }
+            if (t === '@' && i > 0 && i < tokens.length - 1) {
+                const prevToken = tokens[i - 1];
+                const nextToken = tokens[i + 1];
+                if (prevToken.toLowerCase() !== 'a' && prevToken.toLowerCase() !== 'to') {
+                    tokens[i - 1] = prevToken + '@' + nextToken;
+                    tokens.splice(i, 2);
+                    destIdx = i - 1;
+                    paramsStart = i;
+                    break;
+                }
+            }
         }
+
         if (destIdx === -1) {
             notify('Falta el destino (EQUIPO.PUERTO o LINEA@POS)', true);
             return true;
         }
 
         const left = parseNodeRef(origenToken);
-        const right = parseNodeRef(cleanTokens[destIdx]);
+        const right = parseNodeRef(tokens[destIdx]);
         if (!left.tag || !right.tag) { notify('Origen o destino inválido', true); return true; }
 
-        const params = extractParams(cleanTokens.slice(destIdx + 1));
+        const params = extractParams(tokens.slice(paramsStart));
         const diam = params.diametro || 4;
         const mat = params.material || 'PPR';
         const spec = params.spec || 'PPR_PN12_5';
@@ -299,7 +304,6 @@ const SmartFlowCommands = (function() {
         }
         return false;
     }
-
     function handleCreateEquipo(tokens) {
         if (!dependenciesReady()) return true;
         const enIdx = tokens.findIndex(t => t.toLowerCase() === 'en' || t.toLowerCase() === 'at');
@@ -420,7 +424,7 @@ const SmartFlowCommands = (function() {
         newLine = injectFittingsIntoLine(newLine);
         const db = _core.getDb();
         const toObj = db.equipos.find(e => e.tag === hasta.tag) || db.lines.find(l => l.tag === hasta.tag);
-        if (toObj?.puertos) {
+        if (toObj && toObj.puertos) {
             const destPort = toObj.puertos.find(p => p.id === hasta.port);
             if (destPort && Math.abs(diameter - (destPort.diametro || diameter)) > 0.01) {
                 newLine.components.push({
@@ -432,11 +436,11 @@ const SmartFlowCommands = (function() {
         _core.addLine(newLine);
         if (_core.setSelected) _core.setSelected({ type: 'line', obj: newLine });
         const fromObj = db.equipos.find(e => e.tag === desde.tag) || db.lines.find(l => l.tag === desde.tag);
-        if (fromObj?.puertos) {
+        if (fromObj && fromObj.puertos) {
             const p = fromObj.puertos.find(p => p.id === desde.port);
             if (p) { p.status = 'connected'; p.connectedLine = newLine.tag; }
         }
-        if (toObj?.puertos) {
+        if (toObj && toObj.puertos) {
             const p = toObj.puertos.find(p => p.id === hasta.port);
             if (p) { p.status = 'connected'; p.connectedLine = newLine.tag; }
         }
@@ -490,7 +494,7 @@ const SmartFlowCommands = (function() {
             else notify('Sin cambios para aplicar', true);
             return true;
         }
-        notify(`Elemento ${tag} no encontrado`, true);
+        notify(`Elemento ${tag} no encuentrado`, true);
         return true;
     }
 
@@ -612,7 +616,7 @@ const SmartFlowCommands = (function() {
             if (!obj) { notify(`Elemento ${tag} no encontrado`, true); return true; }
             let coords = null;
             if (obj.posX !== undefined) {
-                const port = obj.puertos?.find(p => p.id === portOrPos);
+                const port = obj.puertos && obj.puertos.find(p => p.id === portOrPos);
                 if (!port) { notify(`Puerto ${portOrPos} no encontrado en ${tag}`, true); return true; }
                 coords = { x: (obj.posX || 0) + (port.relX || 0), y: (obj.posY || 0) + (port.relY || 0), z: (obj.posZ || 0) + (port.relZ || 0) };
             } else {
@@ -683,7 +687,7 @@ const SmartFlowCommands = (function() {
         const lineTag = tokens[1];
         const coords = extractCoords(tokens.slice(2).join(' '));
         if (!lineTag || !coords) { notify('Uso: split LINEA (x,y,z) [type=TEE_EQUAL]', true); return true; }
-        const type = tokens.find(t => t.startsWith('type='))?.split('=')[1] || 'TEE_EQUAL';
+        const type = tokens.find(t => t.startsWith('type=')) && tokens.find(t => t.startsWith('type=')).split('=')[1] || 'TEE_EQUAL';
         const result = _core.splitLine(lineTag, coords, { type });
         if (result) notify(`✅ Línea ${lineTag} dividida con ${type}`);
         else notify('No se pudo dividir', true);
@@ -858,3 +862,4 @@ const SmartFlowCommands = (function() {
 
     return { init, executeCommand, executeBatch };
 })();
+
