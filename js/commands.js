@@ -892,6 +892,232 @@ const SmartFlowCommands = (function() {
         return true;
     }
 
+    // ========== FUNCIÓN ESPECIALIZADA PARA CONEXIÓN A PUNTO DE LÍNEA ==========
+    // Soporta: Equipo → Línea%  y  Línea → Línea%
+    function connectToLinePoint(origenTag, origenPortId, destinoLineTag, porcentaje, diametro, material, spec) {
+        if (!dependenciesReady()) return false;
+        
+        // Validar porcentaje (0-100 o 0-1)
+        let percent = porcentaje;
+        if (percent > 1 && percent <= 100) {
+            percent = percent / 100;
+        }
+        
+        if (isNaN(percent) || percent < 0 || percent > 1) {
+            notify(`Porcentaje inválido: "${porcentaje}". Use 0-100 (ej: 30 = 30%)`, true);
+            return false;
+        }
+        
+        const db = _core.getDb();
+        
+        // ===== VALIDAR ORIGEN (puede ser EQUIPO o LÍNEA) =====
+        let origenPos = null;
+        let origenDiametro = null;
+        let origenMaterial = null;
+        let origenSpec = null;
+        let origenTipo = null;
+        
+        // Buscar como equipo
+        let fromEquipo = db.equipos.find(e => e.tag === origenTag);
+        if (fromEquipo) {
+            origenTipo = 'equipment';
+            const fromPort = fromEquipo.puertos?.find(p => p.id === origenPortId);
+            if (!fromPort) {
+                notify(`Puerto ${origenPortId} no encontrado en equipo ${origenTag}. Puertos disponibles: ${(fromEquipo.puertos || []).map(p => p.id).join(', ')}`, true);
+                return false;
+            }
+            origenPos = {
+                x: (fromEquipo.posX || 0) + (fromPort.relX || 0),
+                y: (fromEquipo.posY || 0) + (fromPort.relY || 0),
+                z: (fromEquipo.posZ || 0) + (fromPort.relZ || 0)
+            };
+            origenDiametro = fromPort.diametro || fromEquipo.diametro;
+            origenMaterial = fromEquipo.material;
+            origenSpec = fromEquipo.spec;
+        } else {
+            // Buscar como línea
+            let fromLine = db.lines.find(l => l.tag === origenTag);
+            if (fromLine) {
+                origenTipo = 'line';
+                const pts = fromLine._cachedPoints || fromLine.points;
+                if (!pts || pts.length < 2) {
+                    notify(`Línea origen ${origenTag} sin geometría`, true);
+                    return false;
+                }
+                
+                // Si el puerto es START (0) o END (1)
+                if (origenPortId === '0' || origenPortId === 'START' || origenPortId === 'start') {
+                    origenPos = { x: pts[0].x, y: pts[0].y, z: pts[0].z };
+                } else if (origenPortId === '1' || origenPortId === 'END' || origenPortId === 'end') {
+                    origenPos = { x: pts[pts.length - 1].x, y: pts[pts.length - 1].y, z: pts[pts.length - 1].z };
+                } else {
+                    // Puerto como porcentaje en la línea origen
+                    let pct = parseFloat(origenPortId);
+                    if (isNaN(pct)) {
+                        notify(`Puerto inválido en línea origen. Use START, END o porcentaje (ej: 0.5)`, true);
+                        return false;
+                    }
+                    if (pct > 1 && pct <= 100) pct = pct / 100;
+                    
+                    // Calcular punto en el porcentaje
+                    let totalLen = 0, lengths = [];
+                    for (let i = 0; i < pts.length - 1; i++) {
+                        const d = Math.hypot(pts[i+1].x - pts[i].x, pts[i+1].y - pts[i].y, pts[i+1].z - pts[i].z);
+                        lengths.push(d);
+                        totalLen += d;
+                    }
+                    const targetDist = totalLen * pct;
+                    let accum = 0, segIdx = 0, t = 0;
+                    for (let i = 0; i < lengths.length; i++) {
+                        if (accum + lengths[i] >= targetDist || i === lengths.length - 1) {
+                            segIdx = i;
+                            t = lengths[i] > 0 ? (targetDist - accum) / lengths[i] : 0;
+                            break;
+                        }
+                        accum += lengths[i];
+                    }
+                    const pA = pts[segIdx], pB = pts[segIdx + 1];
+                    origenPos = {
+                        x: pA.x + (pB.x - pA.x) * t,
+                        y: pA.y + (pB.y - pA.y) * t,
+                        z: pA.z + (pB.z - pA.z) * t
+                    };
+                }
+                origenDiametro = fromLine.diameter;
+                origenMaterial = fromLine.material;
+                origenSpec = fromLine.spec;
+            } else {
+                notify(`Origen ${origenTag} no encontrado (ni como equipo ni como línea)`, true);
+                return false;
+            }
+        }
+        
+        // ===== VALIDAR LÍNEA DESTINO =====
+        const targetLine = db.lines.find(l => l.tag === destinoLineTag);
+        if (!targetLine) {
+            notify(`Línea destino ${destinoLineTag} no encontrada. Líneas disponibles: ${db.lines.map(l => l.tag).join(', ')}`, true);
+            return false;
+        }
+        
+        const ptsDestino = targetLine._cachedPoints || targetLine.points;
+        if (!ptsDestino || ptsDestino.length < 2) {
+            notify(`Línea destino ${destinoLineTag} sin puntos válidos`, true);
+            return false;
+        }
+        
+        // Diámetros y materiales por defecto
+        const finalDiameter = diametro || origenDiametro || targetLine.diameter || 4;
+        const finalMaterial = material || origenMaterial || targetLine.material || 'PPR';
+        const finalSpec = spec || origenSpec || targetLine.spec || 'PPR_PN12_5';
+        
+        const percentDisplay = Math.round(percent * 100);
+        notify(`🔗 Conectando ${origenTag}.${origenPortId} → ${destinoLineTag} en ${percentDisplay}%...`, false);
+        
+        // Llamar al router (el router manejará el destino como línea con porcentaje)
+        if (typeof SmartFlowRouter !== 'undefined') {
+            const result = SmartFlowRouter.routeBetweenPorts(
+                origenTag,
+                origenPortId,
+                destinoLineTag,
+                percent.toString(),
+                finalDiameter,
+                finalMaterial,
+                finalSpec
+            );
+            
+            if (result) {
+                notify(`✅ Conectado: ${origenTag}.${origenPortId} → ${destinoLineTag} (${percentDisplay}%)`, false);
+                return true;
+            } else {
+                notify('❌ Error en la conexión', true);
+                return false;
+            }
+        } else {
+            notify('Router no disponible', true);
+            return false;
+        }
+    }
+
+    // Comando directo para pruebas (desde consola del navegador)
+    function testConnect(origen, puerto, destino, pct, diam, mat) {
+        return connectToLinePoint(origen, puerto, destino, pct, diam, mat);
+    }
+
+    function showHelp() {
+        notify([
+            '═══ SMARTFLOW 3D - COMANDOS ═══',
+            'CREAR EQUIPO:',
+            '  crear TIPO TAG en X,Y,Z [d=DIAM] [h=ALTURA] [m=MAT]',
+            '  Ej: crear tanque_v TK-01 en 0,1450,0 d=2380 h=2900 m=PE',
+            '',
+            'CREAR LÍNEA SUELTA (colectores, distribuidores):',
+            '  crear linea TAG ruta X1,Y1,Z1 X2,Y2,Z2 ... [d=DIAM] [m=MAT]',
+            '  Ej: % COL-01 0,2000,6000 8000,2000,6000 d=6 m=PPR',
+            '',
+            'CREAR LÍNEA CON WAYPOINTS:',
+            '  linea TAG desde EQP.PUERTO por x,y,z ... hasta EQP.PUERTO [d=DIAM] [m=MAT]',
+            '  Ej: linea L-101 desde TK-01.N1 por 0,0,500 hasta B-01.SUC d=4 m=PPR',
+            '',
+            'CONECTAR:',
+            '  conectar EQP1.PUERTO1 a EQP2.PUERTO2 [diametro N] [material M]',
+            '  Ej: conectar TK-01.N1 a B-01.SUC d=4 m=PPR',
+            '  Ej: conectar TK-01.N1 a LINEA%30 d=3 m=PPR',
+            '  Ej: conectar LINEA-101.END a COLECTOR%50 d=4 m=PPR',
+            '',
+            'MODIFICAR:',
+            '  modificar TAG [prop=valor]',
+            '  modificar TAG.PUERTO pos=(x,y,z) dir=(dx,dy,dz) diam=4 status=open',
+            '',
+            'MOVER:',
+            '  mover TAG a X,Y,Z',
+            '',
+            'ELIMINAR:',
+            '  eliminar TAG',
+            '',
+            'CONSULTAR:',
+            '  info TAG | listar equipos | listar lineas | nodos TAG | resumen',
+            '  punto TAG.PUERTO | punto LINEA@0.5',
+            '',
+            'VISTAS:',
+            '  vista iso | vista top | vista front | vista side',
+            '',
+            'EXPORTAR:',
+            '  exportar mto | exportar pcf | exportar pdf',
+            '',
+            'OTROS:',
+            '  deshacer | rehacer | ayuda | guardar | cargar'
+        ].join('\n'));
+    }
+
+    function executeBatch(commandsText) {
+        const lines = commandsText.split('\n');
+        let executed = 0, failed = 0;
+        for (let raw of lines) {
+            const trimmed = raw.trim();
+            if (!trimmed || trimmed.startsWith('//')) continue;
+            if (executeCommand(trimmed)) executed++;
+            else { failed++; notify(`No entendí: "${trimmed.substring(0, 50)}"`, true); }
+        }
+        if (executed + failed > 0) notify(`${executed} comandos ejecutados, ${failed} fallidos`, failed > 0);
+    }
+
+    function init(coreInstance, catalogInstance, rendererInstance, notifyFn, renderFn) {
+        _core = coreInstance || null;
+        _catalog = catalogInstance || null;
+        _renderer = rendererInstance || null;
+        _notifyUI = notifyFn || console.log;
+        console.log("Commands v11.0 listo (conexión a punto de línea con T y codos automáticos)");
+    }
+
+    return { 
+        init, 
+        executeCommand, 
+        executeBatch,
+        connectToLinePoint,
+        testConnect
+    };
+})();
+
     function showHelp() {
         notify([
             '═══ SMARTFLOW 3D - COMANDOS ═══',
