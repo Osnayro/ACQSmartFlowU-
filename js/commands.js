@@ -81,7 +81,7 @@ const SmartFlowCommands = (function() {
 
     function tokenize(cmd) {
         const tokens = [];
-        const regex = /\w+=\s*\([^)]+\)|->|@|\([^)]+\)|[\w\-\.=]+|[<>+\-~%!?.]+/g;
+        const regex = /\w+=\s*\([^)]+\)|\([^)]+\)|[\w\-\.@=]+|[<>+\-~%!?.]+/g;
         let match;
         while ((match = regex.exec(cmd)) !== null) tokens.push(match[0]);
         return tokens;
@@ -123,10 +123,10 @@ const SmartFlowCommands = (function() {
     }
 
     function parseNodeRef(str) {
-        const dot = str.indexOf('.');
-        if (dot > 0) return { tag: str.substring(0, dot), port: str.substring(dot + 1) };
-        const at = str.indexOf('@');
-        if (at > 0) return { tag: str.substring(0, at), port: str.substring(at + 1) };
+        const atIdx = str.indexOf('@');
+        if (atIdx > 0) return { tag: str.substring(0, atIdx), port: str.substring(atIdx + 1) };
+        const dotIdx = str.indexOf('.');
+        if (dotIdx > 0) return { tag: str.substring(0, dotIdx), port: str.substring(dotIdx + 1) };
         return { tag: str, port: '1' };
     }
 
@@ -182,62 +182,48 @@ const SmartFlowCommands = (function() {
         return lineObj;
     }
 
-    function handleConnectViaRouter(tokens) {
-        if (tokens.length < 3) {
+    function handleConnectViaRouter(originalCmd) {
+        if (!dependenciesReady()) return true;
+
+        const parts = originalCmd.trim().split(/\s+/);
+        if (parts.length < 4) {
             notify('Uso: conectar ORIGEN.PUERTO a DESTINO.PUERTO [diametro N] [material M]', true);
             return true;
         }
-        if (!dependenciesReady()) return true;
 
-        let origenToken = tokens[1];
-        if (tokens.length > 3 && tokens[2] === '@') {
-            origenToken = tokens[1] + '@' + tokens[3];
-        }
-
-        if (!origenToken.includes('.') && !origenToken.includes('@')) {
-            notify('El origen debe ser EQUIPO.PUERTO o LINEA@POS', true);
+        const fromRef = parts[1];
+        if (parts[2] !== 'to' && parts[2] !== 'a' && parts[2] !== '->') {
+            notify('Formato incorrecto. Use: conectar ORIGEN.PUERTO a DESTINO.PUERTO', true);
             return true;
         }
 
-        let destIdx = -1;
-        let paramsStart = tokens.length;
-        for (let i = 2; i < tokens.length; i++) {
-            const t = tokens[i].toLowerCase();
-            if (t === 'a' || t === 'to') continue;
-            if (t.includes('.') || t.includes('@')) {
-                destIdx = i;
-                paramsStart = i + 1;
-                break;
-            }
-            if (t === '@' && i > 0 && i < tokens.length - 1) {
-                const prevToken = tokens[i - 1];
-                const nextToken = tokens[i + 1];
-                if (prevToken.toLowerCase() !== 'a' && prevToken.toLowerCase() !== 'to') {
-                    tokens[i - 1] = prevToken + '@' + nextToken;
-                    tokens.splice(i, 2);
-                    destIdx = i - 1;
-                    paramsStart = i;
-                    break;
-                }
+        const toRef = parts[3] || '';
+        let diameter = 4, material = 'PPR', spec = 'PPR_PN12_5';
+
+        for (let i = 4; i < parts.length; i++) {
+            const p = parts[i].toLowerCase();
+            if (p === 'diameter' || p === 'diametro' || p === 'd=*' || parts[i].startsWith('d=') || parts[i].startsWith('diam=')) {
+                const val = parts[i].includes('=') ? parts[i].split('=')[1] : parts[++i];
+                diameter = parseFloat(val);
+            } else if (p === 'material' || p === 'm=*' || parts[i].startsWith('m=')) {
+                const val = parts[i].includes('=') ? parts[i].split('=')[1] : parts[++i];
+                material = val.toUpperCase();
+            } else if (p === 'spec' || p === 's=*' || parts[i].startsWith('s=')) {
+                const val = parts[i].includes('=') ? parts[i].split('=')[1] : parts[++i];
+                spec = val;
             }
         }
 
-        if (destIdx === -1) {
-            notify('Falta el destino (EQUIPO.PUERTO o LINEA@POS)', true);
+        const left = parseNodeRef(fromRef);
+        const right = parseNodeRef(toRef);
+
+        if (!left.tag || !right.tag) {
+            notify('Origen o destino inválido', true);
             return true;
         }
-
-        const left = parseNodeRef(origenToken);
-        const right = parseNodeRef(tokens[destIdx]);
-        if (!left.tag || !right.tag) { notify('Origen o destino inválido', true); return true; }
-
-        const params = extractParams(tokens.slice(paramsStart));
-        const diam = params.diametro || 4;
-        const mat = params.material || 'PPR';
-        const spec = params.spec || 'PPR_PN12_5';
 
         if (typeof SmartFlowRouter !== 'undefined') {
-            SmartFlowRouter.routeBetweenPorts(left.tag, left.port, right.tag, right.port, diam, mat, spec);
+            SmartFlowRouter.routeBetweenPorts(left.tag, left.port, right.tag, right.port, diameter, material, spec);
         } else {
             notify('Router no disponible', true);
         }
@@ -247,33 +233,36 @@ const SmartFlowCommands = (function() {
     function executeCommand(cmd) {
         if (!cmd || cmd.startsWith('//')) return false;
         const normalized = normalizeCommand(cmd);
+        
+        const firstWord = normalized.trim().split(/\s+/)[0].toLowerCase();
+        const action = LEX[firstWord] || firstWord.toUpperCase();
+
+        if (action === 'CONNECT') return handleConnectViaRouter(normalized);
+
         const tokens = tokenize(normalized);
         if (!tokens || !tokens.length) return false;
         if (!dependenciesReady()) return true;
 
         const first = tokens[0].toLowerCase();
-        const action = LEX[first] || first.toUpperCase();
-
-        if (action === 'CONNECT') return handleConnectViaRouter(tokens);
+        const actionFromToken = LEX[first] || first.toUpperCase();
 
         const rest = tokens.slice(1);
         const arrowIdxRel = rest.indexOf('->');
-        if (arrowIdxRel >= 0) return handleConnectViaRouter(tokens);
+        if (arrowIdxRel >= 0) return handleConnectViaRouter(normalized);
         const aIdxRel = rest.findIndex(t => t.toLowerCase() === 'a' || t.toLowerCase() === 'to');
         if (aIdxRel > 0) {
             const leftPart = rest.slice(0, aIdxRel).join('');
-            const rightPart = rest.slice(aIdxRel + 1).join(' ');
-            if (leftPart.includes('.') || rightPart.includes('.')) return handleConnectViaRouter(tokens);
+            if (leftPart.includes('.') || leftPart.includes('@')) return handleConnectViaRouter(normalized);
         }
 
-        if (action === 'CREATE' && tokens.length >= 3 && (tokens[1].toLowerCase() === 'linea' || tokens[1].toLowerCase() === 'line'))
+        if (actionFromToken === 'CREATE' && tokens.length >= 3 && (tokens[1].toLowerCase() === 'linea' || tokens[1].toLowerCase() === 'line'))
             return handleCreateLineFromCreate(tokens);
-        if (action === 'TAP') return handleTap(tokens);
-        if (action === 'SPLIT') return handleSplit(tokens);
-        if (action === 'AUDIT') return handleAudit();
-        if (action === 'BOM') return handleBOM();
+        if (actionFromToken === 'TAP') return handleTap(tokens);
+        if (actionFromToken === 'SPLIT') return handleSplit(tokens);
+        if (actionFromToken === 'AUDIT') return handleAudit();
+        if (actionFromToken === 'BOM') return handleBOM();
 
-        switch (action) {
+        switch (actionFromToken) {
             case 'CREATE': return handleCreateEquipo(tokens);
             case 'CREATE_LINE': return handleCreateLine(tokens);
             case 'LINEA_WP': return handleLineWithWaypoints(tokens);
@@ -304,6 +293,7 @@ const SmartFlowCommands = (function() {
         }
         return false;
     }
+
     function handleCreateEquipo(tokens) {
         if (!dependenciesReady()) return true;
         const enIdx = tokens.findIndex(t => t.toLowerCase() === 'en' || t.toLowerCase() === 'at');
@@ -857,9 +847,8 @@ const SmartFlowCommands = (function() {
         _catalog = catalogInstance || null;
         _renderer = rendererInstance || null;
         _notifyUI = notifyFn || console.log;
-        console.log("Commands v10.8 listo (conexión vía router + soporte @)");
+        console.log("Commands v10.9 listo (conexión por split sin tokenizar @)");
     }
 
     return { init, executeCommand, executeBatch };
 })();
-
