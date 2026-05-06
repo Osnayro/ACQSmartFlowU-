@@ -1,10 +1,16 @@
 
+// ============================================================
+// SMARTFLOW COMMANDS v10.7 – Conexión directa autónoma (sin router)
+// Archivo: js/commands.js
+// ============================================================
+
 const SmartFlowCommands = (function() {
     let _core = null;
     let _catalog = null;
     let _renderer = null;
     let _notifyUI = (msg, isErr) => console.log(msg);
 
+    // ==================== 1. DICCIONARIO DE INTENCIONES ====================
     const LEX = {
         'crear': 'CREATE', 'create': 'CREATE', '+': 'CREATE',
         'añadir': 'CREATE', 'nuevo': 'CREATE',
@@ -31,7 +37,8 @@ const SmartFlowCommands = (function() {
         '!mto': 'EXPORT_MTO', '!pcf': 'EXPORT_PCF', '!pdf': 'EXPORT_PDF',
         'guardar': 'SAVE', '!save': 'SAVE',
         'cargar': 'LOAD', '!load': 'LOAD',
-        '%': 'CREATE_LINE', 'ruta': 'CREATE_LINE',
+        '%': 'CREATE_LINE',
+        'ruta': 'CREATE_LINE',
         'resumen': 'SUMMARY', 'summary': 'SUMMARY',
         'tap': 'TAP', 'derivar': 'TAP',
         'split': 'SPLIT', 'dividir': 'SPLIT', 'romper': 'SPLIT',
@@ -47,6 +54,7 @@ const SmartFlowCommands = (function() {
         return cmd;
     }
 
+    // ==================== 2. UTILIDADES ====================
     function notify(msg, isErr = false) {
         if (typeof _notifyUI === 'function') {
             _notifyUI(msg, isErr);
@@ -81,9 +89,11 @@ const SmartFlowCommands = (function() {
 
     function tokenize(cmd) {
         const tokens = [];
-        const regex = /\w+=\s*\([^)]+\)|\([^)]+\)|[\w\-\.@=]+|[<>+\-~%!?.]+/g;
+        const regex = /\w+=\s*\([^)]+\)|->|@|\([^)]+\)|[\w\-\.=]+|[<>+\-~%!?.]+/g;
         let match;
-        while ((match = regex.exec(cmd)) !== null) tokens.push(match[0]);
+        while ((match = regex.exec(cmd)) !== null) {
+            tokens.push(match[0]);
+        }
         return tokens;
     }
 
@@ -123,10 +133,10 @@ const SmartFlowCommands = (function() {
     }
 
     function parseNodeRef(str) {
-        const atIdx = str.indexOf('@');
-        if (atIdx > 0) return { tag: str.substring(0, atIdx), port: str.substring(atIdx + 1) };
-        const dotIdx = str.indexOf('.');
-        if (dotIdx > 0) return { tag: str.substring(0, dotIdx), port: str.substring(dotIdx + 1) };
+        const dot = str.indexOf('.');
+        if (dot > 0) return { tag: str.substring(0, dot), port: str.substring(dot + 1) };
+        const at = str.indexOf('@');
+        if (at > 0) return { tag: str.substring(0, at), port: str.substring(at + 1) };
         return { tag: str, port: '1' };
     }
 
@@ -172,7 +182,7 @@ const SmartFlowCommands = (function() {
             if (elbowType) {
                 comps.push({
                     type: elbowType,
-                    tag: elbowType + '-' + Date.now().toString(36),
+                    tag: _core && _core.generateShortTag ? _core.generateShortTag(elbowType) : (elbowType + '-' + Date.now().toString(36)),
                     param: i / (pts.length - 1),
                     angle: Math.round(angle)
                 });
@@ -182,194 +192,360 @@ const SmartFlowCommands = (function() {
         return lineObj;
     }
 
-    function handleConnectEquipmentToLineMidpoint(tokens) {
-        if (!dependenciesReady()) return true;
-        
-        const fromRef = tokens[1];
-        if (tokens[2] !== 'to' && tokens[2] !== 'a') return false;
-        
-        const toRef = tokens[3];
-        
-        const percentIdx = toRef.indexOf('%');
-        if (percentIdx === -1) return false;
-        
-        const lineTag = toRef.substring(0, percentIdx);
-        const percentStr = toRef.substring(percentIdx + 1);
-        let percent = parseFloat(percentStr);
-        
-        if (percent > 1 && percent <= 100) {
-            percent = percent / 100;
-        }
-        
-        if (isNaN(percent) || percent < 0 || percent > 1) {
-            notify(`Porcentaje inválido: "${percentStr}". Use 0-100 (ej: 30 = 30%)`, true);
-            return true;
-        }
-        
-        let diameter = null;
-        let material = null;
-        let spec = null;
-        
-        for (let i = 4; i < tokens.length; i++) {
-            const p = tokens[i].toLowerCase();
-            if (p === 'diameter' || p === 'diametro' || tokens[i].startsWith('d=')) {
-                const val = tokens[i].includes('=') ? tokens[i].split('=')[1] : tokens[++i];
-                diameter = parseFloat(val);
-            } else if (p === 'material' || tokens[i].startsWith('m=')) {
-                const val = tokens[i].includes('=') ? tokens[i].split('=')[1] : tokens[++i];
-                material = val.toUpperCase();
-            } else if (p === 'spec' || tokens[i].startsWith('s=')) {
-                const val = tokens[i].includes('=') ? tokens[i].split('=')[1] : tokens[++i];
-                spec = val;
-            }
-        }
-        
-        const fromNode = parseNodeRef(fromRef);
-        if (!fromNode.tag || !fromNode.port) {
-            notify('Origen inválido. Use: EQUIPO.PUERTO (ej: TK-01.SALIDA)', true);
-            return true;
-        }
-        
-        const db = _core.getDb();
-        
-        const fromEquipo = db.equipos.find(e => e.tag === fromNode.tag);
-        if (!fromEquipo) {
-            notify(`Equipo ${fromNode.tag} no encontrado`, true);
-            return true;
-        }
-        
-        const fromPort = fromEquipo.puertos?.find(p => p.id === fromNode.port);
-        if (!fromPort) {
-            notify(`Puerto ${fromNode.port} no encontrado en ${fromNode.tag}`, true);
-            return true;
-        }
-        
-        const targetLine = db.lines.find(l => l.tag === lineTag);
-        if (!targetLine) {
-            notify(`Línea ${lineTag} no encontrada`, true);
-            return true;
-        }
-        
-        const finalDiameter = diameter || fromPort.diametro || targetLine.diameter || 4;
-        const finalMaterial = material || fromEquipo.material || targetLine.material || 'PPR';
-        const finalSpec = spec || fromEquipo.spec || targetLine.spec || 'PPR_PN12_5';
-        
-        const percentDisplay = Math.round(percent * 100);
-        notify(`🔗 Conectando ${fromNode.tag}.${fromNode.port} → ${lineTag} en ${percentDisplay}%...`, false);
-        
-        if (typeof SmartFlowRouter !== 'undefined') {
-            const result = SmartFlowRouter.routeBetweenPorts(
-                fromNode.tag,
-                fromNode.port,
-                lineTag,
-                percent.toString(),
-                finalDiameter,
-                finalMaterial,
-                finalSpec
-            );
-            
-            if (result) {
-                notify(`✅ Conectado: ${fromNode.tag}.${fromNode.port} → ${lineTag} (${percentDisplay}%)`, false);
-            } else {
-                notify('❌ Error en la conexión', true);
-            }
-        } else {
-            notify('Router no disponible', true);
-        }
-        
-        return true;
+    // ==================== 3. BÚSQUEDA DIRECTA DE COMPONENTES ====================
+    function findComponentInCatalogDirect(tipoBase, lineMaterial) {
+        const catalog = SmartFlowCatalog;
+        if (!catalog) return null;
+        const allTypes = catalog.listComponentTypes();
+        const mat = lineMaterial.toUpperCase();
+        let prefix = '';
+        if (mat.includes('PPR')) prefix = 'PPR';
+        else if (mat.includes('HDPE')) prefix = 'HDPE';
+        else if (mat.includes('PVC')) prefix = 'PVC';
+        else if (mat.includes('ACERO') || mat.includes('CARBONO')) prefix = 'CS';
+        else if (mat.includes('INOX')) prefix = 'SS';
+
+        let tipo = tipoBase;
+        if (tipo === 'TEE') tipo = 'TEE_EQUAL';
+        else if (tipo === 'REDUCER' || tipo === 'CONCENTRIC_REDUCER') tipo = 'CONCENTRIC_REDUCER';
+
+        const candidates = [];
+        if (prefix) candidates.push(tipo + '_' + prefix);
+        candidates.push(tipo);
+        for (const c of candidates) if (allTypes.includes(c)) return c;
+        for (const t of allTypes) if (t.includes(tipo)) return t;
+        return null;
     }
 
-// ============ FIN DE LA PARTE 1 ============
-
-    function handleConnectViaRouter(originalCmd) {
-        if (!dependenciesReady()) return true;
-
-        const parts = originalCmd.trim().split(/\s+/);
-        if (parts.length < 4) {
-            notify('Uso: conectar ORIGEN.PUERTO a DESTINO.PUERTO [diametro N] [material M]', true);
+    // ==================== 4. CONEXIÓN DIRECTA AUTÓNOMA ====================
+    function handleConnectDirecto(tokens) {
+        if (tokens.length < 3) {
+            notify('Uso: conectar ORIGEN.PUERTO DESTINO.PUERTO [diametro N] [material M]', true);
             return true;
         }
 
-        const fromRef = parts[1];
-        if (parts[2] !== 'to' && parts[2] !== 'a' && parts[2] !== '->') {
-            notify('Formato incorrecto. Use: conectar ORIGEN.PUERTO a DESTINO.PUERTO', true);
+        let origenIdx = 1;
+        let origenToken = tokens[1];
+        if (!origenToken.includes('.') && !origenToken.includes('@')) {
+            notify('El origen debe ser EQUIPO.PUERTO o LINEA@POS', true);
             return true;
         }
 
-        const toRef = parts[3] || '';
-        let diameter = 4, material = 'PPR', spec = 'PPR_PN12_5';
-
-        for (let i = 4; i < parts.length; i++) {
-            const p = parts[i].toLowerCase();
-            if (p === 'diameter' || p === 'diametro' || p === 'd=*' || parts[i].startsWith('d=')) {
-                const val = parts[i].includes('=') ? parts[i].split('=')[1] : parts[++i];
-                diameter = parseFloat(val);
-            } else if (p === 'material' || p === 'm=*' || parts[i].startsWith('m=')) {
-                const val = parts[i].includes('=') ? parts[i].split('=')[1] : parts[++i];
-                material = val.toUpperCase();
-            } else if (p === 'spec' || p === 's=*' || parts[i].startsWith('s=')) {
-                const val = parts[i].includes('=') ? parts[i].split('=')[1] : parts[++i];
-                spec = val;
+        let destIdx = -1;
+        for (let i = origenIdx + 1; i < tokens.length; i++) {
+            const t = tokens[i].toLowerCase();
+            if (t === 'a' || t === 'to') continue;
+            if (t.includes('.') || t.includes('@')) {
+                destIdx = i;
+                break;
             }
         }
+        if (destIdx === -1) {
+            notify('Falta el destino (EQUIPO.PUERTO o LINEA@POS)', true);
+            return true;
+        }
 
-        const left = parseNodeRef(fromRef);
-        const right = parseNodeRef(toRef);
-
+        const left = parseNodeRef(origenToken);
+        const right = parseNodeRef(tokens[destIdx]);
         if (!left.tag || !right.tag) {
             notify('Origen o destino inválido', true);
             return true;
         }
 
-        if (typeof SmartFlowRouter !== 'undefined') {
-            SmartFlowRouter.routeBetweenPorts(left.tag, left.port, right.tag, right.port, diameter, material, spec);
-        } else {
-            notify('Router no disponible', true);
+        const params = extractParams(tokens.slice(destIdx + 1));
+        const diam = params.diametro || 4;
+        const mat = params.material || 'PPR';
+        const spec = params.spec || 'PPR_PN12_5';
+
+        const db = _core.getDb();
+        const fromObj = db.equipos.find(e => e.tag === left.tag) || db.lines.find(l => l.tag === left.tag);
+        let toObj = db.equipos.find(e => e.tag === right.tag) || db.lines.find(l => l.tag === right.tag);
+
+        if (!fromObj) { notify(`Origen ${left.tag} no encontrado`, true); return true; }
+        if (!toObj) { notify(`Destino ${right.tag} no encontrado`, true); return true; }
+
+        function getPortDirectionLocal(obj, portId) {
+            if (!obj) return { dx: 1, dy: 0, dz: 0 };
+            if (obj.posX !== undefined) {
+                const puerto = obj.puertos?.find(p => p.id === portId);
+                if (puerto && puerto.orientacion) return puerto.orientacion;
+                return { dx: 1, dy: 0, dz: 0 };
+            }
+            const pts = obj._cachedPoints || obj.points3D || obj.points;
+            if (pts && pts.length >= 2) {
+                if (portId === '0') {
+                    const dx = pts[1].x - pts[0].x;
+                    const dy = pts[1].y - pts[0].y;
+                    const dz = pts[1].z - pts[0].z;
+                    const len = Math.hypot(dx, dy, dz) || 1;
+                    return { dx: dx/len, dy: dy/len, dz: dz/len };
+                }
+                if (portId === '1') {
+                    const last = pts.length - 1;
+                    const dx = pts[last].x - pts[last-1].x;
+                    const dy = pts[last].y - pts[last-1].y;
+                    const dz = pts[last].z - pts[last-1].z;
+                    const len = Math.hypot(dx, dy, dz) || 1;
+                    return { dx: dx/len, dy: dy/len, dz: dz/len };
+                }
+            }
+            return { dx: 1, dy: 0, dz: 0 };
         }
+
+        // ---- Obtener posición de puerto origen ----
+        let startPos = null;
+        if (fromObj.posX !== undefined) {
+            const port = fromObj.puertos?.find(p => p.id === left.port);
+            if (port) {
+                startPos = {
+                    x: fromObj.posX + (port.relX || 0),
+                    y: fromObj.posY + (port.relY || 0),
+                    z: fromObj.posZ + (port.relZ || 0)
+                };
+            }
+        } else {
+            const pts = fromObj._cachedPoints || fromObj.points3D || fromObj.points;
+            if (pts && pts.length >= 2) {
+                if (left.port === '0') startPos = pts[0];
+                else if (left.port === '1') startPos = pts[pts.length - 1];
+            }
+        }
+        if (!startPos) { notify('No se pudo obtener la posición del puerto origen', true); return true; }
+
+        let nuevoPuertoId = right.port;
+        let endPos = null;
+
+        // ---- Manejo de punto intermedio en línea destino ----
+        const isLineDest = toObj._cachedPoints || toObj.points3D || toObj.points;
+        if (isLineDest && !isNaN(parseFloat(right.port))) {
+            const param = parseFloat(right.port);
+            if (param > 0.01 && param < 0.99) {
+                const pts = toObj._cachedPoints || toObj.points3D || toObj.points;
+                if (pts && pts.length >= 2) {
+                    let lengths = [], totalLen = 0;
+                    for (let i = 0; i < pts.length - 1; i++) {
+                        const d = Math.hypot(pts[i+1].x - pts[i].x, pts[i+1].y - pts[i].y, pts[i+1].z - pts[i].z);
+                        lengths.push(d);
+                        totalLen += d;
+                    }
+                    const targetLen = totalLen * param;
+                    let accum = 0, segIdx = 0, t = 0;
+                    for (let i = 0; i < lengths.length; i++) {
+                        if (accum + lengths[i] >= targetLen || i === lengths.length - 1) {
+                            segIdx = i;
+                            t = (targetLen - accum) / (lengths[i] || 1);
+                            break;
+                        }
+                        accum += lengths[i];
+                    }
+                    const pA = pts[segIdx], pB = pts[segIdx + 1];
+                    const puntoConexion = {
+                        x: pA.x + (pB.x - pA.x) * t,
+                        y: pA.y + (pB.y - pA.y) * t,
+                        z: pA.z + (pB.z - pA.z) * t
+                    };
+
+                    const lineMaterial = toObj.material || 'PPR';
+                    const diamLinea = toObj.diameter || 4;
+                    const diffDiam = Math.abs(diam - diamLinea) > 0.1;
+
+                    let tipoAccesorio = diffDiam ? 'TEE_REDUCING' : 'TEE';
+                    let compId = findComponentInCatalogDirect(tipoAccesorio, lineMaterial);
+                    if (!compId) {
+                        notify(`No se encontró componente para tee en ${toObj.tag}`, true);
+                        return true;
+                    }
+
+                    const compDef = SmartFlowCatalog.getComponent(compId);
+                    if (!compDef || !compDef.generarPuertos) {
+                        notify(`El componente ${compId} no tiene generador de puertos`, true);
+                        return true;
+                    }
+
+                    const accesorioDef = { tag: compId, generarPuertos: compDef.generarPuertos };
+                    const result = _core.injectAccessory(right.tag, param, accesorioDef);
+                    if (!result) {
+                        notify(`No se pudo insertar ${compId} en ${right.tag}`, true);
+                        return true;
+                    }
+
+                    toObj = db.lines.find(l => l.tag === right.tag);
+                    if (toObj) {
+                        if (!toObj.components) toObj.components = [];
+                        toObj.components.push({
+                            type: compId,
+                            tag: _core.generateShortTag ? _core.generateShortTag(compId) : (compId + '-' + Date.now().toString(36)),
+                            param: param
+                        });
+                        _core.updateLine(right.tag, { components: toObj.components });
+                    }
+
+                    const lineaActualizada = db.lines.find(l => l.tag === right.tag);
+                    if (lineaActualizada && lineaActualizada.puertos && lineaActualizada.puertos.length > 0) {
+                        nuevoPuertoId = lineaActualizada.puertos[lineaActualizada.puertos.length - 1].id;
+                    }
+                    notify(`Tee insertada en ${right.tag} en posición ${param.toFixed(2)}`, false);
+                }
+            }
+        }
+
+        // ---- Obtener posición del puerto destino ----
+        toObj = db.equipos.find(e => e.tag === right.tag) || db.lines.find(l => l.tag === right.tag);
+        if (toObj.posX !== undefined) {
+            const port = toObj.puertos?.find(p => p.id === nuevoPuertoId);
+            if (port) {
+                endPos = {
+                    x: toObj.posX + (port.relX || 0),
+                    y: toObj.posY + (port.relY || 0),
+                    z: toObj.posZ + (port.relZ || 0)
+                };
+            }
+        } else {
+            const pts = toObj._cachedPoints || toObj.points3D || toObj.points;
+            if (pts && pts.length >= 2) {
+                if (nuevoPuertoId === '0') endPos = pts[0];
+                else if (nuevoPuertoId === '1') endPos = pts[pts.length - 1];
+            }
+        }
+        if (!endPos) { notify('No se pudo obtener la posición del puerto destino', true); return true; }
+
+        // ---- Crear línea directa ----
+        const newLineTag = `L-${db.lines.length + 1}`;
+        const directPath = [startPos, endPos];
+        const newComponents = [];
+
+        // ---- Codo en origen ----
+        const fromDir = getPortDirectionLocal(fromObj, left.port);
+        const firstSeg = {
+            dx: directPath[1].x - directPath[0].x,
+            dy: directPath[1].y - directPath[0].y,
+            dz: directPath[1].z - directPath[0].z
+        };
+        const lenFirst = Math.hypot(firstSeg.dx, firstSeg.dy, firstSeg.dz) || 1;
+        const firstSegUnit = { dx: firstSeg.dx/lenFirst, dy: firstSeg.dy/lenFirst, dz: firstSeg.dz/lenFirst };
+        const dotFrom = fromDir.dx * firstSegUnit.dx + fromDir.dy * firstSegUnit.dy + fromDir.dz * firstSegUnit.dz;
+        const angleFrom = Math.acos(Math.min(1, Math.max(-1, dotFrom))) * 180 / Math.PI;
+
+        if (angleFrom > 15) {
+            const elbowId = findElbowForLine(mat, angleFrom);
+            if (elbowId) {
+                newComponents.push({
+                    type: elbowId,
+                    tag: _core.generateShortTag ? _core.generateShortTag(elbowId) : (elbowId + '-' + Date.now().toString(36)),
+                    param: 0.0
+                });
+                notify(`Codo ${Math.round(angleFrom)}° añadido al inicio de ${newLineTag}`, false);
+            }
+        }
+
+        // ---- Codo en destino ----
+        const toDir = getPortDirectionLocal(toObj, nuevoPuertoId);
+        const lastSeg = {
+            dx: directPath[1].x - directPath[0].x,
+            dy: directPath[1].y - directPath[0].y,
+            dz: directPath[1].z - directPath[0].z
+        };
+        const lenLast = Math.hypot(lastSeg.dx, lastSeg.dy, lastSeg.dz) || 1;
+        const lastSegUnit = { dx: lastSeg.dx/lenLast, dy: lastSeg.dy/lenLast, dz: lastSeg.dz/lenLast };
+        const dotTo = toDir.dx * lastSegUnit.dx + toDir.dy * lastSegUnit.dy + toDir.dz * lastSegUnit.dz;
+        const angleTo = Math.acos(Math.min(1, Math.max(-1, dotTo))) * 180 / Math.PI;
+
+        if (angleTo > 15) {
+            const elbowId = findElbowForLine(mat, angleTo);
+            if (elbowId) {
+                newComponents.push({
+                    type: elbowId,
+                    tag: _core.generateShortTag ? _core.generateShortTag(elbowId) : (elbowId + '-' + Date.now().toString(36)),
+                    param: 1.0
+                });
+                notify(`Codo ${Math.round(angleTo)}° añadido al final de ${newLineTag}`, false);
+            }
+        }
+
+        // ---- Reductor si destino es extremo de línea y hay diferencia de diámetros ----
+        if (isLineDest && (nuevoPuertoId === '0' || nuevoPuertoId === '1')) {
+            const destDiameter = toObj.diameter || 4;
+            if (Math.abs(diam - destDiameter) > 0.1) {
+                const reductorType = findComponentInCatalogDirect('CONCENTRIC_REDUCER', mat);
+                if (reductorType) {
+                    newComponents.push({
+                        type: reductorType,
+                        tag: _core.generateShortTag ? _core.generateShortTag(reductorType) : (reductorType + '-' + Date.now().toString(36)),
+                        param: 1.0
+                    });
+                    notify(`Reductor ${destDiameter}"x${diam}" añadido al final de ${newLineTag}`, false);
+                }
+            }
+        }
+
+        const nuevaLinea = {
+            tag: newLineTag,
+            diameter: diam,
+            material: mat,
+            spec: spec,
+            origin: { objType: fromObj.posX !== undefined ? 'equipment' : 'line', equipTag: left.tag, portId: left.port },
+            destination: { objType: toObj.posX !== undefined ? 'equipment' : 'line', equipTag: right.tag, portId: nuevoPuertoId },
+            waypoints: [],
+            _cachedPoints: directPath,
+            components: newComponents
+        };
+
+        _core.addLine(nuevaLinea);
+        if (_core.setSelected) _core.setSelected({ type: 'line', obj: nuevaLinea });
+
+        if (fromObj.puertos) {
+            const pFrom = fromObj.puertos.find(p => p.id === left.port);
+            if (pFrom) pFrom.connectedLine = newLineTag;
+        }
+        if (toObj.puertos) {
+            const pTo = toObj.puertos.find(p => p.id === nuevoPuertoId);
+            if (pTo) pTo.connectedLine = newLineTag;
+        }
+
+        _core.syncPhysicalData();
+        _core._saveState();
+        notify(`✅ Conectado ${left.tag}.${left.port} → ${right.tag}.${nuevoPuertoId} (línea recta)`);
         return true;
     }
 
+    // ==================== 5. EJECUCIÓN PRINCIPAL ====================
     function executeCommand(cmd) {
         if (!cmd || cmd.startsWith('//')) return false;
         const normalized = normalizeCommand(cmd);
-        
-        const firstWord = normalized.trim().split(/\s+/)[0].toLowerCase();
-        const action = LEX[firstWord] || firstWord.toUpperCase();
-
-        if (action === 'CONNECT') {
-            const tokensForConnect = tokenize(normalized);
-            const toRef = tokensForConnect[3] || '';
-            if (toRef.includes('%')) {
-                if (handleConnectEquipmentToLineMidpoint(tokensForConnect)) return true;
-            }
-            return handleConnectViaRouter(normalized);
-        }
-
         const tokens = tokenize(normalized);
         if (!tokens || !tokens.length) return false;
         if (!dependenciesReady()) return true;
 
         const first = tokens[0].toLowerCase();
-        const actionFromToken = LEX[first] || first.toUpperCase();
+        const action = LEX[first] || first.toUpperCase();
+
+        if (action === 'CONNECT') {
+            return handleConnectDirecto(tokens);
+        }
 
         const rest = tokens.slice(1);
         const arrowIdxRel = rest.indexOf('->');
-        if (arrowIdxRel >= 0) return handleConnectViaRouter(normalized);
+        if (arrowIdxRel >= 0) {
+            return handleConnectDirecto(tokens);
+        }
         const aIdxRel = rest.findIndex(t => t.toLowerCase() === 'a' || t.toLowerCase() === 'to');
         if (aIdxRel > 0) {
             const leftPart = rest.slice(0, aIdxRel).join('');
-            if (leftPart.includes('.') || leftPart.includes('@')) return handleConnectViaRouter(normalized);
+            const rightPart = rest.slice(aIdxRel + 1).join(' ');
+            if (leftPart.includes('.') || rightPart.includes('.')) {
+                return handleConnectDirecto(tokens);
+            }
         }
 
-        if (actionFromToken === 'CREATE' && tokens.length >= 3 && (tokens[1].toLowerCase() === 'linea' || tokens[1].toLowerCase() === 'line'))
+        if (action === 'CREATE' && tokens.length >= 3 &&
+            (tokens[1].toLowerCase() === 'linea' || tokens[1].toLowerCase() === 'line'))
             return handleCreateLineFromCreate(tokens);
-        if (actionFromToken === 'TAP') return handleTap(tokens);
-        if (actionFromToken === 'SPLIT') return handleSplit(tokens);
-        if (actionFromToken === 'AUDIT') return handleAudit();
-        if (actionFromToken === 'BOM') return handleBOM();
+        if (action === 'TAP') return handleTap(tokens);
+        if (action === 'SPLIT') return handleSplit(tokens);
+        if (action === 'AUDIT') return handleAudit();
+        if (action === 'BOM') return handleBOM();
 
-        switch (actionFromToken) {
+        switch (action) {
             case 'CREATE': return handleCreateEquipo(tokens);
             case 'CREATE_LINE': return handleCreateLine(tokens);
             case 'LINEA_WP': return handleLineWithWaypoints(tokens);
@@ -401,6 +577,7 @@ const SmartFlowCommands = (function() {
         return false;
     }
 
+    // ==================== 6. HANDLERS COMPLETOS ====================
     function handleCreateEquipo(tokens) {
         if (!dependenciesReady()) return true;
         const enIdx = tokens.findIndex(t => t.toLowerCase() === 'en' || t.toLowerCase() === 'at');
@@ -408,11 +585,16 @@ const SmartFlowCommands = (function() {
         const tipo = tokens[1];
         const tag = tokens[2];
         const coordTokens = tokens.slice(enIdx + 1);
-        const coords = extractCoords(coordTokens.join(''));
+        const coordStr = coordTokens.join('');
+        const coords = extractCoords(coordStr);
         if (!coords) { notify('Coordenadas inválidas', true); return true; }
         const params = extractParams(coordTokens.slice(1));
         const eqDef = _catalog.getEquipment(tipo);
-        if (!eqDef) { notify(`Tipo "${tipo}" no encontrado. Disponibles: ${_catalog.listEquipmentTypes().join(', ')}`, true); return true; }
+        if (!eqDef) {
+            const tipos = _catalog.listEquipmentTypes().join(', ');
+            notify(`Tipo "${tipo}" no encontrado. Disponibles: ${tipos}`, true);
+            return true;
+        }
         const eq = _catalog.createEquipment(tipo, tag, coords.x, coords.y, coords.z, params);
         if (eq) {
             _core.addEquipment(eq);
@@ -499,14 +681,16 @@ const SmartFlowCommands = (function() {
         if (tokens[hastaIdx + 2] === '@') hastaToken += '@' + tokens[hastaIdx + 3];
         const desde = parseNodeRef(desdeToken);
         const hasta = parseNodeRef(hastaToken);
-        if (!desde.tag || !hasta.tag) { notify('DESDE y HASTA deben ser EQUIPO.PUERTO', true); return true; }
+        if (!desde.tag || !hasta.tag) { notify('Los argumentos DESDE y HASTA deben ser EQUIPO.PUERTO', true); return true; }
         const startPos = getPortWorldPos(desde.tag, desde.port);
         const endPos = getPortWorldPos(hasta.tag, hasta.port);
-        if (!startPos || !endPos) { notify('No se pudo obtener la posición de los puertos', true); return true; }
+        if (!startPos || !endPos) { notify('No se pudo obtener la posición de los puertos indicados', true); return true; }
         const waypoints = [];
-        if (porIdx > 0) for (let i = porIdx + 1; i < hastaIdx; i++) {
-            const coord = extractCoords(tokens[i]);
-            if (coord) waypoints.push(coord);
+        if (porIdx > 0) {
+            for (let i = porIdx + 1; i < hastaIdx; i++) {
+                const coord = extractCoords(tokens[i]);
+                if (coord) waypoints.push(coord);
+            }
         }
         const points = [startPos, ...waypoints, endPos];
         const params = extractParams(tokens.slice(hastaIdx + 1));
@@ -524,8 +708,9 @@ const SmartFlowCommands = (function() {
         if (toObj && toObj.puertos) {
             const destPort = toObj.puertos.find(p => p.id === hasta.port);
             if (destPort && Math.abs(diameter - (destPort.diametro || diameter)) > 0.01) {
+                const reducerTag = `RED-${Date.now().toString(36)}`;
                 newLine.components.push({
-                    type: 'CONCENTRIC_REDUCER', tag: `RED-${Date.now().toString(36)}`, param: 0.95,
+                    type: 'CONCENTRIC_REDUCER', tag: reducerTag, param: 0.95,
                     fromDiam: diameter, toDiam: destPort.diametro
                 });
             }
@@ -533,15 +718,16 @@ const SmartFlowCommands = (function() {
         _core.addLine(newLine);
         if (_core.setSelected) _core.setSelected({ type: 'line', obj: newLine });
         const fromObj = db.equipos.find(e => e.tag === desde.tag) || db.lines.find(l => l.tag === desde.tag);
-        if (fromObj && fromObj.puertos) {
+        if (fromObj?.puertos) {
             const p = fromObj.puertos.find(p => p.id === desde.port);
             if (p) { p.status = 'connected'; p.connectedLine = newLine.tag; }
         }
-        if (toObj && toObj.puertos) {
+        if (toObj?.puertos) {
             const p = toObj.puertos.find(p => p.id === hasta.port);
             if (p) { p.status = 'connected'; p.connectedLine = newLine.tag; }
         }
-        _core.syncPhysicalData(); _core._saveState();
+        _core.syncPhysicalData();
+        _core._saveState();
         notify(`✅ Línea ${tag} creada desde ${desde.tag}.${desde.port} hasta ${hasta.tag}.${hasta.port}`);
         return true;
     }
@@ -560,9 +746,11 @@ const SmartFlowCommands = (function() {
             if (params.dir) cambios.dir = params.dir;
             if (params.diametro !== undefined) cambios.diametro = params.diametro;
             if (params.status) cambios.status = params.status;
-            if (!Object.keys(cambios).length) { notify('Propiedades de puerto no reconocidas', true); return true; }
-            if (_core.updatePuerto(tag, puertoId, cambios)) notify(`✅ Puerto ${puertoId} de ${tag} modificado`);
-            else notify('No se pudo modificar el puerto', true);
+            if (Object.keys(cambios).length === 0) { notify('Propiedades de puerto no reconocidas', true); return true; }
+            if (_core.updatePuerto(tag, puertoId, cambios))
+                notify(`✅ Puerto ${puertoId} de ${tag} modificado`);
+            else
+                notify(`No se pudo modificar el puerto`, true);
             return true;
         }
         const tag = tagOrRef;
@@ -577,8 +765,10 @@ const SmartFlowCommands = (function() {
             if (params.ancho !== undefined) updates.ancho = params.ancho;
             if (params.material) updates.material = params.material;
             if (params.spec) updates.spec = params.spec;
-            if (Object.keys(updates).length) { _core.updateEquipment(tag, updates); notify(`✅ Equipo ${tag} modificado`); }
-            else notify('Sin cambios para aplicar', true);
+            if (Object.keys(updates).length) {
+                _core.updateEquipment(tag, updates);
+                notify(`✅ Equipo ${tag} modificado`);
+            } else notify('Sin cambios para aplicar', true);
             return true;
         }
         const line = db.lines.find(l => l.tag === tag);
@@ -587,11 +777,13 @@ const SmartFlowCommands = (function() {
             if (params.diametro !== undefined) updates.diameter = params.diametro;
             if (params.material) updates.material = params.material;
             if (params.spec) updates.spec = params.spec;
-            if (Object.keys(updates).length) { _core.updateLine(tag, updates); notify(`✅ Línea ${tag} modificada`); }
-            else notify('Sin cambios para aplicar', true);
+            if (Object.keys(updates).length) {
+                _core.updateLine(tag, updates);
+                notify(`✅ Línea ${tag} modificada`);
+            } else notify('Sin cambios para aplicar', true);
             return true;
         }
-        notify(`Elemento ${tag} no encuentrado`, true);
+        notify(`Elemento ${tag} no encontrado`, true);
         return true;
     }
 
@@ -600,16 +792,24 @@ const SmartFlowCommands = (function() {
         if (tokens.length < 2) { notify('Uso: eliminar TAG', true); return true; }
         const tag = tokens[1];
         const db = _core.getDb();
-        if (db.equipos.some(e => e.tag === tag)) {
+        const eqIdx = db.equipos.findIndex(e => e.tag === tag);
+        if (eqIdx !== -1) {
             db.lines.forEach(line => {
-                if ((line.origin && line.origin.equipTag === tag) || (line.destination && line.destination.equipTag === tag))
+                if ((line.origin && line.origin.equipTag === tag) ||
+                    (line.destination && line.destination.equipTag === tag)) {
                     _core.deleteLine(line.tag);
+                }
             });
             _core.deleteEquipment(tag);
             notify(`🗑️ Equipo ${tag} eliminado junto con sus conexiones`);
             return true;
         }
-        if (db.lines.some(l => l.tag === tag)) { _core.deleteLine(tag); notify(`🗑️ Línea ${tag} eliminada`); return true; }
+        const lineIdx = db.lines.findIndex(l => l.tag === tag);
+        if (lineIdx !== -1) {
+            _core.deleteLine(tag);
+            notify(`🗑️ Línea ${tag} eliminada`);
+            return true;
+        }
         notify(`Elemento ${tag} no encontrado`, true);
         return true;
     }
@@ -619,12 +819,15 @@ const SmartFlowCommands = (function() {
         const aIdx = tokens.findIndex(t => t.toLowerCase() === 'a' || t.toLowerCase() === 'to');
         if (aIdx < 0) { notify('Uso: mover TAG a X,Y,Z', true); return true; }
         const tag = tokens[1];
-        const coords = extractCoords(tokens.slice(aIdx + 1).join(''));
+        const coordStr = tokens.slice(aIdx + 1).join('');
+        const coords = extractCoords(coordStr);
         if (!coords) { notify('Coordenadas inválidas', true); return true; }
         if (_core.getDb().equipos.find(e => e.tag === tag)) {
             _core.updateEquipment(tag, { posX: coords.x, posY: coords.y, posZ: coords.z });
             notify(`✅ Equipo ${tag} movido a (${coords.x},${coords.y},${coords.z})`);
-        } else notify('Solo se pueden mover equipos', true);
+        } else {
+            notify(`Solo se pueden mover equipos`, true);
+        }
         return true;
     }
 
@@ -637,7 +840,8 @@ const SmartFlowCommands = (function() {
         if (eq) {
             let info = `${eq.tag} | ${eq.tipo} | Pos: (${eq.posX},${eq.posY},${eq.posZ}) | ⌀${eq.diametro || '?'} H=${eq.altura || '?'} | ${eq.material || 'N/D'}`;
             if (eq.puertos) info += ` | Puertos: ${eq.puertos.map(p => `${p.id}(${p.status})`).join(', ')}`;
-            notify(info); return true;
+            notify(info);
+            return true;
         }
         const line = db.lines.find(l => l.tag === tag);
         if (line) {
@@ -646,7 +850,8 @@ const SmartFlowCommands = (function() {
             if (line.origin) info += ` | De: ${line.origin.equipTag}.${line.origin.portId}`;
             if (line.destination) info += ` | A: ${line.destination.equipTag}.${line.destination.portId}`;
             if (line.components) info += ` | Componentes: ${line.components.length}`;
-            notify(info); return true;
+            notify(info);
+            return true;
         }
         notify(`${tag} no encontrado`, true);
         return true;
@@ -655,25 +860,33 @@ const SmartFlowCommands = (function() {
     function handleList(tokens) {
         if (!dependenciesReady()) return true;
         const sub = tokens[1] ? tokens[1].toLowerCase() : '';
-        if (sub === 'components' || sub === 'componentes')
-            notify(`Componentes disponibles: ${_catalog.listComponentTypes().sort().join(', ')}`);
-        else if (sub === 'equipment' || sub === 'equipos') listEquipos();
-        else if (sub === 'líneas' || sub === 'lineas') listLineas();
-        else if (sub === 'specs' || sub === 'especificaciones')
-            notify(`Especificaciones: ${_catalog.listSpecs().sort().join(', ')}`);
-        else notify('Use: listar equipos | listar lineas | listar componentes | listar especificaciones');
+        if (sub === 'components' || sub === 'componentes') {
+            const types = _catalog.listComponentTypes();
+            notify(`Componentes disponibles: ${types.sort().join(', ')}`);
+        } else if (sub === 'equipment' || sub === 'equipos') {
+            listEquipos();
+        } else if (sub === 'líneas' || sub === 'lineas') {
+            listLineas();
+        } else if (sub === 'specs' || sub === 'especificaciones') {
+            const specs = _catalog.listSpecs();
+            notify(`Especificaciones: ${specs.sort().join(', ')}`);
+        } else {
+            notify('Use: listar equipos | listar lineas | listar componentes | listar especificaciones');
+        }
         return true;
     }
 
     function listEquipos() {
-        const equipos = _core.getDb().equipos;
-        if (!equipos.length) { notify('No hay equipos'); return; }
+        const db = _core.getDb();
+        const equipos = db.equipos;
+        if (equipos.length === 0) { notify('No hay equipos'); return; }
         notify(`Equipos (${equipos.length}): ${equipos.map(e => e.tag).join(', ')}`);
     }
 
     function listLineas() {
-        const lines = _core.getDb().lines;
-        if (!lines.length) { notify('No hay líneas'); return; }
+        const db = _core.getDb();
+        const lines = db.lines;
+        if (lines.length === 0) { notify('No hay líneas'); return; }
         notify(`Líneas (${lines.length}): ${lines.map(l => `${l.tag}(${l.diameter}" ${l.material || '?'})`).join(', ')}`);
     }
 
@@ -713,7 +926,7 @@ const SmartFlowCommands = (function() {
             if (!obj) { notify(`Elemento ${tag} no encontrado`, true); return true; }
             let coords = null;
             if (obj.posX !== undefined) {
-                const port = obj.puertos && obj.puertos.find(p => p.id === portOrPos);
+                const port = obj.puertos?.find(p => p.id === portOrPos);
                 if (!port) { notify(`Puerto ${portOrPos} no encontrado en ${tag}`, true); return true; }
                 coords = { x: (obj.posX || 0) + (port.relX || 0), y: (obj.posY || 0) + (port.relY || 0), z: (obj.posZ || 0) + (port.relZ || 0) };
             } else {
@@ -774,20 +987,17 @@ const SmartFlowCommands = (function() {
         return true;
     }
 
-    function handleTap(tokens) {
-        notify('Comando TAP en desarrollo', false);
-        return true;
-    }
+    function handleTap(tokens) { notify('Comando TAP en desarrollo', false); return true; }
 
     function handleSplit(tokens) {
         if (!dependenciesReady()) return true;
         const lineTag = tokens[1];
         const coords = extractCoords(tokens.slice(2).join(' '));
         if (!lineTag || !coords) { notify('Uso: split LINEA (x,y,z) [type=TEE_EQUAL]', true); return true; }
-        const type = tokens.find(t => t.startsWith('type=')) && tokens.find(t => t.startsWith('type=')).split('=')[1] || 'TEE_EQUAL';
+        const type = tokens.find(t => t.startsWith('type='))?.split('=')[1] || 'TEE_EQUAL';
         const result = _core.splitLine(lineTag, coords, { type });
         if (result) notify(`✅ Línea ${lineTag} dividida con ${type}`);
-        else notify('No se pudo dividir', true);
+        else notify(`No se pudo dividir`, true);
         return true;
     }
 
@@ -818,6 +1028,23 @@ const SmartFlowCommands = (function() {
         return true;
     }
 
+    function showHelp() {
+        notify([
+            '═══ SMARTFLOW 3D - COMANDOS ═══',
+            'CREAR: crear TIPO TAG en X,Y,Z [d=DIAM] [h=ALTURA] [m=MAT]',
+            'LÍNEA: % TAG X1,Y1,Z1 X2,Y2,Z2 [d=DIAM] [m=MAT]',
+            'LÍNEA CON WAYPOINTS: linea TAG desde EQP.PUERTO por x,y,z hasta EQP.PUERTO',
+            'CONECTAR: conectar ORIGEN.PUERTO DESTINO.PUERTO [diametro N] [material M]',
+            'MODIFICAR: modificar TAG d=3000 m=HDPE',
+            'MOVER: mover TAG a X,Y,Z',
+            'ELIMINAR: eliminar TAG',
+            'INFO: info TAG | listar equipos | listar lineas | nodos TAG | punto TAG.PUERTO',
+            'VISTAS: vista iso | vista top | vista front | vista side',
+            'EXPORTAR: exportar mto | exportar pcf | exportar pdf',
+            'OTROS: deshacer | rehacer | resumen | ayuda | guardar | cargar'
+        ].join('\n'));
+    }
+
     function setView(view) {
         if (typeof SmartFlowRender !== 'undefined') {
             if (view === 'iso' && SmartFlowRender.fitCameraToEquipments) SmartFlowRender.fitCameraToEquipments();
@@ -826,20 +1053,9 @@ const SmartFlowCommands = (function() {
         }
     }
 
-    function exportMTO() {
-        if (typeof SmartFlowIO !== 'undefined') SmartFlowIO.exportMTO();
-        else notify('MTO no disponible', true);
-    }
-
-    function exportPCF() {
-        if (typeof SmartFlowIO !== 'undefined') SmartFlowIO.exportPCF();
-        else notify('PCF no disponible', true);
-    }
-
-    function exportPDF() {
-        if (typeof SmartFlowIO !== 'undefined') SmartFlowIO.exportPDF();
-        else notify('PDF no disponible', true);
-    }
+    function exportMTO() { if (typeof SmartFlowIO !== 'undefined') SmartFlowIO.exportMTO(); else notify('MTO no disponible', true); }
+    function exportPCF() { if (typeof SmartFlowIO !== 'undefined') SmartFlowIO.exportPCF(); else notify('PCF no disponible', true); }
+    function exportPDF() { if (typeof SmartFlowIO !== 'undefined') SmartFlowIO.exportPDF(); else notify('PDF no disponible', true); }
 
     function saveProject() {
         const state = _core.exportProject();
@@ -892,201 +1108,10 @@ const SmartFlowCommands = (function() {
         return true;
     }
 
-    // ========== FUNCIÓN ESPECIALIZADA PARA CONEXIÓN A PUNTO DE LÍNEA ==========
-    // Soporta: Equipo → Línea%  y  Línea → Línea%
-    function connectToLinePoint(origenTag, origenPortId, destinoLineTag, porcentaje, diametro, material, spec) {
-        if (!dependenciesReady()) return false;
-        
-        // Validar porcentaje (0-100 o 0-1)
-        let percent = porcentaje;
-        if (percent > 1 && percent <= 100) {
-            percent = percent / 100;
-        }
-        
-        if (isNaN(percent) || percent < 0 || percent > 1) {
-            notify(`Porcentaje inválido: "${porcentaje}". Use 0-100 (ej: 30 = 30%)`, true);
-            return false;
-        }
-        
-        const db = _core.getDb();
-        
-        // ===== VALIDAR ORIGEN (puede ser EQUIPO o LÍNEA) =====
-        let origenPos = null;
-        let origenDiametro = null;
-        let origenMaterial = null;
-        let origenSpec = null;
-        let origenTipo = null;
-        
-        // Buscar como equipo
-        let fromEquipo = db.equipos.find(e => e.tag === origenTag);
-        if (fromEquipo) {
-            origenTipo = 'equipment';
-            const fromPort = fromEquipo.puertos?.find(p => p.id === origenPortId);
-            if (!fromPort) {
-                notify(`Puerto ${origenPortId} no encontrado en equipo ${origenTag}. Puertos disponibles: ${(fromEquipo.puertos || []).map(p => p.id).join(', ')}`, true);
-                return false;
-            }
-            origenPos = {
-                x: (fromEquipo.posX || 0) + (fromPort.relX || 0),
-                y: (fromEquipo.posY || 0) + (fromPort.relY || 0),
-                z: (fromEquipo.posZ || 0) + (fromPort.relZ || 0)
-            };
-            origenDiametro = fromPort.diametro || fromEquipo.diametro;
-            origenMaterial = fromEquipo.material;
-            origenSpec = fromEquipo.spec;
-        } else {
-            // Buscar como línea
-            let fromLine = db.lines.find(l => l.tag === origenTag);
-            if (fromLine) {
-                origenTipo = 'line';
-                const pts = fromLine._cachedPoints || fromLine.points;
-                if (!pts || pts.length < 2) {
-                    notify(`Línea origen ${origenTag} sin geometría`, true);
-                    return false;
-                }
-                
-                // Si el puerto es START (0) o END (1)
-                if (origenPortId === '0' || origenPortId === 'START' || origenPortId === 'start') {
-                    origenPos = { x: pts[0].x, y: pts[0].y, z: pts[0].z };
-                } else if (origenPortId === '1' || origenPortId === 'END' || origenPortId === 'end') {
-                    origenPos = { x: pts[pts.length - 1].x, y: pts[pts.length - 1].y, z: pts[pts.length - 1].z };
-                } else {
-                    // Puerto como porcentaje en la línea origen
-                    let pct = parseFloat(origenPortId);
-                    if (isNaN(pct)) {
-                        notify(`Puerto inválido en línea origen. Use START, END o porcentaje (ej: 0.5)`, true);
-                        return false;
-                    }
-                    if (pct > 1 && pct <= 100) pct = pct / 100;
-                    
-                    // Calcular punto en el porcentaje
-                    let totalLen = 0, lengths = [];
-                    for (let i = 0; i < pts.length - 1; i++) {
-                        const d = Math.hypot(pts[i+1].x - pts[i].x, pts[i+1].y - pts[i].y, pts[i+1].z - pts[i].z);
-                        lengths.push(d);
-                        totalLen += d;
-                    }
-                    const targetDist = totalLen * pct;
-                    let accum = 0, segIdx = 0, t = 0;
-                    for (let i = 0; i < lengths.length; i++) {
-                        if (accum + lengths[i] >= targetDist || i === lengths.length - 1) {
-                            segIdx = i;
-                            t = lengths[i] > 0 ? (targetDist - accum) / lengths[i] : 0;
-                            break;
-                        }
-                        accum += lengths[i];
-                    }
-                    const pA = pts[segIdx], pB = pts[segIdx + 1];
-                    origenPos = {
-                        x: pA.x + (pB.x - pA.x) * t,
-                        y: pA.y + (pB.y - pA.y) * t,
-                        z: pA.z + (pB.z - pA.z) * t
-                    };
-                }
-                origenDiametro = fromLine.diameter;
-                origenMaterial = fromLine.material;
-                origenSpec = fromLine.spec;
-            } else {
-                notify(`Origen ${origenTag} no encontrado (ni como equipo ni como línea)`, true);
-                return false;
-            }
-        }
-        
-        // ===== VALIDAR LÍNEA DESTINO =====
-        const targetLine = db.lines.find(l => l.tag === destinoLineTag);
-        if (!targetLine) {
-            notify(`Línea destino ${destinoLineTag} no encontrada. Líneas disponibles: ${db.lines.map(l => l.tag).join(', ')}`, true);
-            return false;
-        }
-        
-        const ptsDestino = targetLine._cachedPoints || targetLine.points;
-        if (!ptsDestino || ptsDestino.length < 2) {
-            notify(`Línea destino ${destinoLineTag} sin puntos válidos`, true);
-            return false;
-        }
-        
-        // Diámetros y materiales por defecto
-        const finalDiameter = diametro || origenDiametro || targetLine.diameter || 4;
-        const finalMaterial = material || origenMaterial || targetLine.material || 'PPR';
-        const finalSpec = spec || origenSpec || targetLine.spec || 'PPR_PN12_5';
-        
-        const percentDisplay = Math.round(percent * 100);
-        notify(`🔗 Conectando ${origenTag}.${origenPortId} → ${destinoLineTag} en ${percentDisplay}%...`, false);
-        
-        // Llamar al router (el router manejará el destino como línea con porcentaje)
-        if (typeof SmartFlowRouter !== 'undefined') {
-            const result = SmartFlowRouter.routeBetweenPorts(
-                origenTag,
-                origenPortId,
-                destinoLineTag,
-                percent.toString(),
-                finalDiameter,
-                finalMaterial,
-                finalSpec
-            );
-            
-            if (result) {
-                notify(`✅ Conectado: ${origenTag}.${origenPortId} → ${destinoLineTag} (${percentDisplay}%)`, false);
-                return true;
-            } else {
-                notify('❌ Error en la conexión', true);
-                return false;
-            }
-        } else {
-            notify('Router no disponible', true);
-            return false;
-        }
-    }
-
-    // Comando directo para pruebas (desde consola del navegador)
-    function testConnect(origen, puerto, destino, pct, diam, mat) {
-        return connectToLinePoint(origen, puerto, destino, pct, diam, mat);
-    }
-
-    function showHelp() {
-        notify([
-            '═══ SMARTFLOW 3D - COMANDOS ═══',
-            'CREAR EQUIPO:',
-            '  crear TIPO TAG en X,Y,Z [d=DIAM] [h=ALTURA] [m=MAT]',
-            '  Ej: crear tanque_v TK-01 en 0,1450,0 d=2380 h=2900 m=PE',
-            '',
-            'CREAR LÍNEA SUELTA (colectores, distribuidores):',
-            '  crear linea TAG ruta X1,Y1,Z1 X2,Y2,Z2 ... [d=DIAM] [m=MAT]',
-            '  Ej: % COL-01 0,2000,6000 8000,2000,6000 d=6 m=PPR',
-            '',
-            'CREAR LÍNEA CON WAYPOINTS:',
-            '  linea TAG desde EQP.PUERTO por x,y,z ... hasta EQP.PUERTO [d=DIAM] [m=MAT]',
-            '  Ej: linea L-101 desde TK-01.N1 por 0,0,500 hasta B-01.SUC d=4 m=PPR',
-            '',
-            'CONECTAR:',
-            '  conectar EQP1.PUERTO1 a EQP2.PUERTO2 [diametro N] [material M]',
-            '  Ej: conectar TK-01.N1 a B-01.SUC d=4 m=PPR',
-            '  Ej: conectar TK-01.N1 a LINEA%30 d=3 m=PPR',
-            '  Ej: conectar LINEA-101.END a COLECTOR%50 d=4 m=PPR',
-            '',
-            'MODIFICAR:',
-            '  modificar TAG [prop=valor]',
-            '  modificar TAG.PUERTO pos=(x,y,z) dir=(dx,dy,dz) diam=4 status=open',
-            '',
-            'MOVER:',
-            '  mover TAG a X,Y,Z',
-            '',
-            'ELIMINAR:',
-            '  eliminar TAG',
-            '',
-            'CONSULTAR:',
-            '  info TAG | listar equipos | listar lineas | nodos TAG | resumen',
-            '  punto TAG.PUERTO | punto LINEA@0.5',
-            '',
-            'VISTAS:',
-            '  vista iso | vista top | vista front | vista side',
-            '',
-            'EXPORTAR:',
-            '  exportar mto | exportar pcf | exportar pdf',
-            '',
-            'OTROS:',
-            '  deshacer | rehacer | ayuda | guardar | cargar'
-        ].join('\n'));
+    // ==================== 7. IMPORTACIÓN PCF Y LOTES ====================
+    function importPCF(fileContent) {
+        notify('Importación PCF recibida (procesando...)');
+        return true;
     }
 
     function executeBatch(commandsText) {
@@ -1102,86 +1127,10 @@ const SmartFlowCommands = (function() {
     }
 
     function init(coreInstance, catalogInstance, rendererInstance, notifyFn, renderFn) {
-        _core = coreInstance || null;
-        _catalog = catalogInstance || null;
-        _renderer = rendererInstance || null;
+        _core = coreInstance; _catalog = catalogInstance; _renderer = rendererInstance;
         _notifyUI = notifyFn || console.log;
-        console.log("Commands v11.0 listo (conexión a punto de línea con T y codos automáticos)");
+        console.log("Commands v10.7 listo (conexión directa autónoma)");
     }
 
-    return { 
-        init, 
-        executeCommand, 
-        executeBatch,
-        connectToLinePoint,
-        testConnect
-    };
-})();
-
-    function showHelp() {
-        notify([
-            '═══ SMARTFLOW 3D - COMANDOS ═══',
-            'CREAR EQUIPO:',
-            '  crear TIPO TAG en X,Y,Z [d=DIAM] [h=ALTURA] [m=MAT]',
-            '  Ej: crear tanque_v TK-01 en 0,1450,0 d=2380 h=2900 m=PE',
-            '',
-            'CREAR LÍNEA SUELTA (colectores, distribuidores):',
-            '  crear linea TAG ruta X1,Y1,Z1 X2,Y2,Z2 ... [d=DIAM] [m=MAT]',
-            '  Ej: % COL-01 0,2000,6000 8000,2000,6000 d=6 m=PPR',
-            '',
-            'CREAR LÍNEA CON WAYPOINTS:',
-            '  linea TAG desde EQP.PUERTO por x,y,z ... hasta EQP.PUERTO [d=DIAM] [m=MAT]',
-            '  Ej: linea L-101 desde TK-01.N1 por 0,0,500 hasta B-01.SUC d=4 m=PPR',
-            '',
-            'CONECTAR:',
-            '  conectar EQP1.PUERTO1 a EQP2.PUERTO2 [diametro N] [material M]',
-            '  Ej: conectar TK-01.N1 a B-01.SUC d=4 m=PPR',
-            '  Ej: conectar TK-01.N1 a LINEA%30 d=3 m=PPR',
-            '',
-            'MODIFICAR:',
-            '  modificar TAG [prop=valor]',
-            '  modificar TAG.PUERTO pos=(x,y,z) dir=(dx,dy,dz) diam=4 status=open',
-            '',
-            'MOVER:',
-            '  mover TAG a X,Y,Z',
-            '',
-            'ELIMINAR:',
-            '  eliminar TAG',
-            '',
-            'CONSULTAR:',
-            '  info TAG | listar equipos | listar lineas | nodos TAG | resumen',
-            '  punto TAG.PUERTO | punto LINEA@0.5',
-            '',
-            'VISTAS:',
-            '  vista iso | vista top | vista front | vista side',
-            '',
-            'EXPORTAR:',
-            '  exportar mto | exportar pcf | exportar pdf',
-            '',
-            'OTROS:',
-            '  deshacer | rehacer | ayuda | guardar | cargar'
-        ].join('\n'));
-    }
-
-    function executeBatch(commandsText) {
-        const lines = commandsText.split('\n');
-        let executed = 0, failed = 0;
-        for (let raw of lines) {
-            const trimmed = raw.trim();
-            if (!trimmed || trimmed.startsWith('//')) continue;
-            if (executeCommand(trimmed)) executed++;
-            else { failed++; notify(`No entendí: "${trimmed.substring(0, 50)}"`, true); }
-        }
-        if (executed + failed > 0) notify(`${executed} comandos ejecutados, ${failed} fallidos`, failed > 0);
-    }
-
-    function init(coreInstance, catalogInstance, rendererInstance, notifyFn, renderFn) {
-        _core = coreInstance || null;
-        _catalog = catalogInstance || null;
-        _renderer = rendererInstance || null;
-        _notifyUI = notifyFn || console.log;
-        console.log("Commands v10.9 listo (conexión por split sin tokenizar @)");
-    }
-
-    return { init, executeCommand, executeBatch };
+    return { init, executeCommand, executeBatch, importPCF };
 })();
