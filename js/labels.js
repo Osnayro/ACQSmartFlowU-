@@ -1,4 +1,4 @@
-```javascript
+
 // ============================================================
 // SMARTFLOW LABELS v3.0 – Etiquetas 3D + Abreviaturas ISO + Componentes
 // Archivo: js/labels.js
