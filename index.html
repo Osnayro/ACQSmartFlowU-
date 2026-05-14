@@ -1,20 +1,10 @@
-
 <!DOCTYPE html>
 <html lang="es">
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no">
-    <title>SmartEngp | AcQuaBlue - Ingeniería Inteligente</title>
+    <title>SmartEngp | AcQuaBlue</title>
     
-    <!-- Three.js y complementos (para modo 3D) -->
-    <script src="https://cdn.jsdelivr.net/npm/three@0.128.0/build/three.min.js"></script>
-    <script src="https://cdn.jsdelivr.net/npm/three@0.128.0/examples/js/controls/OrbitControls.js"></script>
-    <script src="https://cdn.jsdelivr.net/npm/three@0.128.0/examples/js/postprocessing/EffectComposer.js"></script>
-    <script src="https://cdn.jsdelivr.net/npm/three@0.128.0/examples/js/postprocessing/RenderPass.js"></script>
-    <script src="https://cdn.jsdelivr.net/npm/three@0.128.0/examples/js/postprocessing/OutlinePass.js"></script>
-    <script src="https://cdn.jsdelivr.net/npm/three@0.128.0/examples/js/shaders/CopyShader.js"></script>
-    
-    <!-- Librerías de exportación -->
     <script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"></script>
     <script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js"></script>
     
@@ -42,21 +32,26 @@
             font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
         }
 
-        /* Splash Screen */
         #splash-screen {
-            position: fixed; top: 0; left: 0;
+            position: fixed;
+            top: 0; left: 0;
             width: 100%; height: 100%;
             background: radial-gradient(circle at center, #10172a 0%, #020617 100%);
             z-index: 10000;
-            display: flex; justify-content: center; align-items: center;
+            display: flex;
+            justify-content: center;
+            align-items: center;
             transition: opacity 0.8s ease, visibility 0.8s;
         }
+
         .splash-content { text-align: center; width: 350px; }
         .corporate-header { margin-bottom: 25px; }
         .company-name { font-size: 11px; letter-spacing: 3px; color: #fff; opacity: 0.6; text-transform: uppercase; display: block; }
         .powered-by { font-size: 8px; color: var(--accent-cyan); letter-spacing: 1px; text-transform: uppercase; }
+
         .hex-container {
-            width: 120px; height: 120px; margin: 0 auto 30px;
+            width: 120px; height: 120px;
+            margin: 0 auto 30px;
             border: 1px solid var(--accent-cyan);
             clip-path: polygon(50% 0%, 100% 25%, 100% 75%, 50% 100%, 0% 75%, 0% 25%);
             display: flex; justify-content: center; align-items: center;
@@ -64,272 +59,168 @@
             animation: hex-pulse 2.5s infinite ease-in-out;
         }
         .hex-container img { width: 70%; filter: drop-shadow(0 0 10px #00f2ff); }
+
         @keyframes hex-pulse {
             0%, 100% { transform: scale(1); box-shadow: 0 0 15px rgba(0,242,255,0.1); }
             50% { transform: scale(1.05); box-shadow: 0 0 30px rgba(0,242,255,0.3); }
         }
+
         .splash-title { font-size: 30px; letter-spacing: 8px; color: white; font-weight: 900; text-transform: uppercase; margin-bottom: 5px; }
         .splash-subtitle { color: var(--accent-cyan); letter-spacing: 4px; font-size: 10px; margin-bottom: 35px; opacity: 0.8; font-weight: bold; }
+
         .loading-bar-container { width: 200px; height: 1px; background: rgba(255,255,255,0.1); margin: 0 auto 15px; overflow: hidden; }
         .loading-bar-fill { width: 0%; height: 100%; background: var(--accent-cyan); animation: fill-bar 4.5s forwards cubic-bezier(0.19, 1, 0.22, 1); }
+
         .splash-status { font-family: monospace; font-size: 9px; color: #64748b; text-transform: uppercase; margin-bottom: 50px; height: 15px; }
+
         .author-footer { border-top: 1px solid rgba(255,255,255,0.1); padding-top: 20px; }
         .leader-by { font-size: 9px; color: #fff; opacity: 0.5; text-transform: uppercase; }
         .engineer-name { font-size: 13px; font-weight: bold; color: #fff; display: block; letter-spacing: 1.5px; margin-top: 4px; }
+
         @keyframes fill-bar { 0% { width: 0%; } 100% { width: 100%; } }
         .splash-hidden { opacity: 0; visibility: hidden; }
 
-        /* Welcome Panel */
         #welcome-panel {
-            position: fixed; top: 0; left: 0;
+            position: fixed;
+            top: 0; left: 0;
             width: 100%; height: 100%;
             background: var(--primary-bg);
             z-index: 9000;
-            display: flex; justify-content: center; align-items: center;
+            display: flex;
+            justify-content: center;
+            align-items: center;
             transition: opacity 0.6s ease, visibility 0.6s;
         }
+
         .welcome-container {
-            width: 600px; padding: 40px;
+            width: 600px;
+            padding: 40px;
             background: rgba(15, 23, 42, 0.85);
             border: 1px solid var(--accent-cyan);
             border-radius: 16px;
             backdrop-filter: blur(12px);
             box-shadow: 0 20px 40px rgba(0,0,0,0.6);
+            position: relative;
+            overflow: hidden;
             text-align: center;
         }
-        .home-logo-img { width: 130px; margin-bottom: 25px; filter: drop-shadow(0 0 15px rgba(0,242,255,0.4)); }
-        .header-names { display: flex; justify-content: space-between; margin-bottom: 35px; }
-        .corp-name, .user-name { font-size: 16px; font-weight: 800; text-transform: uppercase; letter-spacing: 2px; }
-        .corp-name { color: var(--accent-cyan); text-align: left; }
-        .user-name { color: #fff; text-align: right; }
+
+        .home-logo-wrapper { text-align: center; margin-bottom: 25px; }
+        .home-logo-img { width: 130px; margin-top: 10px; margin-bottom: 25px; filter: drop-shadow(0 0 15px rgba(0, 242, 255, 0.4)); }
+
+        .header-names { display: flex; justify-content: space-between; margin-bottom: 35px; text-align: left; }
+        .corp-name { color: var(--accent-cyan); font-size: 16px; font-weight: 800; text-transform: uppercase; letter-spacing: 2px; }
+        .user-name { color: #fff; font-size: 16px; font-weight: 600; text-transform: uppercase; letter-spacing: 2px; text-align: right; }
+
         .button-group { display: flex; flex-direction: column; gap: 16px; }
         .welcome-btn {
-            background: transparent; border: 1px solid var(--accent-cyan);
-            color: var(--accent-cyan); padding: 16px 24px;
-            font-size: 18px; font-weight: bold;
-            text-transform: uppercase; letter-spacing: 3px;
-            border-radius: 8px; cursor: pointer;
-            transition: all 0.3s;
+            background: transparent; border: 1px solid var(--accent-cyan); color: var(--accent-cyan);
+            padding: 16px 24px; font-size: 18px; font-weight: bold; text-transform: uppercase;
+            letter-spacing: 3px; border-radius: 8px; cursor: pointer; transition: all 0.3s;
         }
-        .welcome-btn:hover { background: var(--accent-cyan); color: #000; box-shadow: 0 0 30px rgba(0,242,255,0.4); }
+        .welcome-btn:hover { background: var(--accent-cyan); color: #000; }
         .welcome-btn.secondary { border-color: #64748b; color: #94a3b8; }
         .welcome-btn.secondary:hover { background: #334155; border-color: #94a3b8; color: white; }
         .welcome-hidden { opacity: 0; visibility: hidden; pointer-events: none; }
 
-        /* Modal para nombre de proyecto */
         #project-name-modal {
-            position: fixed; top: 0; left: 0;
-            width: 100%; height: 100%;
-            background: rgba(0,0,0,0.8);
-            z-index: 9500;
-            display: none;
-            justify-content: center;
-            align-items: center;
+            position: fixed; top: 0; left: 0; width: 100%; height: 100%;
+            background: rgba(0,0,0,0.8); z-index: 9500; display: none;
+            justify-content: center; align-items: center;
         }
         .modal-content {
-            width: 400px; padding: 30px;
-            background: var(--panel-bg);
-            border: 1px solid var(--accent-cyan);
-            border-radius: 16px;
-            backdrop-filter: blur(12px);
-            text-align: center;
+            width: 400px; padding: 30px; background: var(--panel-bg);
+            border: 1px solid var(--accent-cyan); border-radius: 16px; text-align: center;
         }
-        .modal-content h3 { color: var(--accent-cyan); margin-bottom: 20px; font-size: 18px; text-transform: uppercase; }
-        .modal-content input {
-            width: 100%; padding: 12px 16px;
-            background: #0f172a; border: 1px solid #334155;
-            color: white; border-radius: 8px; font-size: 16px;
-            margin-bottom: 25px; outline: none;
-        }
-        .modal-content input:focus { border-color: var(--accent-cyan); }
+        .modal-content h3 { color: var(--accent-cyan); margin-bottom: 20px; font-size: 18px; }
+        .modal-content input { width: 100%; padding: 12px; background: #0f172a; border: 1px solid #334155; color: white; border-radius: 8px; margin-bottom: 25px; }
         .modal-actions { display: flex; gap: 15px; justify-content: center; }
-        .modal-btn {
-            padding: 10px 24px; background: var(--accent-blue);
-            border: none; color: white; font-weight: bold;
-            border-radius: 6px; cursor: pointer; text-transform: uppercase;
-        }
+        .modal-btn { padding: 10px 24px; background: var(--accent-blue); border: none; color: white; font-weight: bold; border-radius: 6px; cursor: pointer; }
         .modal-btn.cancel { background: #334155; }
 
-        /* Toolbar */
         .toolbar {
-            background: var(--toolbar-bg);
-            padding: 10px 16px;
-            display: flex;
-            align-items: center;
-            flex-wrap: wrap;
-            gap: 8px;
-            border-bottom: 1px solid var(--accent-blue);
-            box-shadow: 0 4px 20px rgba(0,0,0,0.5);
+            background: var(--toolbar-bg); padding: 10px 16px; display: flex;
+            align-items: center; flex-wrap: wrap; gap: 8px;
+            border-bottom: 1px solid var(--accent-blue); box-shadow: 0 4px 20px rgba(0,0,0,0.5);
         }
         .toolbar-logo { display: flex; align-items: center; margin-right: 15px; }
-        .toolbar-logo img { height: 28px; margin-right: 8px; filter: drop-shadow(0 0 6px #00f2ff); }
+        .toolbar-logo img { height: 28px; margin-right: 8px; }
         .toolbar-title { color: var(--accent-cyan); font-size: 18px; font-weight: 800; text-transform: uppercase; letter-spacing: 2px; }
-        
+
         button {
-            background: var(--button-bg);
-            border: 1px solid var(--button-border);
-            color: white;
-            padding: 8px 14px;
-            border-radius: 4px;
-            font-size: 12px; font-weight: 600;
-            cursor: pointer;
-            transition: all 0.2s;
-            text-transform: uppercase; letter-spacing: 0.5px;
+            background: var(--button-bg); border: 1px solid var(--button-border); color: white;
+            padding: 8px 14px; border-radius: 4px; font-size: 12px; font-weight: 600;
+            cursor: pointer; transition: all 0.2s; text-transform: uppercase;
         }
-        button:hover { background: var(--accent-blue); border-color: var(--accent-cyan); box-shadow: 0 0 12px rgba(0, 242, 255, 0.2); }
-        .btn-primary { background: #238636; border-color: #2ea043; }
-        .btn-primary:hover { background: #2ea043; }
-        .btn-warning { background: #d29922; color: #1f1f1f; border-color: #e2a83a; }
-        .btn-warning:hover { background: #e2a83a; }
-        .btn-speak { background: #7c3aed; border-color: #8b5cf6; }
-        .btn-speak:hover { background: #8b5cf6; }
+        button:hover { background: var(--accent-blue); border-color: var(--accent-cyan); }
 
-        /* Contenedor principal con ambos canvas */
-        #canvas-container {
-            flex: 1;
-            background: #000;
-            position: relative;
-            overflow: hidden;
-        }
-        #isoCanvas {
-            display: block;
-            width: 100%;
-            height: 100%;
-            cursor: grab;
-        }
-        #isoCanvas:active { cursor: grabbing; }
-        #three-container {
-            display: none;
-            width: 100%;
-            height: 100%;
-            position: absolute;
-            top: 0;
-            left: 0;
-        }
+        .canvas-container { flex: 1; background: #000; position: relative; overflow: hidden; }
+        canvas { display: block; width: 100%; height: 100%; cursor: grab; }
+        canvas:active { cursor: grabbing; }
 
-        /* Panel de propiedades */
         .property-panel {
-            position: absolute;
-            top: 20px;
-            right: 20px;
-            width: 280px;
-            max-height: 80vh;
-            background: var(--panel-bg);
-            backdrop-filter: blur(10px);
-            border: 1px solid var(--accent-blue);
-            border-radius: 8px;
-            padding: 15px;
-            z-index: 100;
-            overflow-y: auto;
-            transition: transform 0.3s ease;
+            position: absolute; top: 20px; right: 20px; width: 280px; max-height: 80vh;
+            background: var(--panel-bg); backdrop-filter: blur(10px);
+            border: 1px solid var(--accent-blue); border-radius: 8px;
+            padding: 15px; z-index: 100; overflow-y: auto; transition: transform 0.3s ease;
         }
         .property-panel.hidden { transform: translateX(320px); }
-        .panel-header {
-            display: flex;
-            justify-content: space-between;
-            align-items: center;
-            border-bottom: 1px solid rgba(255,255,255,0.1);
-            padding-bottom: 10px;
-            margin-bottom: 15px;
-            color: var(--accent-cyan);
-            font-weight: bold;
-            font-size: 0.9rem;
-        }
-        .panel-header button { background: none; border: none; color: var(--accent-cyan); font-size: 1.2rem; cursor: pointer; padding: 0; }
-        .prop-group { margin-bottom: 12px; }
-        .prop-label { font-size: 0.75rem; color: #94a3b8; display: block; }
-        .prop-value { font-size: 0.9rem; color: white; font-weight: 500; }
-        .port-item {
-            background: rgba(255,255,255,0.05);
-            margin-top: 5px;
-            padding: 5px 8px;
-            border-radius: 4px;
-            font-size: 0.8rem;
-            display: flex;
-            justify-content: space-between;
-        }
-        .port-open { color: #10b981; }
-        .port-connected { color: #3b82f6; }
-        .empty-msg { color: #aaa; text-align: center; padding: 20px 0; }
 
-        /* Panel de comandos */
         .command-panel {
-            position: fixed; left: 10px; bottom: 10px;
-            width: 90%; max-width: 500px;
+            position: fixed; left: 10px; bottom: 10px; width: 90%; max-width: 500px;
             background: var(--panel-bg); border-radius: 12px;
-            border: 1px solid var(--accent-cyan);
-            z-index: 1000; display: none;
-            box-shadow: 0 4px 30px rgba(0,0,0,0.7);
-            backdrop-filter: blur(8px);
+            border: 1px solid var(--accent-cyan); z-index: 1000; display: none;
         }
-        .command-header {
-            display: flex; justify-content: space-between; align-items: center;
-            padding: 12px 16px; border-bottom: 1px solid #3a3a4a;
-        }
-        .command-header strong { color: var(--accent-cyan); }
-        .command-buttons { display: flex; gap: 8px; padding: 12px; }
         textarea {
-            width: calc(100% - 24px); margin: 12px;
-            background: #0f0f17; color: #eee;
-            border: 1px solid #3a3a4a; border-radius: 8px;
-            padding: 12px; font-family: 'Courier New', monospace;
-            font-size: 14px; resize: vertical; outline: none;
+            width: calc(100% - 24px); margin: 12px; background: #0f0f17; color: #eee;
+            border: 1px solid #3a3a4a; border-radius: 8px; padding: 12px; font-family: 'Courier New', monospace;
         }
-        textarea:focus { border-color: var(--accent-cyan); }
-
-        /* Notificación */
         .notification {
             position: fixed; top: 20px; left: 50%; transform: translateX(-50%);
             background: #238636; padding: 10px 20px; border-radius: 8px;
-            z-index: 2000; display: none; text-align: center;
-            font-weight: bold; box-shadow: 0 2px 15px rgba(0,0,0,0.5);
+            z-index: 2000; display: none; font-weight: bold;
         }
-
-        /* Barra de estado */
         .status-bar {
             background: #020617; padding: 8px 20px; font-size: 10px;
             border-top: 1px solid var(--accent-blue); color: var(--accent-cyan);
-            font-family: 'Courier New', Courier, monospace;
             display: flex; justify-content: space-between;
         }
-
-        /* Panel de herramientas flotante */
         .tools-panel {
-            position: fixed; left: 20px; top: 100px;
-            background: var(--panel-bg); border-radius: 12px;
-            padding: 8px; display: flex; flex-direction: column; gap: 8px;
+            position: fixed; left: 20px; top: 100px; background: var(--panel-bg);
+            border-radius: 12px; padding: 8px; display: flex; flex-direction: column; gap: 8px;
             z-index: 900; border: 1px solid var(--accent-blue);
-            backdrop-filter: blur(8px);
         }
-        .tools-panel button { padding: 6px 12px; font-size: 12px; }
-        .tools-panel button.active { background: var(--accent-blue); color: white; }
-
-        /* Panel de elevación */
         .elevation-panel {
-            position: fixed; bottom: 20px; right: 20px;
-            background: var(--panel-bg); padding: 8px 12px; border-radius: 8px;
-            border: 1px solid var(--accent-cyan); z-index: 900;
-            display: flex; gap: 6px; align-items: center;
-            backdrop-filter: blur(8px);
+            position: fixed; bottom: 20px; right: 20px; background: var(--panel-bg);
+            padding: 8px 12px; border-radius: 8px; border: 1px solid var(--accent-cyan);
+            z-index: 900; display: flex; gap: 6px; align-items: center;
         }
-        .elevation-panel input {
-            width: 70px; background: #0f0f17; border: 1px solid #3a3a4a;
-            color: white; border-radius: 4px; padding: 4px 6px; outline: none;
+
+        /* ========== MODO PANTALLA COMPLETA ========== */
+        body.fullscreen-mode .toolbar,
+        body.fullscreen-mode .property-panel,
+        body.fullscreen-mode .command-panel,
+        body.fullscreen-mode .status-bar,
+        body.fullscreen-mode .tools-panel,
+        body.fullscreen-mode .elevation-panel,
+        body.fullscreen-mode #notification {
+            display: none !important;
         }
-        .elevation-panel input:focus { border-color: var(--accent-cyan); }
+        body.fullscreen-mode .canvas-container {
+            position: fixed; top: 0; left: 0; width: 100%; height: 100%; z-index: 10;
+        }
+        body.fullscreen-mode #fullscreen-controls {
+            display: flex !important;
+        }
 
         @media (max-width: 768px) {
             .toolbar button { font-size: 10px; padding: 6px 8px; }
             .property-panel { width: 260px; right: 10px; }
-            .welcome-container { width: 90%; padding: 30px 20px; }
-            .home-logo-img { width: 110px; }
-            .corp-name, .user-name { font-size: 14px; }
         }
     </style>
 </head>
 <body>
 
-    <!-- Splash Screen -->
     <div id="splash-screen">
         <div class="splash-content">
             <div class="corporate-header">
@@ -350,10 +241,11 @@
         </div>
     </div>
 
-    <!-- Panel de bienvenida -->
     <div id="welcome-panel">
         <div class="welcome-container">
-            <img src="img/logo.PNG" alt="Logo SmartEngp" class="home-logo-img" onerror="this.style.display='none'">
+            <div class="home-logo-wrapper">
+                <img src="img/logo.PNG" alt="Logo" class="home-logo-img" onerror="this.style.display='none'">
+            </div>
             <div class="header-names">
                 <h1 class="corp-name">ACQUABLUE<br>INTERNATIONAL CORP.</h1>
                 <h2 class="user-name">ING.<br>OSNAY ROMERO</h2>
@@ -365,7 +257,6 @@
         </div>
     </div>
 
-    <!-- Modal para nombre de proyecto -->
     <div id="project-name-modal">
         <div class="modal-content">
             <h3>Nuevo Proyecto</h3>
@@ -377,188 +268,109 @@
         </div>
     </div>
 
-    <!-- Toolbar unificada -->
-    <div class="toolbar" role="toolbar" aria-label="Barra de herramientas principal">
+    <div class="toolbar" role="toolbar">
         <div class="toolbar-logo">
             <img src="img/logo.PNG" alt="Logo" style="height: 28px;" onerror="this.style.display='none'">
-            <span class="toolbar-title" aria-label="SmartEngp">SmartEngp</span>
+            <span class="toolbar-title">SmartEngp</span>
         </div>
-        <button id="btnOpen" aria-label="Abrir proyecto">📂 Abrir</button>
-        <button id="btnSave" aria-label="Guardar proyecto">💾 Guardar</button>
-        <button id="btnExportProject" aria-label="Exportar proyecto">📤 Exportar Proy</button>
-        <button id="btnImportProject" aria-label="Importar proyecto">📥 Importar Proy</button>
-        <button id="btnReset" aria-label="Centrar vista">🔄 Centrar</button>
-        
-        <!-- Botones de vista 3D -->
-        <button id="btnTopView" aria-label="Vista superior">⬇️ Top</button>
-        <button id="btnFrontView" aria-label="Vista frontal">➡️ Front</button>
-        <button id="btnSideView" aria-label="Vista lateral">⬅️ Side</button>
-        
-        <!-- Toggle 2D/3D -->
-        <button id="btnToggle3D" aria-label="Alternar vista 2D/3D" style="background:#7c3aed;border-color:#8b5cf6;">🧊 3D</button>
-        
-        <button id="btnCommand" class="btn-primary" aria-label="Abrir panel de comandos">🤖 Comandos</button>
-        <button id="btnAddTank" aria-label="Añadir tanque">🏭 Tanque</button>
-        <button id="btnAddPump" aria-label="Añadir bomba">⚙️ Bomba</button>
-        <button id="btnMTO" aria-label="Exportar lista de materiales">📊 MTO</button>
-        <button id="btnPDF" aria-label="Exportar PDF">📄 PDF</button>
-        <button id="btnExportPCF" aria-label="Exportar archivo PCF">📦 Export PCF</button>
-        <button id="btnImportPCF" aria-label="Importar archivo PCF">📂 Import PCF</button>
-        <button id="btnUndo" class="btn-warning" aria-label="Deshacer">↩️ Undo</button>
-        <button id="btnRedo" class="btn-warning" aria-label="Rehacer">↪️ Redo</button>
-        <button id="btnVoice" class="btn-speak" aria-label="Activar o desactivar voz">🔊 Voz ON</button>
-        <button id="btnApplyNorm" aria-label="Aplicar normas">📐 Normas</button>
-        <button id="btnSpeakSummary" class="btn-speak" aria-label="Leer resumen del proyecto">📢 Resumen</button>
-        <button id="btnRecalc" aria-label="Recalcular">🔄 Recalcular</button>
-        <button id="btnToggleCatalog" aria-label="Mostrar catálogo">📦 Catálogo</button>
+        <button id="btnOpen">📂 Abrir</button>
+        <button id="btnSave">💾 Guardar</button>
+        <button id="btnExportProject">📤 Exportar Proy</button>
+        <button id="btnImportProject">📥 Importar Proy</button>
+        <button id="btnReset">🔄 Centrar</button>
+        <button id="btnToggleView">🌐 3D</button>
+        <button id="btnFullscreen">⛶ Full</button>
+        <button id="btnCommand">🤖 Comandos</button>
+        <button id="btnAddTank">🏭 Tanque</button>
+        <button id="btnAddPump">⚙️ Bomba</button>
+        <button id="btnMTO">📊 MTO</button>
+        <button id="btnPDF">📄 PDF</button>
+        <button id="btnExportPCF">📦 Export PCF</button>
+        <button id="btnImportPCF">📂 Import PCF</button>
+        <button id="btnUndo">↩️ Undo</button>
+        <button id="btnRedo">↪️ Redo</button>
+        <button id="btnVoice">🔊 Voz ON</button>
+        <button id="btnApplyNorm">📐 Normas</button>
+        <button id="btnSpeakSummary">📢 Resumen</button>
+        <button id="btnRecalc">🔄 Recalcular</button>
     </div>
 
-    <!-- Contenedor de canvas (2D + 3D) -->
-    <div id="canvas-container" class="canvas-container">
-        <canvas id="isoCanvas" aria-label="Vista isométrica 2D"></canvas>
-        <div id="three-container" aria-label="Vista 3D"></div>
-        
-        <div style="position:absolute; top:20px; left:20px; color:rgba(0,242,255,0.2); font-size:11px; pointer-events:none; text-transform:uppercase;">
-            AcQuaBlue Corp. | MODO <span id="mode-indicator">ISOMÉTRICO</span>
-        </div>
-        
-        <!-- Panel de propiedades lateral -->
+    <div class="canvas-container" id="canvas-container">
+        <canvas id="isoCanvas"></canvas>
         <div id="side-panel" class="property-panel hidden">
             <div class="panel-header">
                 <span>PROPIEDADES TÉCNICAS</span>
-                <button onclick="togglePanel(false)" aria-label="Cerrar panel">×</button>
+                <button onclick="togglePanel(false)">×</button>
             </div>
-            <div id="panel-content">
-                <p class="empty-msg">Seleccione un elemento para ver sus detalles</p>
-            </div>
+            <div id="panel-content"><p class="empty-msg">Seleccione un elemento para ver sus detalles</p></div>
         </div>
     </div>
 
-    <!-- Panel de comandos -->
-    <div id="commandPanel" class="command-panel" role="dialog" aria-label="Panel de comandos">
+    <div id="commandPanel" class="command-panel">
         <div class="command-header">
             <strong>🤖 Comandos IA</strong>
-            <button id="closeCommand" style="background:none;border:none;color:white;font-size:20px;padding:0;width:30px;" aria-label="Cerrar panel">✖</button>
+            <button id="closeCommand" style="background:none;border:none;color:white;font-size:20px;padding:0;width:30px;">✖</button>
         </div>
-        <textarea id="commandText" rows="5" placeholder="Ejemplos:&#10;crear tanque_v TK-01 en (0,1450,0) d=2380 h=2900 m=PE&#10;ruta desde TK-01 N1 a B-01 SUC d=3&#10;vista iso&#10;ayuda"></textarea>
+        <textarea id="commandText" rows="5" placeholder="Ejemplos:&#10;crear tanque_v TK-01 at (0,1450,0) diam 2380 altura 2900&#10;ruta desde TK-01 N1 a B-01 SUC diametro 3&#10;ayuda"></textarea>
         <div class="command-buttons">
-            <button id="runCommands" class="btn-primary" aria-label="Ejecutar comandos">Ejecutar</button>
-            <button id="clearCommand" aria-label="Limpiar panel">Limpiar</button>
+            <button id="runCommands">Ejecutar</button>
+            <button id="clearCommand">Limpiar</button>
         </div>
     </div>
 
-    <!-- Notificación flotante -->
-    <div id="notification" class="notification" role="status"></div>
+    <div id="notification" class="notification"></div>
 
-    <!-- Barra de estado -->
     <div class="status-bar">
         <div id="statusMsg">SISTEMA LISTO | SmartEngp</div>
         <div>AcQuaBlue International Corp. | Ing. Osnay Romero</div>
     </div>
 
-    <!-- Panel de herramientas flotante -->
-    <div class="tools-panel" id="toolsPanel" role="toolbar" aria-label="Herramientas de dibujo">
-        <button id="toolSelect" class="active" aria-label="Seleccionar">🔍 Seleccionar</button>
-        <button id="toolMoveEq" aria-label="Mover equipo">✋ Mover equipo</button>
-        <button id="toolEditPipe" aria-label="Editar tubería">✏️ Editar tubería</button>
-        <button id="toolAddPoint" aria-label="Añadir punto">➕ Añadir punto</button>
+    <div class="tools-panel" id="toolsPanel">
+        <button id="toolSelect" class="active">🔍 Seleccionar</button>
+        <button id="toolMoveEq">✋ Mover equipo</button>
+        <button id="toolEditPipe">✏️ Editar tubería</button>
+        <button id="toolAddPoint">➕ Añadir punto</button>
     </div>
 
-    <!-- Panel de elevación -->
     <div class="elevation-panel" id="elevationPanel">
         <span style="font-size:12px;">📐 Elev. (mm):</span>
-        <button onclick="setElevation(0)" style="padding:2px 8px;" aria-label="Elevación 0">0</button>
-        <button onclick="setElevation(2500)" style="padding:2px 8px;" aria-label="Elevación 2.5 metros">2.5m</button>
-        <button onclick="setElevation(5000)" style="padding:2px 8px;" aria-label="Elevación 5 metros">5.0m</button>
-        <input type="number" id="customElev" value="0" step="100" aria-label="Elevación personalizada">
-        <button id="btnSetElev" style="padding:2px 8px;" aria-label="Establecer elevación">Set</button>
+        <button onclick="setElevation(0)" style="padding:2px 8px;">0</button>
+        <button onclick="setElevation(2500)" style="padding:2px 8px;">2.5m</button>
+        <button onclick="setElevation(5000)" style="padding:2px 8px;">5.0m</button>
+        <input type="number" id="customElev" value="0" step="100">
+        <button id="btnSetElev" style="padding:2px 8px;">Set</button>
     </div>
 
-    <!-- MÓDULOS (Orden correcto) -->
+    <!-- Controles flotantes para modo fullscreen -->
+    <div id="fullscreen-controls" style="display:none; position:fixed; bottom:20px; left:50%; transform:translateX(-50%); z-index:9999; gap:12px;">
+        <button id="btnFullscreenCenter" style="padding:12px 20px; border-radius:30px; background:var(--accent-cyan); color:#000; font-weight:bold; border:none;">🔄 Centrar</button>
+        <button id="btnFullscreenExit" style="padding:12px 20px; border-radius:30px; background:#ef4444; color:white; font-weight:bold; border:none;">✕ Salir</button>
+    </div>
+
+    <script src="js/smartflow-adapter.js"></script>
     <script src="js/catalog.js"></script>
     <script src="js/core.js"></script>
     <script src="js/router.js"></script>
     <script src="js/renderer.js"></script>
-    <script src="js/commands.js"></script>
-    <script src="js/accessibility.js"></script>
-    <script src="js/autocomplete.js"></script>
     <script src="js/render.js"></script>
+    <script src="js/commands.js"></script>
     <script src="js/main.js"></script>
 
     <script>
-        // Variables globales y funciones auxiliares
         window.voiceEnabled = true;
         window.currentProjectName = "Proyecto_SmartEngp";
-
-        // Stub de accesibilidad (por si no se carga el módulo)
-        if (!window.SmartFlowAccessibility) {
-            window.SmartFlowAccessibility = { 
-                isVoiceEnabled: function() { return window.voiceEnabled; }, 
-                speak: function(m) { console.log("IA Voice:", m); },
-                processAccessibilityCommand: function(cmd) { return false; }
-            };
-        }
-
-        // Funciones globales llamadas desde los botones
+        window.SmartFlowAccessibility = { 
+            isVoiceEnabled: function() { return window.voiceEnabled; }, 
+            speak: function(m) { console.log("IA Voice:", m); }
+        };
         function setElevation(level) {
-            if (typeof SmartFlowCore !== 'undefined' && typeof SmartFlowRenderer !== 'undefined') {
-                SmartFlowCore.setElevation(level);
-                SmartFlowRenderer.setElevation(level);
-                document.getElementById('customElev').value = level;
-            }
+            if (typeof SmartFlowCore !== 'undefined') SmartFlowCore.setElevation(level);
+            document.getElementById('customElev').value = level;
         }
-
         function togglePanel(show) {
             const panel = document.getElementById('side-panel');
-            if (panel) {
-                if (show) panel.classList.remove('hidden');
-                else panel.classList.add('hidden');
-            }
+            if (panel) panel.classList[show ? 'remove' : 'add']('hidden');
         }
-
-        // Gestión de splash, welcome y modal
-        window.addEventListener('load', function() {
-            const splash = document.getElementById('splash-screen');
-            const welcome = document.getElementById('welcome-panel');
-            const modal = document.getElementById('project-name-modal');
-            const inputProject = document.getElementById('project-name-input');
-            const statusEl = document.getElementById('splash-status');
-            
-            const messages = [
-                "Cargando librerías de AcQuaBlue...",
-                "Sincronizando modelos de objetos inteligentes...",
-                "Optimizando motor gráfico isométrico...",
-                "Iniciando interfaz de Ing. Osnay Romero...",
-                "¡SmartEngp Activo!"
-            ];
-            
-            let i = 0;
-            const interval = setInterval(() => {
-                if(i < messages.length) { statusEl.innerText = messages[i]; i++; }
-            }, 800);
-
-            setTimeout(() => { splash.classList.add('splash-hidden'); clearInterval(interval); }, 4500);
-            setTimeout(() => { welcome.classList.remove('welcome-hidden'); }, 4800);
-
-            document.getElementById('welcome-new-project').onclick = () => { modal.style.display = 'flex'; };
-            document.getElementById('welcome-open-project').onclick = () => {
-                document.getElementById('btnOpen')?.click();
-                welcome.classList.add('welcome-hidden');
-            };
-            document.getElementById('modal-accept').onclick = () => {
-                const name = inputProject.value.trim();
-                if (name) window.currentProjectName = name;
-                modal.style.display = 'none';
-                welcome.classList.add('welcome-hidden');
-                if (typeof SmartFlowCore !== 'undefined' && SmartFlowCore.nuevoProyecto) SmartFlowCore.nuevoProyecto();
-                document.getElementById('statusMsg').innerText = `Proyecto: ${window.currentProjectName} | Listo`;
-            };
-            document.getElementById('modal-skip').onclick = () => {
-                modal.style.display = 'none';
-                welcome.classList.add('welcome-hidden');
-                document.getElementById('statusMsg').innerText = `Proyecto: ${window.currentProjectName} | Listo`;
-            };
-        });
     </script>
 </body>
 </html>
