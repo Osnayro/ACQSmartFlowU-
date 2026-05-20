@@ -1,22 +1,16 @@
 
-// ============================================================
-// MÓDULO 6: SMARTFLOW ROUTER (Enrutamiento Automático) - v3.2
-// Archivo: js/router.js
-// Correcciones: Ortogonalidad forzada + Fitting length + Normalización precisa
-// ============================================================
-
 const SmartFlowRouter = (function() {
     
     let _core = null;
     let _catalog = null;
     let _notifyUI = (msg, isErr) => console.log(msg);
     let _renderUI = () => {};
+    let _currentUtterance = null;
 
-    // Constante de tolerancia para comparaciones de ángulo
-    const ANGLE_TOLERANCE = 0.9999; // cos(0.81°) ≈ 0.9999 → ±0.8° de margen
-    const ORTHOGONAL_TOLERANCE = 0.0175; // sin(1°) ≈ 0.0175 → ±1° para ortogonalidad
-    const MIN_ANGLE_FOR_ELBOW = 5; // grados mínimos para insertar codo
-    const EXTENSION_DISTANCE = 500; // mm de extensión desde el puerto
+    const ANGLE_TOLERANCE = 0.9999;
+    const ORTHOGONAL_TOLERANCE = 0.0175;
+    const MIN_ANGLE_FOR_ELBOW = 3;
+    const EXTENSION_DISTANCE = 500;
 
     function ensureInitialized() {
         if (!_core && typeof SmartFlowCore !== 'undefined') _core = SmartFlowCore;
@@ -26,13 +20,13 @@ const SmartFlowRouter = (function() {
     }
 
     function speakText(text) {
-        if (!window.voiceEnabled) return;
+        if (!_core || !_core.isVoiceEnabled()) return;
         if (typeof window.speechSynthesis !== 'undefined') {
             window.speechSynthesis.cancel();
-            const utterance = new SpeechSynthesisUtterance(text);
-            utterance.lang = 'es-ES';
-            utterance.rate = 0.9;
-            window.speechSynthesis.speak(utterance);
+            _currentUtterance = new SpeechSynthesisUtterance(text);
+            _currentUtterance.lang = 'es-ES';
+            _currentUtterance.rate = 0.95;
+            window.speechSynthesis.speak(_currentUtterance);
         }
     }
 
@@ -52,17 +46,13 @@ const SmartFlowRouter = (function() {
     function scalePoint(p, factor) { return { x: p.x * factor, y: p.y * factor, z: p.z * factor }; }
     function normalizeVector(v) {
         const len = Math.hypot(v.x, v.y, v.z);
-        if (len === 0) return { x: 1, y: 0, z: 0 };
-        return { x: v.x / len, y: v.y / len, z: v.z / len };
+        if (len === 0) return { x: 1, y: 0, z: 0, dx: 1, dy: 0, dz: 0 };
+        const n = { x: v.x / len, y: v.y / len, z: v.z / len };
+        n.dx = n.x; n.dy = n.y; n.dz = n.z;
+        return n;
     }
     function dotProduct(v1, v2) { return v1.x * v2.x + v1.y * v2.y + v1.z * v2.z; }
-    function crossProduct(v1, v2) {
-        return {
-            x: v1.y * v2.z - v1.z * v2.y,
-            y: v1.z * v2.x - v1.x * v2.z,
-            z: v1.x * v2.y - v1.y * v2.x
-        };
-    }
+    function crossProduct(v1, v2) { return { x: v1.y * v2.z - v1.z * v2.y, y: v1.z * v2.x - v1.x * v2.z, z: v1.x * v2.y - v1.y * v2.x }; }
     function projectPointOnSegment(p, a, b) {
         const ab = subtractPoints(b, a);
         const ap = subtractPoints(p, a);
@@ -74,82 +64,58 @@ const SmartFlowRouter = (function() {
         return { point: proj, t, distance: distance(p, proj) };
     }
 
-    // ==================== NUEVO: Cálculo de intersección ortogonal ====================
-    /**
-     * Calcula el punto de intersección entre la extensión de un vector desde un puerto
-     * y un plano ortogonal que contiene el punto objetivo.
-     * Retorna el punto de quiebre y la distancia del fitting requerida.
-     */
     function calculateOrthogonalIntersection(portPos, portDir, targetPos) {
-        // Normalizar vectores de entrada
         const dir = normalizeVector(portDir);
         const toTarget = subtractPoints(targetPos, portPos);
+        const targetDist = Math.hypot(toTarget.x, toTarget.y, toTarget.z);
         
-        // Proyectar el vector hacia el objetivo sobre la dirección del puerto
+        if (targetDist === 0) {
+            return { intersection: portPos, lateralDistance: 0, isOrthogonal: true, angleDeg: 0, needsElbow: false };
+        }
+
         const projLength = dotProduct(toTarget, dir);
-        
-        // Punto de intersección: extendemos a lo largo de la dirección del puerto
-        // hasta que se alinee ortogonalmente con el target
         const intersection = addPoints(portPos, scalePoint(dir, projLength));
         
-        // Vector desde la intersección hasta el target (debe ser ortogonal a dir)
         const lateralVector = subtractPoints(targetPos, intersection);
-        const lateralDir = normalizeVector(lateralVector);
-        
-        // Verificar ortogonalidad
-        const dotCheck = Math.abs(dotProduct(dir, lateralDir));
-        const isOrthogonal = dotCheck < ORTHOGONAL_TOLERANCE;
-        
-        // Calcular ángulo real para diagnóstico
-        const angleRad = Math.acos(Math.max(-1, Math.min(1, Math.abs(dotProduct(dir, lateralDir)))));
-        const angleDeg = angleRad * 180 / Math.PI;
-        
+        const lateralDistance = Math.hypot(lateralVector.x, lateralVector.y, lateralVector.z);
+
+        const toTargetDir = normalizeVector(toTarget);
+        const cosAngle = Math.max(-1, Math.min(1, dotProduct(dir, toTargetDir)));
+        const angleDeg = Math.acos(cosAngle) * 180 / Math.PI;
+
+        const isOrthogonal = lateralDistance < ORTHOGONAL_TOLERANCE || Math.abs(projLength) < ORTHOGONAL_TOLERANCE;
+
         return {
             intersection,
             lateralVector,
-            lateralDir,
-            lateralDistance: Math.hypot(lateralVector.x, lateralVector.y, lateralVector.z),
+            lateralDir: lateralDistance > 0 ? normalizeVector(lateralVector) : { dx: 0, dy: 0, dz: 0, x: 0, y: 0, z: 0 },
+            lateralDistance,
             isOrthogonal,
-            angleDeg: 90 - angleDeg, // desviación de 90°
-            needsElbow: !isOrthogonal && (Math.abs(90 - angleDeg) > MIN_ANGLE_FOR_ELBOW)
+            angleDeg: angleDeg,
+            needsElbow: !isOrthogonal && (angleDeg > MIN_ANGLE_FOR_ELBOW)
         };
     }
 
-    // ==================== NUEVO: Obtener fitting length del catálogo ====================
     function getFittingLength(componentType, diameter) {
         const catalog = _catalog || window.SmartFlowCatalog;
         if (!catalog) return 0;
-        
         try {
             const comp = catalog.getComponent(componentType);
             if (!comp) return 0;
-            
-            // Buscar en dimensiones del componente
             const dims = comp.dimensiones || comp.dimensions;
             if (!dims) return 0;
-            
-            // Intentar obtener dimensión específica para el diámetro
             const diamKey = `${diameter}"` || `${diameter}`;
             const dimForDiam = dims[diamKey] || dims[diameter] || dims.DEFAULT;
-            
-            if (dimForDiam && dimForDiam.centerToFace) {
-                return dimForDiam.centerToFace; // mm
-            }
-            
-            // Fallback: valores típicos
+            if (dimForDiam && dimForDiam.centerToFace) return dimForDiam.centerToFace;
             const typicalLengths = {
                 'ELBOW_90': 38, 'ELBOW_45': 25, 'TEE': 50, 'TEE_EQUAL': 50,
                 'TEE_REDUCING': 55, 'CONCENTRIC_REDUCER': 75
             };
-            
             for (const [key, val] of Object.entries(typicalLengths)) {
                 if (componentType.includes(key)) return val;
             }
-        } catch (e) {
-            console.warn('Error obteniendo fitting length:', e);
-        }
-        
-        return 50; // default conservador
+        } catch (e) { console.warn('Error obteniendo fitting length:', e); }
+        return 50;
     }
 
     function getPortPosition(obj, portId) {
@@ -157,22 +123,14 @@ const SmartFlowRouter = (function() {
         if (obj.posX !== undefined) {
             const puerto = obj.puertos?.find(p => p.id === portId);
             if (!puerto) return null;
-            return {
-                x: obj.posX + (puerto.relX || puerto.relPos?.x || 0),
-                y: obj.posY + (puerto.relY || puerto.relPos?.y || 0),
-                z: obj.posZ + (puerto.relZ || puerto.relPos?.z || 0)
-            };
+            return { x: obj.posX + (puerto.relX || puerto.relPos?.x || 0), y: obj.posY + (puerto.relY || puerto.relPos?.y || 0), z: obj.posZ + (puerto.relZ || puerto.relPos?.z || 0) };
         }
         if (obj.pos && obj.pos.x !== undefined) {
             const puerto = obj.puertos?.find(p => p.id === portId);
             if (!puerto) return null;
-            return {
-                x: obj.pos.x + (puerto.relX || puerto.relPos?.x || 0),
-                y: obj.pos.y + (puerto.relY || puerto.relPos?.y || 0),
-                z: obj.pos.z + (puerto.relZ || puerto.relPos?.z || 0)
-            };
+            return { x: obj.pos.x + (puerto.relX || puerto.relPos?.x || 0), y: obj.pos.y + (puerto.relY || puerto.relPos?.y || 0), z: obj.pos.z + (puerto.relZ || puerto.relPos?.z || 0) };
         }
-        const pts = obj._cachedPoints || obj.points3D || obj.points;
+        const pts = _core ? _core.getLinePoints(obj) : (obj._cachedPoints || obj.points3D || obj.points);
         if (!pts || pts.length === 0) return null;
         if (obj.puertos) {
             const puerto = obj.puertos.find(p => p.id === portId);
@@ -184,33 +142,56 @@ const SmartFlowRouter = (function() {
     }
 
     function getPortDirection(obj, portId) {
-        if (!obj) return { dx: 1, dy: 0, dz: 0 };
+        const defaultDir = { dx: 1, dy: 0, dz: 0, x: 1, y: 0, z: 0 };
+        if (!obj) return defaultDir;
+
         if (obj.posX !== undefined || (obj.pos && obj.pos.x !== undefined)) {
             const puerto = obj.puertos?.find(p => p.id === portId);
             if (puerto) {
-                // Prioridad: orientacion, luego dir, luego normal
-                if (puerto.orientacion) return puerto.orientacion;
-                if (puerto.dir) return puerto.dir;
-                if (puerto.normal) return puerto.normal;
+                const ori = puerto.orientacion || puerto.dir || puerto.normal || puerto.vector;
+                if (ori) {
+                    const x = parseFloat(ori.dx !== undefined ? ori.dx : (ori.x !== undefined ? ori.x : 1));
+                    const y = parseFloat(ori.dy !== undefined ? ori.dy : (ori.y !== undefined ? ori.y : 0));
+                    const z = parseFloat(ori.dz !== undefined ? ori.dz : (ori.z !== undefined ? ori.z : 0));
+                    return { dx: x, dy: y, dz: z, x, y, z };
+                }
             }
-            return { dx: 1, dy: 0, dz: 0 };
+            return defaultDir;
         }
-        const pts = obj._cachedPoints || obj.points3D || obj.points;
-        if (pts && pts.length >= 2) {
-            if (portId === '0') return normalizeVector(subtractPoints(pts[1], pts[0]));
-            if (portId === '1') return normalizeVector(subtractPoints(pts[pts.length - 1], pts[pts.length - 2]));
-            return normalizeVector(subtractPoints(pts[1], pts[0]));
+
+        const pts = _core ? _core.getLinePoints(obj) : (obj._cachedPoints || obj.points3D || obj.points);
+        if (pts && Array.isArray(pts) && pts.length >= 2) {
+            try {
+                let pBase, pSig;
+                if (portId === '0' || portId === 0) {
+                    pBase = pts[0]; pSig = pts[1];
+                } else if (portId === '1' || portId === 1 || portId === String(pts.length - 1)) {
+                    pBase = pts[pts.length - 2]; pSig = pts[pts.length - 1];
+                } else {
+                    pBase = pts[0]; pSig = pts[1];
+                }
+
+                if (pBase && pSig && pBase.x !== undefined && pSig.x !== undefined) {
+                    const vSub = { x: pSig.x - pBase.x, y: pSig.y - pBase.y, z: pSig.z - pBase.z };
+                    const vNorm = normalizeVector(vSub);
+                    return { dx: vNorm.x, dy: vNorm.y, dz: vNorm.z, x: vNorm.x, y: vNorm.y, z: vNorm.z };
+                }
+            } catch (err) {
+                console.warn(`Error de orientación en línea para puerto ${portId}:`, err);
+            }
         }
-        return { dx: 1, dy: 0, dz: 0 };
+        return defaultDir;
     }
 
-    // ==================== findComponentInCatalog ====================
+    function getPortDirectionLocal(obj, portId) {
+        return getPortDirection(obj, portId);
+    }
+
     function findComponentInCatalog(desiredType, lineMaterial = 'PPR', fallbackTypes = []) {
         ensureInitialized();
         const catalog = _catalog || window.SmartFlowCatalog;
         if (!catalog) { notifyUser('Catálogo no disponible', true); return null; }
         const allTypes = catalog.listComponentTypes();
-        
         const materialUpper = lineMaterial.toUpperCase();
         let materialPrefix = '';
         if (materialUpper.includes('PPR')) materialPrefix = 'PPR';
@@ -218,7 +199,6 @@ const SmartFlowRouter = (function() {
         else if (materialUpper.includes('PVC')) materialPrefix = 'PVC';
         else if (materialUpper.includes('ACERO') || materialUpper.includes('CARBONO') || materialUpper.includes('CS')) materialPrefix = 'CS';
         else if (materialUpper.includes('INOX')) materialPrefix = 'SS';
-        
         const candidates = [];
         if (materialPrefix) {
             candidates.push(`${desiredType}_${materialPrefix}`);
@@ -245,57 +225,172 @@ const SmartFlowRouter = (function() {
         return null;
     }
 
-    // ==================== findElbowForLine MEJORADA (v3.2) ====================
     function findElbowForLine(material, diameter, angleDeg) {
         const catalog = _catalog || window.SmartFlowCatalog;
         if (!catalog) return null;
-
-        // Clasificar el ángulo con tolerancia ampliada
-        const is90 = (Math.abs(angleDeg - 90) < 15);
-        const is45 = (Math.abs(angleDeg - 45) < 15);
-        if (!is90 && !is45) {
-            console.warn(`⚠️ Ángulo ${angleDeg.toFixed(1)}° no soportado para codo automático`);
-            return null;
-        }
-
-        const mat = (material || '').toUpperCase();
-        const typeBase = is90 ? 'ELBOW_90' : 'ELBOW_45';
-        
-        // 1. Intentar búsqueda específica por material
-        let suffix = '';
-        if (mat.includes('PPR')) suffix = '_PPR';
-        else if (mat.includes('HDPE') || mat.includes('PE100')) suffix = '_HDPE';
-        else if (mat.includes('PVC')) suffix = '_PVC';
-        else if (mat.includes('ACERO') || mat.includes('CARBON') || mat.includes('CS')) suffix = '_LR_CS';
-        else if (mat.includes('SANITARY') || mat.includes('INOX') || mat.includes('316L')) suffix = '_SANITARY';
-        else if (mat.includes('SS')) suffix = '_LR_SS';
-
-        const specificName = typeBase + suffix;
         const allTypes = catalog.listComponentTypes();
+        
+        const elbowTypes = allTypes.filter(t => t.toUpperCase().includes('ELBOW'));
+        
+        let bestMatch = null, bestDiff = Infinity;
+        for (const type of elbowTypes) {
+            const comp = catalog.getComponent(type);
+            if (!comp || typeof comp.angulo === 'undefined') continue;
+            
+            const diff = Math.abs(comp.angulo - angleDeg);
+            if (diff < bestDiff && diff < 15) { 
+                bestDiff = diff; 
+                bestMatch = type; 
+            }
+        }
+        
+        if (!bestMatch) {
+            const mat = (material || '').toUpperCase();
+            bestMatch = elbowTypes.find(t => {
+                if (mat.includes('PPR') && t.toUpperCase().includes('PPR')) return true;
+                if (mat.includes('HDPE') && t.toUpperCase().includes('HDPE')) return true;
+                if ((mat.includes('ACERO') || mat.includes('CS')) && (t.toUpperCase().includes('CS') || t.toUpperCase().includes('LR'))) return true;
+                if (mat.includes('INOX') && (t.toUpperCase().includes('SS') || t.toUpperCase().includes('SANITARY'))) return true;
+                return false;
+            });
+        }
+        
+        if (bestMatch) console.log(`✅ Codo seleccionado: ${bestMatch} (${angleDeg.toFixed(0)}°)`);
+        return bestMatch;
+    }
 
-        if (allTypes.includes(specificName)) {
-            console.log(`✅ Codo específico: ${specificName} (${angleDeg.toFixed(0)}°)`);
-            return specificName;
+    function ensureFittings(lineObj, fromObj, fromPortId, toObj, toPortId, diameter, material) {
+        if (!lineObj) return { added: [], message: ' | ⚠️ Sin objeto de línea' };
+        
+        const puntos = lineObj._cachedPoints || lineObj.points3D || [];
+        if (puntos.length < 2) return { added: [], message: ' | ⚠️ Puntos insuficientes' };
+
+        lineObj.components = lineObj.components || [];
+        const inicialCount = lineObj.components.length;
+        const addedFittings = [];
+
+        if (fromObj && fromPortId && puntos.length >= 2) {
+            const dirPuerto = getPortDirection(fromObj, fromPortId);
+            const vInicial = { x: puntos[1].x - puntos[0].x, y: puntos[1].y - puntos[0].y, z: puntos[1].z - puntos[0].z };
+            const lenInic = Math.hypot(vInicial.x, vInicial.y, vInicial.z) || 1;
+            const dotInicio = (dirPuerto.x * vInicial.x + dirPuerto.y * vInicial.y + dirPuerto.z * vInicial.z) / lenInic;
+            
+            if (Math.abs(dotInicio) < 0.96) { 
+                const codoInicial = {
+                    type: 'ELBOW_90_LR',
+                    skey: 'ELBW',
+                    tag: `ELBW-${lineObj.tag}-START`,
+                    param: 0.0,
+                    diameter: diameter || 4,
+                    material: material || 'PPR'
+                };
+                if (!lineObj.components.some(c => c.tag === codoInicial.tag)) {
+                    lineObj.components.push(codoInicial);
+                    addedFittings.push(codoInicial.tag);
+                }
+            }
+
+            if (fromObj && fromObj._cachedPoints) {
+                const fromDiam = parseFloat(lineObj.diameter || diameter);
+                const toDiam = parseFloat(fromObj.diameter || diameter);
+                if (!isNaN(fromDiam) && !isNaN(toDiam) && Math.abs(fromDiam - toDiam) > 0.1) {
+                    const reducerType = findComponentInCatalog('CONCENTRIC_REDUCER', material, []);
+                    if (reducerType) {
+                        const reducer = {
+                            type: reducerType,
+                            skey: 'REDC',
+                            tag: `REDC-${lineObj.tag}-START`,
+                            param: 0.0,
+                            diameterLarge: Math.max(fromDiam, toDiam),
+                            diameterSmall: Math.min(fromDiam, toDiam),
+                            material: material || 'PPR'
+                        };
+                        if (!lineObj.components.some(c => c.tag === reducer.tag)) {
+                            lineObj.components.push(reducer);
+                            addedFittings.push(reducer.tag);
+                        }
+                    }
+                }
+            }
         }
 
-        // 2. Fallback: Buscar cualquier codo que contenga el ángulo y el material
-        const materialFallback = allTypes.find(t => 
-            t.includes(typeBase) && suffix && t.toUpperCase().includes(suffix.replace(/_/g, '').substring(0, 2))
-        );
-        if (materialFallback) {
-            console.log(`⚠️ Codo material fallback: ${materialFallback}`);
-            return materialFallback;
+        for (let i = 1; i < puntos.length - 1; i++) {
+            const pAnt = puntos[i - 1];
+            const pAct = puntos[i];
+            const pSig = puntos[i + 1];
+
+            const v1 = { x: pAct.x - pAnt.x, y: pAct.y - pAnt.y, z: pAct.z - pAnt.z };
+            const v2 = { x: pSig.x - pAct.x, y: pSig.y - pAct.y, z: pSig.z - pAct.z };
+
+            const len1 = Math.hypot(v1.x, v1.y, v1.z) || 1;
+            const len2 = Math.hypot(v2.x, v2.y, v2.z) || 1;
+            const dot = (v1.x * v2.x + v1.y * v2.y + v1.z * v2.z) / (len1 * len2);
+            const angleDeg = Math.acos(Math.max(-1, Math.min(1, dot))) * (180 / Math.PI);
+
+            if (angleDeg > 15) {
+                let totalLen = 0, accum = 0;
+                for (let j = 0; j < puntos.length - 1; j++) {
+                    totalLen += Math.hypot(puntos[j+1].x - puntos[j].x, puntos[j+1].y - puntos[j].y, puntos[j+1].z - puntos[j].z);
+                }
+                for (let j = 0; j < i; j++) {
+                    accum += Math.hypot(puntos[j+1].x - puntos[j].x, puntos[j+1].y - puntos[j].y, puntos[j+1].z - puntos[j].z);
+                }
+                const paramValue = totalLen > 0 ? (accum / totalLen) : 0.5;
+
+                const codo = {
+                    type: 'ELBOW_90_LR',
+                    skey: 'ELBW',
+                    tag: `ELBW-${lineObj.tag}-${i}`,
+                    param: paramValue,
+                    diameter: diameter || 4,
+                    material: material || 'PPR'
+                };
+                
+                if (!lineObj.components.some(c => c.tag === codo.tag)) {
+                    lineObj.components.push(codo);
+                    addedFittings.push(codo.tag);
+                }
+            }
         }
 
-        // 3. Fallback genérico: cualquier codo con ese ángulo
-        const fallback = allTypes.find(t => t.includes(typeBase));
-        if (fallback) {
-            console.log(`⚠️ Codo genérico: ${fallback}`);
-            return fallback;
+        if (lineObj.destination && lineObj.destination.objType === 'line') {
+            const targetLine = _core ? _core.findObjectByTag(lineObj.destination.equipTag) : null;
+            const puntosTarget = targetLine ? (_core.getLinePoints(targetLine) || []) : [];
+            
+            const puntoFinalConexion = puntos[puntos.length - 1];
+            const puntoCeroTarget = puntosTarget[0];
+
+            let distanciaAPuntoCero = Infinity;
+            if (puntoFinalConexion && puntoCeroTarget) {
+                distanciaAPuntoCero = Math.hypot(
+                    puntoFinalConexion.x - puntoCeroTarget.x,
+                    puntoFinalConexion.y - puntoCeroTarget.y,
+                    puntoFinalConexion.z - puntoCeroTarget.z
+                );
+            }
+
+            if (distanciaAPuntoCero < 10) {
+                const codoTerminal = {
+                    type: 'ELBOW_90_LR',
+                    skey: 'ELBW',
+                    tag: `ELBW-${lineObj.tag}-TERM`,
+                    param: 1.0,
+                    diameter: diameter || 4,
+                    material: material || 'PPR'
+                };
+
+                if (!lineObj.components.some(c => c.tag === codoTerminal.tag)) {
+                    lineObj.components.push(codoTerminal);
+                    addedFittings.push(codoTerminal.tag);
+                }
+            }
         }
 
-        console.warn(`❌ No se encontró codo para ${mat} ${angleDeg.toFixed(0)}°`);
-        return null;
+        const delta = lineObj.components.length - inicialCount;
+        return {
+            added: addedFittings,
+            message: delta > 0 ? ` | 🛠️ Accesorios inyectados: +${delta}` : ' | 📐 Continuidad geométrica OK'
+        };
     }
 
     function insertarAccesorioEnLinea(lineTag, puntoConexion, diametroNuevaLinea, forzarTee = false) {
@@ -304,70 +399,36 @@ const SmartFlowRouter = (function() {
         const db = _core.getDb();
         const linea = db.lines.find(l => l.tag === lineTag);
         if (!linea) { notifyUser(`Línea ${lineTag} no encontrada`, true); return null; }
-
-        const pts = linea._cachedPoints || linea.points3D || linea.points;
+        const pts = _core.getLinePoints(linea) || linea._cachedPoints || linea.points3D || linea.points;
         if (!pts || pts.length < 2) { notifyUser(`Línea ${lineTag} sin geometría`, true); return null; }
-
         let lengths = [], totalLen = 0;
-        for (let i = 0; i < pts.length - 1; i++) {
-            const d = distance(pts[i], pts[i+1]);
-            lengths.push(d);
-            totalLen += d;
-        }
-
+        for (let i = 0; i < pts.length - 1; i++) { const d = distance(pts[i], pts[i+1]); lengths.push(d); totalLen += d; }
         let minDist = Infinity, bestSegIdx = 0, bestT = 0;
         for (let i = 0; i < lengths.length; i++) {
             const proj = projectPointOnSegment(puntoConexion, pts[i], pts[i+1]);
-            if (proj.distance < minDist) {
-                minDist = proj.distance;
-                bestSegIdx = i;
-                bestT = proj.t;
-            }
+            if (proj.distance < minDist) { minDist = proj.distance; bestSegIdx = i; bestT = proj.t; }
         }
-
         let accumBefore = 0;
         for (let i = 0; i < bestSegIdx; i++) accumBefore += lengths[i];
         const param = (accumBefore + bestT * lengths[bestSegIdx]) / totalLen;
-
         const diamLinea = linea.diameter || 4;
         const diffDiam = Math.abs(diametroNuevaLinea - diamLinea) > 0.1;
         const esExtremo = !forzarTee && ((bestSegIdx === 0 && bestT < 0.1) || (bestSegIdx === lengths.length - 1 && bestT > 0.9));
         const lineMaterial = linea.material || 'PPR';
-
-        let tipoAccesorio = 'TEE';
-        let descripcion = 'Tee igual';
-
-        if (esExtremo && diffDiam) {
-            tipoAccesorio = 'CONCENTRIC_REDUCER';
-            descripcion = `Reductor concéntrico ${diamLinea}"x${diametroNuevaLinea}"`;
-        } else if (diffDiam) {
-            tipoAccesorio = 'TEE_REDUCING';
-            descripcion = `Tee reductora ${diamLinea}"x${diametroNuevaLinea}"`;
-        } else {
-            tipoAccesorio = 'TEE';
-            descripcion = `Tee igual ${diamLinea}"`;
-        }
-
+        let tipoAccesorio = 'TEE', descripcion = 'Tee igual';
+        if (esExtremo && diffDiam) { tipoAccesorio = 'CONCENTRIC_REDUCER'; descripcion = `Reductor concéntrico ${diamLinea}"x${diametroNuevaLinea}"`; }
+        else if (diffDiam) { tipoAccesorio = 'TEE_REDUCING'; descripcion = `Tee reductora ${diamLinea}"x${diametroNuevaLinea}"`; }
+        else { tipoAccesorio = 'TEE'; descripcion = `Tee igual ${diamLinea}"`; }
         const compEnCatalogo = findComponentInCatalog(tipoAccesorio, lineMaterial, []);
-        if (!compEnCatalogo) {
-            notifyUser(`Componente no encontrado: ${tipoAccesorio} (${lineMaterial})`, true);
-            return null;
-        }
-
-        if (typeof SmartFlowCommands === 'undefined') {
+        if (!compEnCatalogo) { notifyUser(`Componente no encontrado: ${tipoAccesorio} (${lineMaterial})`, true); return null; }
+        if (typeof SmartFlowCommands !== 'undefined') {
+            const cmd = `edit line ${lineTag} add component ${compEnCatalogo} at ${param.toFixed(3)}`;
+            SmartFlowCommands.executeCommand(cmd);
+        } else {
             notifyUser('Módulo de comandos no disponible', true);
             return null;
         }
-
-        const cmd = `edit line ${lineTag} add component ${compEnCatalogo} at ${param.toFixed(3)}`;
-        const success = SmartFlowCommands.executeCommand(cmd);
-        if (!success) {
-            notifyUser(`Comando falló: ${cmd}`, true);
-            return null;
-        }
-
         notifyUser(`✅ ${descripcion} (${compEnCatalogo}) insertado en ${lineTag}`, false);
-
         const lineaActualizada = db.lines.find(l => l.tag === lineTag);
         if (!lineaActualizada || !lineaActualizada.puertos || lineaActualizada.puertos.length === 0) {
             notifyUser('No se generaron puertos', true);
@@ -383,15 +444,12 @@ const SmartFlowRouter = (function() {
         const db = _core.getDb();
         const lineasExistentes = db.lines.filter(l => l.tag !== nuevaLinea.tag);
         if (lineasExistentes.length === 0) return;
-        
-        const ptsNueva = nuevaLinea._cachedPoints || nuevaLinea.points3D || nuevaLinea.points;
+        const ptsNueva = _core.getLinePoints(nuevaLinea) || nuevaLinea._cachedPoints || nuevaLinea.points3D || nuevaLinea.points;
         if (!ptsNueva || ptsNueva.length < 2) return;
-        
         const tolerancia = 100;
         for (let lineaExistente of lineasExistentes) {
-            const ptsExistente = lineaExistente._cachedPoints || lineaExistente.points3D || lineaExistente.points;
+            const ptsExistente = _core.getLinePoints(lineaExistente) || lineaExistente._cachedPoints || lineaExistente.points3D || lineaExistente.points;
             if (!ptsExistente || ptsExistente.length < 2) continue;
-            
             for (let i = 0; i < ptsNueva.length - 1; i++) {
                 const a1 = ptsNueva[i], a2 = ptsNueva[i+1];
                 for (let j = 0; j < ptsExistente.length - 1; j++) {
@@ -402,15 +460,8 @@ const SmartFlowRouter = (function() {
                         const puertoId = insertarAccesorioEnLinea(lineaExistente.tag, proj.point, nuevaLinea.diameter || 4, true);
                         if (puertoId) {
                             nuevaLinea.destination = { objType: 'line', equipTag: lineaExistente.tag, portId: puertoId };
-                            if (ptsNueva.length >= 2) {
-                                ptsNueva[ptsNueva.length - 1] = proj.point;
-                                nuevaLinea._cachedPoints = ptsNueva;
-                                nuevaLinea.waypoints = ptsNueva.slice(1, -1);
-                            }
-                            if (lineaExistente.puertos) {
-                                const puerto = lineaExistente.puertos.find(p => p.id === puertoId);
-                                if (puerto) puerto.connectedLine = nuevaLinea.tag;
-                            }
+                            if (ptsNueva.length >= 2) { ptsNueva[ptsNueva.length - 1] = proj.point; nuevaLinea._cachedPoints = ptsNueva; nuevaLinea.waypoints = ptsNueva.slice(1, -1); }
+                            if (lineaExistente.puertos) { const puerto = lineaExistente.puertos.find(p => p.id === puertoId); if (puerto) puerto.connectedLine = nuevaLinea.tag; }
                             _core.updateLine(nuevaLinea.tag, nuevaLinea);
                             notifyUser(`✅ Conexión automática: ${nuevaLinea.tag} a ${lineaExistente.tag}`, false);
                         }
@@ -421,14 +472,12 @@ const SmartFlowRouter = (function() {
         }
     }
 
-    // ==================== routeBetweenPorts MEJORADO (v3.2) ====================
     function routeBetweenPorts(fromEquipTag, fromPortId, toEquipTag, toPortId, diameter = 3, material = 'PPR', spec = 'PPR_PN12_5') {
         ensureInitialized();
         if (!_core) { notifyUser('Core no inicializado', true); return null; }
         const db = _core.getDb();
-        const fromObj = db.equipos.find(e => e.tag === fromEquipTag) || db.lines.find(l => l.tag === fromEquipTag);
-        let toObj = db.equipos.find(e => e.tag === toEquipTag) || db.lines.find(l => l.tag === toEquipTag);
-
+        const fromObj = _core.findObjectByTag(fromEquipTag) || db.equipos.find(e => e.tag === fromEquipTag) || db.lines.find(l => l.tag === fromEquipTag);
+        let toObj = _core.findObjectByTag(toEquipTag) || db.equipos.find(e => e.tag === toEquipTag) || db.lines.find(l => l.tag === toEquipTag);
         if (!fromObj) { notifyUser(`Origen ${fromEquipTag} no encontrado`, true); return null; }
         if (!toObj) { notifyUser(`Destino ${toEquipTag} no encontrado`, true); return null; }
 
@@ -438,113 +487,64 @@ const SmartFlowRouter = (function() {
         let endPos, nuevoPuertoId = toPortId;
         let reductorComponent = null;
 
-        if (toObj._cachedPoints || toObj.points3D || toObj.points) {
-            const pts = toObj._cachedPoints || toObj.points3D || toObj.points;
-            if (!pts || pts.length < 2) {
-                notifyUser(`La línea ${toEquipTag} no tiene geometría`, true);
-                return null;
-            }
-            
+        if (_core.getLinePoints(toObj) || toObj._cachedPoints || toObj.points3D || toObj.points) {
+            const pts = _core.getLinePoints(toObj) || toObj._cachedPoints || toObj.points3D || toObj.points;
+            if (!pts || pts.length < 2) { notifyUser(`La línea ${toEquipTag} no tiene geometría`, true); return null; }
             if (!toPortId || toPortId === '') {
                 let minDist = Infinity, bestPoint = pts[0];
-                for (let i = 0; i < pts.length - 1; i++) {
-                    const proj = projectPointOnSegment(startPos, pts[i], pts[i+1]);
-                    if (proj.distance < minDist) { minDist = proj.distance; bestPoint = proj.point; }
-                }
+                for (let i = 0; i < pts.length - 1; i++) { const proj = projectPointOnSegment(startPos, pts[i], pts[i+1]); if (proj.distance < minDist) { minDist = proj.distance; bestPoint = proj.point; } }
                 const puertoInsertado = insertarAccesorioEnLinea(toEquipTag, bestPoint, diameter, true);
                 if (!puertoInsertado) return null;
                 nuevoPuertoId = puertoInsertado;
-                toObj = db.lines.find(l => l.tag === toEquipTag);
+                endPos = bestPoint;
+                toObj = _core.findObjectByTag(toEquipTag) || db.lines.find(l => l.tag === toEquipTag);
             } else {
                 let puntoConexion;
                 if (toPortId === '0') puntoConexion = pts[0];
                 else if (toPortId === '1') puntoConexion = pts[pts.length - 1];
                 else puntoConexion = getPortPosition(toObj, toPortId);
-                
                 if (!puntoConexion) { notifyUser(`Puerto destino no encontrado`, true); return null; }
-
                 const esExtremo = (toPortId === '0' || toPortId === '1');
                 const diffDiam = Math.abs(diameter - (toObj.diameter || 4)) > 0.1;
-                
-                if (esExtremo && !diffDiam) {
-                    nuevoPuertoId = toPortId;
-                } else if (esExtremo && diffDiam) {
+                if (esExtremo && !diffDiam) { nuevoPuertoId = toPortId; endPos = puntoConexion; }
+                else if (esExtremo && diffDiam) {
                     const puertoInsertado = insertarAccesorioEnLinea(toEquipTag, puntoConexion, diameter, false);
-                    if (puertoInsertado) { nuevoPuertoId = puertoInsertado; toObj = db.lines.find(l => l.tag === toEquipTag); }
-                    else {
-                        const reductorId = findComponentInCatalog('CONCENTRIC_REDUCER', material, []);
-                        if (reductorId) {
-                            reductorComponent = { type: reductorId, tag: reductorId + '-' + Date.now().toString().slice(-6), param: 1.0 };
-                            notifyUser(`⚠️ Reductor añadido a la nueva línea`, false);
-                        }
-                        nuevoPuertoId = toPortId;
-                    }
+                    if (puertoInsertado) { nuevoPuertoId = puertoInsertado; toObj = _core.findObjectByTag(toEquipTag) || db.lines.find(l => l.tag === toEquipTag); }
+                    else { const reductorId = findComponentInCatalog('CONCENTRIC_REDUCER', material, []); if (reductorId) { reductorComponent = { type: reductorId, tag: reductorId + '-' + Date.now().toString().slice(-6), param: 1.0 }; } nuevoPuertoId = toPortId; }
+                    endPos = puntoConexion;
                 } else {
                     const puertoInsertado = insertarAccesorioEnLinea(toEquipTag, puntoConexion, diameter, true);
                     if (!puertoInsertado) return null;
                     nuevoPuertoId = puertoInsertado;
-                    toObj = db.lines.find(l => l.tag === toEquipTag);
+                    endPos = puntoConexion;
+                    toObj = _core.findObjectByTag(toEquipTag) || db.lines.find(l => l.tag === toEquipTag);
                 }
             }
+        } else {
+            endPos = getPortPosition(toObj, nuevoPuertoId);
         }
-
-        endPos = getPortPosition(toObj, nuevoPuertoId);
         if (!endPos) { notifyUser(`Puerto destino no encontrado`, true); return null; }
 
-        // ===== OBTENER VECTORES DE DIRECCIÓN NORMALIZADOS =====
         const startDirRaw = getPortDirection(fromObj, fromPortId);
         const startDir = normalizeVector(startDirRaw);
-        
         let endDirRaw, endDir;
         const isEquipoDest = toObj.posX !== undefined || (toObj.pos && toObj.pos.x !== undefined);
-        if (isEquipoDest) {
-            endDirRaw = getPortDirection(toObj, nuevoPuertoId);
-            endDir = normalizeVector(endDirRaw);
-        } else {
-            // Para líneas, calcular dirección desde el penúltimo punto hacia el último
-            const ptsTo = toObj._cachedPoints || toObj.points3D || toObj.points;
-            if (ptsTo && ptsTo.length >= 2) {
-                endDir = normalizeVector(subtractPoints(ptsTo[ptsTo.length - 1], ptsTo[ptsTo.length - 2]));
-            } else {
-                endDir = { dx: 1, dy: 0, dz: 0 };
-            }
+        if (isEquipoDest) { endDirRaw = getPortDirection(toObj, nuevoPuertoId); endDir = normalizeVector(endDirRaw); }
+        else {
+            const ptsTo = _core.getLinePoints(toObj) || toObj._cachedPoints || toObj.points3D || toObj.points;
+            if (ptsTo && ptsTo.length >= 2) { endDir = normalizeVector(subtractPoints(ptsTo[ptsTo.length - 1], ptsTo[ptsTo.length - 2])); }
+            else { endDir = { dx: 1, dy: 0, dz: 0, x: 1, y: 0, z: 0 }; }
         }
 
-        // ===== NUEVO: Calcular intersección ortogonal para origen =====
         const orthoResultStart = calculateOrthogonalIntersection(startPos, startDir, endPos);
-        
-        // ===== NUEVO: Calcular intersección ortogonal para destino =====
-        const endDirInverted = scalePoint(endDir, -1); // Invertir dirección para el cálculo
+        const endDirInverted = scalePoint(endDir, -1);
         const orthoResultEnd = calculateOrthogonalIntersection(endPos, endDirInverted, startPos);
-        
-        // ===== CONSTRUIR WAYPOINTS CON LÓGICA ORTOGONAL =====
         const waypoints = [startPos];
-        
-        // Extender desde el origen en la dirección del puerto
         const extStart = addPoints(startPos, scalePoint(startDir, EXTENSION_DISTANCE));
-        
-        if (orthoResultStart.isOrthogonal) {
-            // Caso ideal: podemos ir directo con un waypoint intermedio
-            waypoints.push(extStart);
-            waypoints.push(orthoResultStart.intersection);
-        } else {
-            // Necesitamos un quiebre forzado
-            waypoints.push(extStart);
-            
-            // Punto de quiebre: desde start, avanzar en startDir hasta alinearse
-            const breakPoint = orthoResultStart.intersection;
-            waypoints.push(breakPoint);
-            
-            // Desde el quiebre, ir en dirección al destino
-            waypoints.push(endPos);
-        }
-        
-        // Filtrar waypoints duplicados o muy cercanos
+        if (orthoResultStart.isOrthogonal) { waypoints.push(extStart); waypoints.push(orthoResultStart.intersection); }
+        else { waypoints.push(extStart); const breakPoint = orthoResultStart.intersection; waypoints.push(breakPoint); waypoints.push(endPos); }
         let uniqueWaypoints = waypoints.filter((pt, i, arr) => i === 0 || distance(pt, arr[i-1]) > 1);
-        
-        if (uniqueWaypoints.length < 2) {
-            uniqueWaypoints = [startPos, endPos];
-        }
+        if (uniqueWaypoints.length < 2) uniqueWaypoints = [startPos, endPos];
 
         const tag = `L-${db.lines.length + 1}`;
         const nuevaLinea = {
@@ -555,125 +555,23 @@ const SmartFlowRouter = (function() {
             _cachedPoints: [...uniqueWaypoints],
             points3D: [...uniqueWaypoints],
             points: [...uniqueWaypoints],
-            components: []
+            components: reductorComponent ? [reductorComponent] : []
         };
 
-        // ===== AUTO-CODO EN ORIGEN CON FITTING LENGTH (v3.2) =====
-        try {
-            if (uniqueWaypoints.length >= 3) {
-                const seg1Dir = normalizeVector(subtractPoints(uniqueWaypoints[1], uniqueWaypoints[0]));
-                const seg2Dir = normalizeVector(subtractPoints(uniqueWaypoints[2], uniqueWaypoints[1]));
-                
-                const dot = dotProduct(seg1Dir, seg2Dir);
-                
-                // Usar tolerancia precisa en lugar de < 0.99
-                if (Math.abs(dot) < ANGLE_TOLERANCE) {
-                    const angleRad = Math.acos(Math.max(-1, Math.min(1, dot)));
-                    const angleDeg = angleRad * 180 / Math.PI;
-                    
-                    if (Math.abs(angleDeg) > MIN_ANGLE_FOR_ELBOW) {
-                        const elbowId = findElbowForLine(material, diameter, angleDeg);
-                        if (elbowId) {
-                            // Obtener fitting length y ajustar el waypoint
-                            const fittingLen = getFittingLength(elbowId, diameter);
-                            
-                            nuevaLinea.components.push({
-                                type: elbowId,
-                                tag: `${elbowId}-${Math.random().toString(36).substr(2, 5)}`,
-                                param: 0.0
-                            });
-                            
-                            // Ajustar el primer segmento restando el fitting length
-                            if (fittingLen > 0 && uniqueWaypoints.length >= 2) {
-                                const offsetDir = normalizeVector(subtractPoints(uniqueWaypoints[1], uniqueWaypoints[0]));
-                                const adjustedPoint = addPoints(uniqueWaypoints[0], scalePoint(offsetDir, Math.max(0, distance(uniqueWaypoints[0], uniqueWaypoints[1]) - fittingLen)));
-                                
-                                // Solo ajustar si no colapsa el segmento
-                                if (distance(uniqueWaypoints[0], adjustedPoint) > 10) {
-                                    uniqueWaypoints[0] = adjustedPoint;
-                                    nuevaLinea._cachedPoints = [...uniqueWaypoints];
-                                    nuevaLinea.points3D = [...uniqueWaypoints];
-                                    nuevaLinea.points = [...uniqueWaypoints];
-                                }
-                            }
-                            
-                            notifyUser(`✅ Codo ${angleDeg.toFixed(0)}° (${elbowId}) inyectado en origen de ${tag}. Ángulo real: ${angleDeg.toFixed(2)}°`);
-                        }
-                    }
-                }
-            }
-        } catch (e) { console.warn("Error en codo origen:", e); }
-
-        // ===== AUTO-CODO EN DESTINO CON FITTING LENGTH (v3.2) =====
-        try {
-            const pts = nuevaLinea._cachedPoints;
-            if (pts && pts.length >= 3) {
-                const lastIdx = pts.length - 1;
-                const segLastDir = normalizeVector(subtractPoints(pts[lastIdx], pts[lastIdx - 1]));
-                const segPrevDir = normalizeVector(subtractPoints(pts[lastIdx - 1], pts[lastIdx - 2]));
-                
-                const dot = dotProduct(segLastDir, segPrevDir);
-                
-                // Usar tolerancia precisa
-                if (Math.abs(dot) < ANGLE_TOLERANCE) {
-                    const angleRad = Math.acos(Math.max(-1, Math.min(1, dot)));
-                    const angleDeg = angleRad * 180 / Math.PI;
-                    
-                    if (Math.abs(angleDeg) > MIN_ANGLE_FOR_ELBOW) {
-                        const elbowId = findElbowForLine(material, diameter, angleDeg);
-                        if (elbowId) {
-                            const fittingLen = getFittingLength(elbowId, diameter);
-                            
-                            nuevaLinea.components.push({
-                                type: elbowId,
-                                tag: `${elbowId}-${Math.random().toString(36).substr(2, 5)}`,
-                                param: 1.0
-                            });
-                            
-                            // Ajustar el último segmento restando el fitting length
-                            if (fittingLen > 0 && pts.length >= 2) {
-                                const offsetDir = normalizeVector(subtractPoints(pts[lastIdx], pts[lastIdx - 1]));
-                                const adjustedPoint = addPoints(pts[lastIdx], scalePoint(offsetDir, -Math.max(0, distance(pts[lastIdx], pts[lastIdx - 1]) - fittingLen)));
-                                
-                                if (distance(pts[lastIdx], adjustedPoint) > 10) {
-                                    pts[lastIdx] = adjustedPoint;
-                                    nuevaLinea._cachedPoints = [...pts];
-                                    nuevaLinea.points3D = [...pts];
-                                    nuevaLinea.points = [...pts];
-                                }
-                            }
-                            
-                            notifyUser(`✅ Codo ${angleDeg.toFixed(0)}° (${elbowId}) inyectado en destino de ${tag}. Ángulo real: ${angleDeg.toFixed(2)}°`);
-                        }
-                    }
-                }
-            }
-        } catch (e) { console.warn("Error en codo destino:", e); }
-
-        if (reductorComponent) {
-            nuevaLinea.components.push(reductorComponent);
-            notifyUser(`✅ Reductor (${reductorComponent.type}) al final de ${tag}`, false);
-        }
-
         _core.addLine(nuevaLinea);
-        if (fromObj.puertos) {
-            const pFrom = fromObj.puertos.find(p => p.id === fromPortId);
-            if (pFrom) pFrom.connectedLine = tag;
+        
+        const lineaRegistrada = db.lines.find(l => l.tag === tag) || nuevaLinea;
+        const fittingInfo = ensureFittings(lineaRegistrada, fromObj, fromPortId, toObj, nuevoPuertoId, diameter, material);
+        
+        if (_core.updateLine) {
+            _core.updateLine(tag, lineaRegistrada);
         }
-        if (toObj.puertos) {
-            const pTo = toObj.puertos.find(p => p.id === nuevoPuertoId);
-            if (pTo) pTo.connectedLine = tag;
-        }
 
-        if (_core.syncPhysicalData) _core.syncPhysicalData();
-        if (_core._saveState) _core._saveState();
-        if (_core._saveToHistory) _core._saveToHistory();
-        if (typeof _renderUI === 'function') _renderUI();
-
-        if (_core.setSelected) _core.setSelected({ type: 'line', obj: nuevaLinea });
-
-        notifyUser(`✅ Ruta: ${tag} (${fromEquipTag}.${fromPortId} → ${toEquipTag}.${nuevoPuertoId})`, false);
-        return nuevaLinea;
+        if (fromObj.puertos) { const pFrom = fromObj.puertos.find(p => p.id === fromPortId); if (pFrom) pFrom.connectedLine = tag; }
+        if (toObj.puertos) { const pTo = toObj.puertos.find(p => p.id === nuevoPuertoId); if (pTo) pTo.connectedLine = tag; }
+        
+        notifyUser(`✅ Ruta: ${tag} (${fromEquipTag}.${fromPortId} → ${toEquipTag}.${nuevoPuertoId})${fittingInfo.message}`, false);
+        return lineaRegistrada;
     }
 
     function handleSnapClick(snapData) {
@@ -689,29 +587,10 @@ const SmartFlowRouter = (function() {
         const action = parts[0]?.toLowerCase();
         const args = parts.slice(1);
         switch(action) {
-            case 'conectar':
-                if (args.length >= 4) routeBetweenPorts(args[0], args[1], args[2], args[3]);
-                else notifyUser('Formato: conectar [Origen] [Puerto] [Destino] [Puerto]', true);
-                break;
-            case 'split':
-                if (args.length >= 2) {
-                    const lineTag = args[0];
-                    const param = parseFloat(args[1]);
-                    if (!isNaN(param) && _core.injectAccessory) {
-                        _core.injectAccessory(lineTag, param, {
-                            tag: 'TEE',
-                            generarPuertos: (line, p, d) => _catalog.getComponent('TEE_EQUAL')?.generarPuertos?.({diameter: d}) || []
-                        });
-                    }
-                } else notifyUser('Formato: split [Línea] [Posición 0-1]', true);
-                break;
-            case 'limpiar':
-                if (_core.nuevoProyecto) _core.nuevoProyecto();
-                else if (_core.clearProject) _core.clearProject();
-                notifyUser('Proyecto limpiado.', false);
-                break;
-            default:
-                notifyUser(`Comando router no reconocido: ${action}`, true);
+            case 'conectar': if (args.length >= 4) routeBetweenPorts(args[0], args[1], args[2], args[3]); else notifyUser('Formato: conectar [Origen] [Puerto] [Destino] [Puerto]', true); break;
+            case 'split': if (args.length >= 2) { const lineTag = args[0]; const param = parseFloat(args[1]); if (!isNaN(param) && _core.injectAccessory) { _core.injectAccessory(lineTag, param, { tag: 'TEE', generarPuertos: (line, p, d) => _catalog.getComponent('TEE_EQUAL')?.generarPuertos?.({diameter: d}) || [] }); } } else notifyUser('Formato: split [Línea] [Posición 0-1]', true); break;
+            case 'limpiar': if (_core.nuevoProyecto) _core.nuevoProyecto(); notifyUser('Proyecto limpiado.', false); break;
+            default: notifyUser(`Comando router no reconocido: ${action}`, true);
         }
     }
 
@@ -720,22 +599,13 @@ const SmartFlowRouter = (function() {
         _catalog = catalogInstance;
         _notifyUI = notifyFn || ((msg, isErr) => console.log(msg));
         _renderUI = renderFn || (() => {});
-        console.log('✅ SmartFlow Router v3.2 (ortogonalidad forzada + fitting length + normalización precisa)');
     }
 
     return {
-        init,
-        routeBetweenPorts,
-        insertarAccesorioEnLinea,
-        procesarInterseccionesDeLinea,
-        getPortPosition,
-        getPortDirection,
-        findComponentInCatalog,
-        findElbowForLine,
-        calculateOrthogonalIntersection,
-        getFittingLength,
-        handleSnapClick,
-        executeCommand
+        init, routeBetweenPorts, insertarAccesorioEnLinea, procesarInterseccionesDeLinea,
+        getPortPosition, getPortDirection, getPortDirectionLocal, findComponentInCatalog,
+        findElbowForLine, calculateOrthogonalIntersection, getFittingLength, ensureFittings,
+        handleSnapClick, executeCommand
     };
 })();
 
