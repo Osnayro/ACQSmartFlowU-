@@ -1,11 +1,13 @@
 
 // ============================================================
-// SMARTFLOW RENDER v7.1 (Símbolos 3D + Cotas + Flujo + Cámara corregida)
+// SMARTFLOW RENDER v7.3 (Símbolos 3D + Cotas + Flujo + Cámara corregida)
 // Archivo: js/render.js
+// Cambios: compatibilidad con Core v5.4, integración ThreeJsEngine,
+//          suscripción a eventos modelChanged, soporte plataformas,
+//          etiquetas 3D integradas
 // ============================================================
 
 const SmartFlowRender = (function() {
-    // --- Recursos de Three.js ---
     let _composer = null;
     let _outlinePass = null;
     let _currentHighlighted = null;
@@ -13,18 +15,17 @@ const SmartFlowRender = (function() {
     let _core = null;
     let _labelRenderer = null;
     
-    // --- Símbolos 3D ---
     let _symbolGroup = new THREE.Group();
     let _dimensionGroup = new THREE.Group();
     let _flowArrowGroup = new THREE.Group();
     
-    // --- Variables para animación de cámara ---
     let _isAnimating = false;
     let _targetPos = new THREE.Vector3();
     let _targetLookAt = new THREE.Vector3();
     const _transitionSpeed = 0.08;
     
-    // --- Materiales compartidos ---
+    let _debounceTimer = null;
+    
     const materials = {
         valve: new THREE.MeshStandardMaterial({ color: 0xf59e0b, metalness: 0.4, roughness: 0.3 }),
         tee: new THREE.MeshStandardMaterial({ color: 0x8b5cf6, metalness: 0.4, roughness: 0.3 }),
@@ -33,14 +34,12 @@ const SmartFlowRender = (function() {
         flange: new THREE.MeshStandardMaterial({ color: 0x94a3b8, metalness: 0.6, roughness: 0.2 }),
         instrument: new THREE.MeshStandardMaterial({ color: 0x10b981, metalness: 0.2, roughness: 0.5 }),
         pipe: new THREE.MeshStandardMaterial({ color: 0xfacc15, metalness: 0.1, roughness: 0.6 }),
+        platform_steel: new THREE.MeshStandardMaterial({ color: 0x6b7280, metalness: 0.8, roughness: 0.3 }),
+        platform_concrete: new THREE.MeshStandardMaterial({ color: 0x9ca3af, metalness: 0.1, roughness: 0.8 }),
         highlight: new THREE.MeshBasicMaterial({ color: 0x00f2ff, transparent: true, opacity: 0.3 })
     };
 
-    // ==================== 1. CONFIGURACIÓN DE POST-PROCESADO ====================
-    function setupEffects() {
-        const scene = _core.getScene();
-        const camera = _core.getCamera();
-        const renderer = _core.getRenderer();
+    function setupEffects(scene, camera, renderer) {
         if (!scene || !camera || !renderer) return;
         
         if (typeof THREE.EffectComposer !== 'undefined') {
@@ -48,37 +47,37 @@ const SmartFlowRender = (function() {
             const renderPass = new THREE.RenderPass(scene, camera);
             _composer.addPass(renderPass);
             
-            _outlinePass = new THREE.OutlinePass(
-                new THREE.Vector2(window.innerWidth, window.innerHeight),
-                scene, camera
-            );
-            _outlinePass.edgeStrength = 3;
-            _outlinePass.edgeGlow = 0.6;
-            _outlinePass.edgeThickness = 1.5;
-            _outlinePass.pulsePeriod = 2;
-            _outlinePass.visibleEdgeColor.setHex(0x00f2ff);
-            _outlinePass.hiddenEdgeColor.setHex(0x1e293b);
-            _composer.addPass(_outlinePass);
+            if (typeof THREE.OutlinePass !== 'undefined') {
+                _outlinePass = new THREE.OutlinePass(
+                    new THREE.Vector2(window.innerWidth, window.innerHeight),
+                    scene, camera
+                );
+                _outlinePass.edgeStrength = 3;
+                _outlinePass.edgeGlow = 0.6;
+                _outlinePass.edgeThickness = 1.5;
+                _outlinePass.pulsePeriod = 2;
+                _outlinePass.visibleEdgeColor.setHex(0x00f2ff);
+                _outlinePass.hiddenEdgeColor.setHex(0x1e293b);
+                _composer.addPass(_outlinePass);
+            }
         }
     }
-    
-    // ==================== 2. SÍMBOLOS 3D PARA COMPONENTES ====================
     
     function createValve3D(comp, position, direction, size) {
         const group = new THREE.Group();
         const s = size || 0.3;
         
         const bodyGeo = new THREE.BoxGeometry(s * 1.5, s, s);
-        const body = new THREE.Mesh(bodyGeo, materials.valve);
+        const body = new THREE.Mesh(bodyGeo, materials.valve.clone());
         group.add(body);
         
         const handwheelGeo = new THREE.CylinderGeometry(s * 0.5, s * 0.5, s * 0.3, 16);
-        const handwheel = new THREE.Mesh(handwheelGeo, materials.valve);
+        const handwheel = new THREE.Mesh(handwheelGeo, materials.valve.clone());
         handwheel.position.y = s * 0.7;
         group.add(handwheel);
         
         const stemGeo = new THREE.CylinderGeometry(s * 0.1, s * 0.1, s * 0.5, 8);
-        const stem = new THREE.Mesh(stemGeo, materials.valve);
+        const stem = new THREE.Mesh(stemGeo, materials.valve.clone());
         stem.position.y = s * 0.3;
         group.add(stem);
         
@@ -86,7 +85,7 @@ const SmartFlowRender = (function() {
         if (direction) {
             group.quaternion.setFromUnitVectors(
                 new THREE.Vector3(1, 0, 0),
-                new THREE.Vector3(direction.dx, direction.dy, direction.dz)
+                new THREE.Vector3(direction.dx || direction.x || 0, direction.dy || direction.y || 0, direction.dz || direction.z || 0)
             );
         }
         
@@ -98,22 +97,22 @@ const SmartFlowRender = (function() {
         const s = size || 0.25;
         
         const mainGeo = new THREE.CylinderGeometry(s * 0.6, s * 0.6, s * 3, 16);
-        const main = new THREE.Mesh(mainGeo, materials.tee);
+        const main = new THREE.Mesh(mainGeo, materials.tee.clone());
         main.rotation.z = Math.PI / 2;
         group.add(main);
         
         const branchGeo = new THREE.CylinderGeometry(s * 0.5, s * 0.5, s * 1.5, 16);
-        const branch = new THREE.Mesh(branchGeo, materials.tee);
+        const branch = new THREE.Mesh(branchGeo, materials.tee.clone());
         branch.position.y = s * 0.75;
         group.add(branch);
         
         const centerGeo = new THREE.SphereGeometry(s * 0.7, 16, 16);
-        const center = new THREE.Mesh(centerGeo, materials.tee);
+        const center = new THREE.Mesh(centerGeo, materials.tee.clone());
         group.add(center);
         
         group.position.copy(position);
         if (direction && perpendicular) {
-            const dirVec = new THREE.Vector3(direction.dx, direction.dy, direction.dz);
+            const dirVec = new THREE.Vector3(direction.dx || direction.x || 0, direction.dy || direction.y || 0, direction.dz || direction.z || 0);
             const quat = new THREE.Quaternion();
             quat.setFromUnitVectors(new THREE.Vector3(1, 0, 0), dirVec);
             group.quaternion.copy(quat);
@@ -127,7 +126,7 @@ const SmartFlowRender = (function() {
         const s = size || 0.25;
         
         const reducerGeo = new THREE.CylinderGeometry(s * 0.7, s * 0.4, s * 2, 16);
-        const reducer = new THREE.Mesh(reducerGeo, materials.reducer);
+        const reducer = new THREE.Mesh(reducerGeo, materials.reducer.clone());
         reducer.rotation.z = Math.PI / 2;
         group.add(reducer);
         
@@ -135,7 +134,7 @@ const SmartFlowRender = (function() {
         if (direction) {
             group.quaternion.setFromUnitVectors(
                 new THREE.Vector3(1, 0, 0),
-                new THREE.Vector3(direction.dx, direction.dy, direction.dz)
+                new THREE.Vector3(direction.dx || direction.x || 0, direction.dy || direction.y || 0, direction.dz || direction.z || 0)
             );
         }
         
@@ -147,11 +146,11 @@ const SmartFlowRender = (function() {
         const s = size || 0.25;
         
         const elbowGeo = new THREE.SphereGeometry(s * 0.6, 16, 16);
-        const elbow = new THREE.Mesh(elbowGeo, materials.elbow);
+        const elbow = new THREE.Mesh(elbowGeo, materials.elbow.clone());
         group.add(elbow);
         
         const ringGeo = new THREE.TorusGeometry(s * 0.7, s * 0.1, 8, 16);
-        const ring = new THREE.Mesh(ringGeo, materials.elbow);
+        const ring = new THREE.Mesh(ringGeo, materials.elbow.clone());
         group.add(ring);
         
         group.position.copy(position);
@@ -164,7 +163,7 @@ const SmartFlowRender = (function() {
         const s = size || 0.25;
         
         const flangeGeo = new THREE.CylinderGeometry(s * 0.8, s * 0.8, s * 0.3, 32);
-        const flange = new THREE.Mesh(flangeGeo, materials.flange);
+        const flange = new THREE.Mesh(flangeGeo, materials.flange.clone());
         flange.rotation.z = Math.PI / 2;
         group.add(flange);
         
@@ -172,7 +171,7 @@ const SmartFlowRender = (function() {
         if (direction) {
             group.quaternion.setFromUnitVectors(
                 new THREE.Vector3(1, 0, 0),
-                new THREE.Vector3(direction.dx, direction.dy, direction.dz)
+                new THREE.Vector3(direction.dx || direction.x || 0, direction.dy || direction.y || 0, direction.dz || direction.z || 0)
             );
         }
         
@@ -184,11 +183,11 @@ const SmartFlowRender = (function() {
         const s = size || 0.2;
         
         const boxGeo = new THREE.BoxGeometry(s * 1.2, s * 1.5, s * 0.8);
-        const box = new THREE.Mesh(boxGeo, materials.instrument);
+        const box = new THREE.Mesh(boxGeo, materials.instrument.clone());
         group.add(box);
         
         const dialGeo = new THREE.CylinderGeometry(s * 0.5, s * 0.5, s * 0.1, 32);
-        const dial = new THREE.Mesh(dialGeo, materials.instrument);
+        const dial = new THREE.Mesh(dialGeo, materials.instrument.clone());
         dial.position.z = s * 0.5;
         group.add(dial);
         
@@ -197,12 +196,61 @@ const SmartFlowRender = (function() {
         return group;
     }
     
-    // ==================== 3. CREACIÓN DE SÍMBOLOS DESDE LÍNEAS ====================
+    function createPlatform3D(eq) {
+        const group = new THREE.Group();
+        const w = (eq.largo || 6000) / 1000;
+        const d = (eq.ancho || 3000) / 1000;
+        const h = (eq.altura || 400) / 1000;
+        const material = (eq.material || '').toUpperCase();
+        const esConcreto = material.includes('CONCRETO') || material.includes('CEMENTO');
+        
+        const baseGeo = new THREE.BoxGeometry(w, h, d);
+        const baseMat = esConcreto ? materials.platform_concrete.clone() : materials.platform_steel.clone();
+        const base = new THREE.Mesh(baseGeo, baseMat);
+        base.position.y = h / 2;
+        group.add(base);
+        
+        const legGeo = new THREE.BoxGeometry(0.1, h * 2, 0.1);
+        const legMat = new THREE.MeshStandardMaterial({ color: 0x4b5563, metalness: 0.7, roughness: 0.3 });
+        const positions = [
+            { x: -w/2 + 0.15, z: -d/2 + 0.15 },
+            { x: w/2 - 0.15, z: -d/2 + 0.15 },
+            { x: w/2 - 0.15, z: d/2 - 0.15 },
+            { x: -w/2 + 0.15, z: d/2 - 0.15 }
+        ];
+        positions.forEach(function(pos) {
+            const leg = new THREE.Mesh(legGeo, legMat);
+            leg.position.set(pos.x, -h/2, pos.z);
+            group.add(leg);
+        });
+        
+        if (eq.baranda) {
+            const railGeo = new THREE.BoxGeometry(w, 0.05, 0.05);
+            const railMat = new THREE.MeshStandardMaterial({ color: 0x9ca3af, metalness: 0.6, roughness: 0.3 });
+            const railH = h + 0.2;
+            ['front', 'back'].forEach(function(side, idx) {
+                const rail = new THREE.Mesh(railGeo, railMat);
+                rail.position.set(0, railH, idx === 0 ? d/2 : -d/2);
+                group.add(rail);
+            });
+            const sideGeo = new THREE.BoxGeometry(0.05, 0.05, d);
+            ['left', 'right'].forEach(function(side, idx) {
+                const rail = new THREE.Mesh(sideGeo, railMat);
+                rail.position.set(idx === 0 ? -w/2 : w/2, railH, 0);
+                group.add(rail);
+            });
+        }
+        
+        group.position.set(eq.posX / 1000, eq.posY / 1000, eq.posZ / 1000);
+        group.userData = { tag: eq.tag, type: 'plataforma', isEquipment: true };
+        
+        return group;
+    }
     
     function createComponentSymbols(line) {
         if (!line.components || !line.components.length) return;
         
-        const pts = line.points || line._cachedPoints || line.points3D || [];
+        const pts = _core.getLinePoints(line) || line._cachedPoints || line.points3D || [];
         if (pts.length < 2) return;
         
         let lengths = [], totalLen = 0;
@@ -213,7 +261,7 @@ const SmartFlowRender = (function() {
         }
         if (totalLen === 0) return;
         
-        line.components.forEach(comp => {
+        line.components.forEach(function(comp) {
             const param = comp.param || 0.5;
             const targetLen = totalLen * Math.min(1, Math.max(0, param));
             let accum = 0, segIdx = 0, t = 0;
@@ -267,12 +315,12 @@ const SmartFlowRender = (function() {
                 symbol = createInstrument3D(comp, pos3D, type, size);
             } else {
                 const geo = new THREE.SphereGeometry(size * 0.4, 8, 8);
-                symbol = new THREE.Mesh(geo, materials.valve);
+                symbol = new THREE.Mesh(geo, materials.valve.clone());
                 symbol.position.copy(pos3D);
             }
             
             if (symbol) {
-                symbol.userData = { tag: comp.tag, type: comp.type, lineTag: line.tag, isComponentSymbol: true };
+                symbol.userData = { tag: comp.tag || (line.tag + '_' + type), type: comp.type, lineTag: line.tag, isComponentSymbol: true };
                 _symbolGroup.add(symbol);
             }
         });
@@ -282,18 +330,20 @@ const SmartFlowRender = (function() {
         if (!_core) return;
         
         while (_symbolGroup.children.length > 0) {
-            _symbolGroup.remove(_symbolGroup.children[0]);
+            const child = _symbolGroup.children[0];
+            if (child.material) child.material.dispose();
+            if (child.geometry) child.geometry.dispose();
+            _symbolGroup.remove(child);
         }
         
         const db = _core.getDb();
-        (db.lines || []).forEach(line => {
+        (db.lines || []).forEach(function(line) {
             createComponentSymbols(line);
         });
     }
     
-    // ==================== 4. COTAS EN TUBERÍAS ====================
-    
-    function createDimensionLine(p1, p2, color = 0xfacc15) {
+    function createDimensionLine(p1, p2, color) {
+        color = color || 0xfacc15;
         const pos1 = new THREE.Vector3(p1.x / 1000, p1.y / 1000 + 0.3, p1.z / 1000);
         const pos2 = new THREE.Vector3(p2.x / 1000, p2.y / 1000 + 0.3, p2.z / 1000);
         
@@ -323,12 +373,15 @@ const SmartFlowRender = (function() {
         if (!_core) return;
         
         while (_dimensionGroup.children.length > 0) {
-            _dimensionGroup.remove(_dimensionGroup.children[0]);
+            const child = _dimensionGroup.children[0];
+            if (child.material) child.material.dispose();
+            if (child.geometry) child.geometry.dispose();
+            _dimensionGroup.remove(child);
         }
         
         const db = _core.getDb();
-        (db.lines || []).forEach(line => {
-            const pts = line.points || line._cachedPoints || line.points3D || [];
+        (db.lines || []).forEach(function(line) {
+            const pts = _core.getLinePoints(line) || line._cachedPoints || line.points3D || [];
             if (pts.length >= 2) {
                 for (let i = 0; i < pts.length - 1; i++) {
                     createDimensionLine(pts[i], pts[i + 1]);
@@ -337,10 +390,8 @@ const SmartFlowRender = (function() {
         });
     }
     
-    // ==================== 5. FLECHAS DE FLUJO ====================
-    
     function createFlowArrows(line) {
-        const pts = line.points || line._cachedPoints || line.points3D || [];
+        const pts = _core.getLinePoints(line) || line._cachedPoints || line.points3D || [];
         if (pts.length < 2) return;
         
         for (let i = 0; i < pts.length - 1; i++) {
@@ -382,20 +433,24 @@ const SmartFlowRender = (function() {
         if (!_core) return;
         
         while (_flowArrowGroup.children.length > 0) {
-            _flowArrowGroup.remove(_flowArrowGroup.children[0]);
+            const child = _flowArrowGroup.children[0];
+            if (child.material) child.material.dispose();
+            if (child.geometry) child.geometry.dispose();
+            _flowArrowGroup.remove(child);
         }
         
         const db = _core.getDb();
-        (db.lines || []).forEach(line => {
+        (db.lines || []).forEach(function(line) {
             createFlowArrows(line);
         });
     }
     
-    // ==================== 6. FUNCIÓN DE ENFOQUE ====================
     function focusOnObject(mesh) {
-        if (!mesh || !_core.getControls()) return;
-        const camera = _core.getCamera();
-        const controls = _core.getControls();
+        if (!mesh || !_core) return;
+        const camera = _core.getCamera ? _core.getCamera() : null;
+        const controls = _core.getControls ? _core.getControls() : null;
+        if (!camera || !controls) return;
+        
         const box = new THREE.Box3().setFromObject(mesh);
         const center = box.getCenter(new THREE.Vector3());
         const size = box.getSize(new THREE.Vector3());
@@ -408,33 +463,28 @@ const SmartFlowRender = (function() {
         _isAnimating = true;
     }
     
-    // ==================== 7. FIT CAMERA TO ALL EQUIPMENTS (CORREGIDO v7.1) ====================
     function fitCameraToEquipments() {
-        const scene = _core.getScene();
-        const camera = _core.getCamera();
-        const controls = _core.getControls();
+        const scene = _core.getScene ? _core.getScene() : null;
+        const camera = _core.getCamera ? _core.getCamera() : null;
+        const controls = _core.getControls ? _core.getControls() : null;
         if (!scene || !camera || !controls) return;
         
         const bounds = new THREE.Box3();
         let hasValidObject = false;
         
-        scene.traverse((child) => {
+        scene.traverse(function(child) {
             if (child.isMesh && child.visible && child.geometry) {
-                // Excluir símbolos, cotas y flechas
                 if (child.userData && (child.userData.isComponentSymbol || 
                     child.userData.isDimensionLine || 
                     child.userData.isFlowArrow)) {
                     return;
                 }
-                // Excluir grupos de símbolos
                 if (child.parent === _symbolGroup || 
                     child.parent === _dimensionGroup || 
                     child.parent === _flowArrowGroup) {
                     return;
                 }
-                // Excluir grid
                 if (child instanceof THREE.GridHelper) return;
-                // Excluir CSS2DObjects
                 if (child instanceof THREE.CSS2DObject) return;
                 
                 if (!child.position) return;
@@ -442,10 +492,7 @@ const SmartFlowRender = (function() {
                 const box = new THREE.Box3().setFromObject(child);
                 const size = box.getSize(new THREE.Vector3());
                 
-                // Ignorar objetos demasiado grandes
                 if (size.x > 100000 || size.y > 100000 || size.z > 100000) return;
-                
-                // Ignorar objetos diminutos en el origen
                 if (size.x < 0.01 && size.y < 0.01 && size.z < 0.01 && 
                     child.position.x === 0 && child.position.y === 0 && child.position.z === 0) return;
                 
@@ -482,14 +529,13 @@ const SmartFlowRender = (function() {
         controls.update();
     }
     
-    // ==================== 8. RESALTADO DE SELECCIÓN ====================
     function updateSelectionHighlight() {
         const selected = _core.getSelected();
         
         if (_outlinePass) {
             if (selected && selected.obj) {
                 const tag = selected.obj.tag;
-                const mesh = _core.getVisualMesh(tag);
+                const mesh = _core.getVisualMesh ? _core.getVisualMesh(tag) : null;
                 if (mesh) {
                     _outlinePass.selectedObjects = [mesh];
                     _currentHighlighted = mesh;
@@ -508,7 +554,7 @@ const SmartFlowRender = (function() {
             }
             if (selected && selected.obj) {
                 const tag = selected.obj.tag;
-                const mesh = _core.getVisualMesh(tag);
+                const mesh = _core.getVisualMesh ? _core.getVisualMesh(tag) : null;
                 if (mesh && mesh.material) {
                     mesh.material.emissiveIntensity = 0.5;
                     mesh.material.emissive = new THREE.Color(0x00f2ff);
@@ -521,10 +567,9 @@ const SmartFlowRender = (function() {
         }
     }
     
-    // ==================== 9. VISTAS PREDEFINIDAS ====================
     function setView(type) {
-        const camera = _core.getCamera();
-        const controls = _core.getControls();
+        const camera = _core.getCamera ? _core.getCamera() : null;
+        const controls = _core.getControls ? _core.getControls() : null;
         if (!camera) return;
         const distance = 8;
         const target = new THREE.Vector3(0, 0, 0);
@@ -542,12 +587,11 @@ const SmartFlowRender = (function() {
         }
     }
     
-    // ==================== 10. PANEL DE INFORMACIÓN ====================
     function createInfoPanel() {
-        let panel = document.getElementById('selectionInfo');
+        let panel = document.getElementById('selectionInfo3D');
         if (!panel) {
             panel = document.createElement('div');
-            panel.id = 'selectionInfo';
+            panel.id = 'selectionInfo3D';
             panel.style.cssText = `
                 position: fixed; bottom: 80px; right: 20px;
                 background: rgba(15, 23, 42, 0.9); backdrop-filter: blur(8px);
@@ -566,9 +610,9 @@ const SmartFlowRender = (function() {
         if (!_infoPanel) _infoPanel = createInfoPanel();
         if (selected && selected.obj) {
             const obj = selected.obj;
-            const posX = obj.posX ?? obj.pos?.x ?? 0;
-            const posY = obj.posY ?? obj.pos?.y ?? 0;
-            const posZ = obj.posZ ?? obj.pos?.z ?? 0;
+            const posX = obj.posX || (obj.pos && obj.pos.x) || 0;
+            const posY = obj.posY || (obj.pos && obj.pos.y) || 0;
+            const posZ = obj.posZ || (obj.pos && obj.pos.z) || 0;
             _infoPanel.innerHTML = `
                 <div style="color: #00f2ff; font-weight: bold; border-bottom: 1px solid #334155; margin-bottom: 8px; padding-bottom: 4px;">
                     📌 ${obj.tag}
@@ -577,7 +621,7 @@ const SmartFlowRender = (function() {
                 <div><span style="color:#94a3b8;">MATERIAL:</span> ${obj.material || 'N/A'}</div>
                 <div><span style="color:#94a3b8;">DIÁMETRO:</span> ${obj.diameter || obj.diametro || '-'}"</div>
                 <div><span style="color:#94a3b8;">POSICIÓN:</span> X:${Math.round(posX)} Y:${Math.round(posY)} Z:${Math.round(posZ)}</div>
-                ${obj.puertos ? `<div style="margin-top:6px;"><span style="color:#94a3b8;">PUERTOS:</span> ${obj.puertos.map(p => p.id).join(', ')}</div>` : ''}
+                ${obj.puertos ? `<div style="margin-top:6px;"><span style="color:#94a3b8;">PUERTOS:</span> ${obj.puertos.map(function(p) { return p.id; }).join(', ')}</div>` : ''}
             `;
         } else {
             _infoPanel.innerHTML = `
@@ -587,77 +631,84 @@ const SmartFlowRender = (function() {
         }
     }
     
-    function initUIBridge() {
-        if (!_core) return;
-        _infoPanel = createInfoPanel();
-        _core.subscribe(() => {
-            const selected = _core.getSelected();
-            updateInfoPanel(selected);
-            updateSelectionHighlight();
-        });
-    }
-    
-    // ==================== 11. INICIALIZACIÓN ====================
-    function init(coreInstance) {
-        _core = coreInstance;
-        if (!_core) return;
-        
-        setupEffects();
-        initUIBridge();
-        
-        const scene = _core.getScene();
-        if (scene) {
-            _symbolGroup.userData = { isSymbolGroup: true };
-            _dimensionGroup.userData = { isDimensionGroup: true };
-            _flowArrowGroup.userData = { isFlowArrowGroup: true };
-            scene.add(_symbolGroup);
-            scene.add(_dimensionGroup);
-            scene.add(_flowArrowGroup);
-        }
-        
-        const originalAnimate = _core.getAnimate();
-        if (originalAnimate) {
-            const newAnimate = () => {
-                if (_isAnimating) {
-                    const camera = _core.getCamera();
-                    const controls = _core.getControls();
-                    camera.position.lerp(_targetPos, _transitionSpeed);
-                    controls.target.lerp(_targetLookAt, _transitionSpeed);
-                    controls.update();
-                    if (camera.position.distanceTo(_targetPos) < 0.01) {
-                        _isAnimating = false;
-                    }
-                } else {
-                    if (_core.getControls()) _core.getControls().update();
-                }
-                if (_composer) _composer.render();
-                if (_labelRenderer && scene && _core.getCamera()) {
-                    _labelRenderer.render(scene, _core.getCamera());
-                }
-                if (typeof SmartFlowLabels !== 'undefined' && SmartFlowLabels.actualizarVisibilidad) {
-                    SmartFlowLabels.actualizarVisibilidad();
-                }
-                requestAnimationFrame(newAnimate);
-            };
-            _core.setAnimate(newAnimate);
-        }
-        
-        setTimeout(() => {
+    function scheduleRefresh() {
+        if (_debounceTimer) clearTimeout(_debounceTimer);
+        _debounceTimer = setTimeout(function() {
             refreshAllSymbols();
             refreshAllDimensions();
             refreshAllFlowArrows();
-        }, 1000);
+        }, 200);
+    }
+    
+    function initUIBridge() {
+        if (!_core) return;
+        _infoPanel = createInfoPanel();
         
-        _core.subscribe(() => {
-            setTimeout(() => {
-                refreshAllSymbols();
-                refreshAllDimensions();
-                refreshAllFlowArrows();
-            }, 200);
-        });
+        if (typeof _core.on === 'function') {
+            _core.on('modelChanged', function() {
+                scheduleRefresh();
+                const selected = _core.getSelected();
+                updateInfoPanel(selected);
+                updateSelectionHighlight();
+            });
+        }
         
-        window.set3DView = setView;
-        console.log("✔ SmartFlowRender v7.1 listo (Cámara corregida)");
+        setInterval(function() {
+            const selected = _core.getSelected();
+            updateInfoPanel(selected);
+            updateSelectionHighlight();
+        }, 500);
+    }
+    
+    function init(coreInstance, engineInstance) {
+        _core = coreInstance;
+        
+        if (!engineInstance) {
+            console.error('SmartFlowRender: engineInstance es requerido');
+            return;
+        }
+        
+        const scene = engineInstance.getScene();
+        const camera = engineInstance.getCamera();
+        const renderer = engineInstance.getRenderer();
+        
+        if (!scene || !camera || !renderer) {
+            console.error('SmartFlowRender: Engine no inicializado correctamente');
+            return;
+        }
+        
+        setupEffects(scene, camera, renderer);
+        initUIBridge();
+        
+        _symbolGroup.userData = { isSymbolGroup: true };
+        _dimensionGroup.userData = { isDimensionGroup: true };
+        _flowArrowGroup.userData = { isFlowArrowGroup: true };
+        scene.add(_symbolGroup);
+        scene.add(_dimensionGroup);
+        scene.add(_flowArrowGroup);
+        
+        if (typeof SmartFlowLabels3D !== 'undefined') {
+            SmartFlowLabels3D.init(coreInstance, engineInstance);
+            
+            setTimeout(function() {
+                SmartFlowLabels3D.refreshAllLabels();
+                SmartFlowLabels3D.refreshAllDimensions();
+            }, 800);
+        }
+        
+        window.set3DView = function(type) {
+            engineInstance.setView(type);
+        };
+        
+        setTimeout(function() {
+            refreshAllSymbols();
+            refreshAllDimensions();
+            refreshAllFlowArrows();
+        }, 500);
+        
+        scheduleRefresh();
+        
+        console.log("✔ SmartFlowRender v7.3 listo (integrado con ThreeJsEngine + Labels)");
     }
     
     function setLabelRenderer(lr) {
@@ -665,15 +716,15 @@ const SmartFlowRender = (function() {
     }
     
     return {
-        init,
-        setView,
-        fitCameraToEquipments,
-        updateSelectionHighlight,
-        refreshAllSymbols,
-        refreshAllDimensions,
-        refreshAllFlowArrows,
-        setLabelRenderer,
-        getComposer: () => _composer,
-        getOutlinePass: () => _outlinePass
+        init: init,
+        setView: setView,
+        fitCameraToEquipments: fitCameraToEquipments,
+        updateSelectionHighlight: updateSelectionHighlight,
+        refreshAllSymbols: refreshAllSymbols,
+        refreshAllDimensions: refreshAllDimensions,
+        refreshAllFlowArrows: refreshAllFlowArrows,
+        setLabelRenderer: setLabelRenderer,
+        getComposer: function() { return _composer; },
+        getOutlinePass: function() { return _outlinePass; }
     };
 })();
