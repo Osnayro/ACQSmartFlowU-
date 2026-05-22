@@ -4,9 +4,9 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no">
-    <title>SmartEngp 3D | AcQuaBlue - Ingeniería Inteligente</title>
+    <title>SmartEngp | AcQuaBlue</title>
     
-    <!-- Carga unificada de Three.js y complementos -->
+    <!-- Three.js v0.128.0 + complementos -->
     <script src="https://cdn.jsdelivr.net/npm/three@0.128.0/build/three.min.js"></script>
     <script src="https://cdn.jsdelivr.net/npm/three@0.128.0/examples/js/controls/OrbitControls.js"></script>
     <script src="https://cdn.jsdelivr.net/npm/three@0.128.0/examples/js/renderers/CSS2DRenderer.js"></script>
@@ -44,16 +44,12 @@
             font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
         }
 
-        /* Splash Screen */
         #splash-screen {
-            position: fixed;
-            top: 0; left: 0;
+            position: fixed; top: 0; left: 0;
             width: 100%; height: 100%;
             background: radial-gradient(circle at center, #10172a 0%, #020617 100%);
             z-index: 10000;
-            display: flex;
-            justify-content: center;
-            align-items: center;
+            display: flex; justify-content: center; align-items: center;
             transition: opacity 0.8s ease, visibility 0.8s;
         }
         .splash-content { text-align: center; width: 350px; }
@@ -61,8 +57,7 @@
         .company-name { font-size: 11px; letter-spacing: 3px; color: #fff; opacity: 0.6; text-transform: uppercase; display: block; }
         .powered-by { font-size: 8px; color: var(--accent-cyan); letter-spacing: 1px; text-transform: uppercase; }
         .hex-container {
-            width: 120px; height: 120px;
-            margin: 0 auto 30px;
+            width: 120px; height: 120px; margin: 0 auto 30px;
             border: 1px solid var(--accent-cyan);
             clip-path: polygon(50% 0%, 100% 25%, 100% 75%, 50% 100%, 0% 75%, 0% 25%);
             display: flex; justify-content: center; align-items: center;
@@ -85,499 +80,160 @@
         @keyframes fill-bar { 0% { width: 0%; } 100% { width: 100%; } }
         .splash-hidden { opacity: 0; visibility: hidden; }
 
-        /* Welcome Panel */
         #welcome-panel {
-            position: fixed;
-            top: 0; left: 0;
-            width: 100%; height: 100%;
-            background: var(--primary-bg);
-            z-index: 9000;
-            display: flex;
-            justify-content: center;
-            align-items: center;
+            position: fixed; top: 0; left: 0; width: 100%; height: 100%;
+            background: var(--primary-bg); z-index: 9000;
+            display: flex; justify-content: center; align-items: center;
             transition: opacity 0.6s ease, visibility 0.6s;
         }
         .welcome-container {
-            width: 600px;
-            padding: 40px;
-            background: rgba(15, 23, 42, 0.85);
-            border: 1px solid var(--accent-cyan);
-            border-radius: 16px;
-            backdrop-filter: blur(12px);
-            box-shadow: 0 20px 40px rgba(0,0,0,0.6);
-            text-align: center;
+            width: 600px; padding: 40px; background: rgba(15, 23, 42, 0.85);
+            border: 1px solid var(--accent-cyan); border-radius: 16px;
+            backdrop-filter: blur(12px); box-shadow: 0 20px 40px rgba(0,0,0,0.6); text-align: center;
         }
-        .home-logo-img { width: 130px; margin-bottom: 25px; filter: drop-shadow(0 0 15px rgba(0,242,255,0.4)); }
-        .header-names { display: flex; justify-content: space-between; margin-bottom: 35px; }
-        .corp-name, .user-name { font-size: 16px; font-weight: 800; text-transform: uppercase; letter-spacing: 2px; }
-        .corp-name { color: var(--accent-cyan); text-align: left; }
-        .user-name { color: #fff; text-align: right; }
+        .home-logo-wrapper { margin-bottom: 25px; }
+        .home-logo-img { width: 130px; margin: 10px 0 25px; filter: drop-shadow(0 0 15px rgba(0,242,255,0.4)); }
+        .header-names { display: flex; justify-content: space-between; margin-bottom: 35px; text-align: left; }
+        .corp-name { color: var(--accent-cyan); font-size: 16px; font-weight: 800; text-transform: uppercase; letter-spacing: 2px; }
+        .user-name { color: #fff; font-size: 16px; font-weight: 600; text-transform: uppercase; letter-spacing: 2px; text-align: right; }
         .button-group { display: flex; flex-direction: column; gap: 16px; }
         .welcome-btn {
-            background: transparent;
-            border: 1px solid var(--accent-cyan);
-            color: var(--accent-cyan);
-            padding: 16px 24px;
-            font-size: 18px; font-weight: bold;
-            text-transform: uppercase; letter-spacing: 3px;
-            border-radius: 8px;
-            cursor: pointer;
-            transition: all 0.3s;
+            background: transparent; border: 1px solid var(--accent-cyan); color: var(--accent-cyan);
+            padding: 16px 24px; font-size: 18px; font-weight: bold; text-transform: uppercase;
+            letter-spacing: 3px; border-radius: 8px; cursor: pointer; transition: all 0.3s;
         }
-        .welcome-btn:hover { background: var(--accent-cyan); color: #000; box-shadow: 0 0 30px rgba(0,242,255,0.4); }
+        .welcome-btn:hover { background: var(--accent-cyan); color: #000; }
         .welcome-btn.secondary { border-color: #64748b; color: #94a3b8; }
         .welcome-btn.secondary:hover { background: #334155; border-color: #94a3b8; color: white; }
         .welcome-hidden { opacity: 0; visibility: hidden; pointer-events: none; }
 
-        /* Modal proyecto */
         #project-name-modal {
-            position: fixed; top: 0; left: 0;
-            width: 100%; height: 100%;
-            background: rgba(0,0,0,0.8);
-            z-index: 9500;
-            display: none;
-            justify-content: center;
-            align-items: center;
+            position: fixed; top: 0; left: 0; width: 100%; height: 100%;
+            background: rgba(0,0,0,0.8); z-index: 9500; display: none;
+            justify-content: center; align-items: center;
         }
         .modal-content {
-            width: 400px; padding: 30px;
-            background: var(--panel-bg);
-            border: 1px solid var(--accent-cyan);
-            border-radius: 16px;
-            backdrop-filter: blur(12px);
-            text-align: center;
+            width: 400px; padding: 30px; background: var(--panel-bg);
+            border: 1px solid var(--accent-cyan); border-radius: 16px; text-align: center;
         }
-        .modal-content h3 { color: var(--accent-cyan); margin-bottom: 20px; font-size: 18px; text-transform: uppercase; }
-        .modal-content input {
-            width: 100%; padding: 12px 16px;
-            background: #0f172a; border: 1px solid #334155;
-            color: white; border-radius: 8px; font-size: 16px;
-            margin-bottom: 25px; outline: none;
-        }
-        .modal-content input:focus { border-color: var(--accent-cyan); }
+        .modal-content h3 { color: var(--accent-cyan); margin-bottom: 20px; font-size: 18px; }
+        .modal-content input { width: 100%; padding: 12px; background: #0f172a; border: 1px solid #334155; color: white; border-radius: 8px; margin-bottom: 25px; }
         .modal-actions { display: flex; gap: 15px; justify-content: center; }
-        .modal-btn {
-            padding: 10px 24px; background: var(--accent-blue);
-            border: none; color: white; font-weight: bold;
-            border-radius: 6px; cursor: pointer; text-transform: uppercase;
-        }
+        .modal-btn { padding: 10px 24px; background: var(--accent-blue); border: none; color: white; font-weight: bold; border-radius: 6px; cursor: pointer; }
         .modal-btn.cancel { background: #334155; }
 
-        /* Toolbar */
         .toolbar {
-            background: var(--toolbar-bg);
-            padding: 10px 16px;
-            display: flex;
-            align-items: center;
-            flex-wrap: wrap;
-            gap: 8px;
-            border-bottom: 1px solid var(--accent-blue);
-            box-shadow: 0 4px 20px rgba(0,0,0,0.5);
+            background: var(--toolbar-bg); padding: 6px 12px; display: flex;
+            align-items: center; flex-wrap: wrap; gap: 6px;
+            border-bottom: 1px solid var(--accent-blue); box-shadow: 0 2px 10px rgba(0,0,0,0.4); z-index: 500;
         }
-        .toolbar-logo { display: flex; align-items: center; margin-right: 15px; }
-        .toolbar-logo img { height: 28px; margin-right: 8px; filter: drop-shadow(0 0 6px #00f2ff); }
-        .toolbar-title { color: var(--accent-cyan); font-size: 18px; font-weight: 800; text-transform: uppercase; letter-spacing: 2px; }
-        
+        .toolbar-logo { display: flex; align-items: center; margin-right: 10px; }
+        .toolbar-logo img { height: 24px; margin-right: 6px; }
+        .toolbar-title { color: var(--accent-cyan); font-size: 16px; font-weight: 800; text-transform: uppercase; letter-spacing: 2px; }
+
         button {
-            background: var(--button-bg);
-            border: 1px solid var(--button-border);
-            color: white;
-            padding: 8px 14px;
-            border-radius: 4px;
-            font-size: 12px; font-weight: 600;
-            cursor: pointer;
-            transition: all 0.2s;
-            text-transform: uppercase; letter-spacing: 0.5px;
+            background: var(--button-bg); border: 1px solid var(--button-border); color: white;
+            padding: 6px 10px; border-radius: 4px; font-size: 11px; font-weight: 600;
+            cursor: pointer; transition: all 0.2s; text-transform: uppercase; white-space: nowrap;
         }
-        button:hover { background: var(--accent-blue); border-color: var(--accent-cyan); box-shadow: 0 0 12px rgba(0, 242, 255, 0.2); }
-        .btn-primary { background: #238636; border-color: #2ea043; }
-        .btn-primary:hover { background: #2ea043; }
-        .btn-warning { background: #d29922; color: #1f1f1f; border-color: #e2a83a; }
-        .btn-warning:hover { background: #e2a83a; }
-        .btn-speak { background: #7c3aed; border-color: #8b5cf6; }
-        .btn-speak:hover { background: #8b5cf6; }
-        .btn-capture { background: #0f766e; border-color: #14b8a6; }
-        .btn-capture:hover { background: #14b8a6; }
+        button:hover { background: var(--accent-blue); border-color: var(--accent-cyan); }
+        button.active { background: var(--accent-cyan); color: #000; border-color: var(--accent-cyan); }
 
-        /* Canvas container (Three.js) */
-        #canvas-container {
-            flex: 1;
-            background: #000;
-            position: relative;
-            overflow: hidden;
+        .dropdown { position: relative; display: inline-block; }
+        .dropdown-content {
+            display: none; position: absolute; background: var(--panel-bg);
+            min-width: 160px; box-shadow: 0px 8px 16px 0px rgba(0,0,0,0.2);
+            z-index: 1; border: 1px solid var(--accent-cyan); border-radius: 4px;
+            backdrop-filter: blur(8px); right: 0;
+        }
+        .dropdown-content button { width: 100%; text-align: left; border: none; border-radius: 0; }
+        .dropdown.open > .dropdown-content { display: block; }
+
+        .canvas-container { flex: 1; background: #000; position: relative; overflow: hidden; }
+        canvas { display: block; width: 100%; height: 100%; cursor: grab; touch-action: none; }
+        canvas:active { cursor: grabbing; }
+
+        #viewer-3d {
+            position: absolute; top: 0; left: 0; width: 100%; height: 100%; display: none;
         }
 
-        /* Property panel (derecha) */
-        .property-panel {
-            position: absolute;
-            top: 20px;
-            right: 20px;
-            width: 280px;
-            max-height: 80vh;
-            background: var(--panel-bg);
-            backdrop-filter: blur(10px);
-            border: 1px solid var(--accent-blue);
-            border-radius: 8px;
-            padding: 15px;
-            z-index: 100;
-            overflow-y: auto;
-            transition: transform 0.3s ease;
+        #side-panel {
+            position: absolute; top: 10px; right: 10px; width: 280px; max-width: 85vw; max-height: 60vh;
+            background: rgba(15, 23, 42, 0.85); backdrop-filter: blur(12px);
+            border: 1px solid rgba(0, 242, 255, 0.3); border-radius: 8px;
+            padding: 12px; z-index: 100; overflow-y: auto; transition: transform 0.3s ease;
         }
-        .property-panel.hidden { transform: translateX(320px); }
-        .panel-header {
-            display: flex;
-            justify-content: space-between;
-            align-items: center;
-            border-bottom: 1px solid rgba(255,255,255,0.1);
-            padding-bottom: 10px;
-            margin-bottom: 15px;
-            color: var(--accent-cyan);
-            font-weight: bold;
-            font-size: 0.9rem;
-        }
-        .panel-header button { background: none; border: none; color: var(--accent-cyan); font-size: 1.2rem; cursor: pointer; padding: 0; }
-        .prop-group { margin-bottom: 12px; }
-        .prop-label { font-size: 0.75rem; color: #94a3b8; display: block; }
-        .prop-value { font-size: 0.9rem; color: white; font-weight: 500; }
-        .port-item {
-            background: rgba(255,255,255,0.05);
-            margin-top: 5px;
-            padding: 5px 8px;
-            border-radius: 4px;
-            font-size: 0.8rem;
-            display: flex;
-            justify-content: space-between;
-        }
-        .port-open { color: #10b981; }
-        .port-connected { color: #3b82f6; }
-        .empty-msg { color: #aaa; text-align: center; padding: 20px 0; }
+        #side-panel.hidden { transform: translateX(320px); }
+        #panel-content { max-height: calc(60vh - 50px); overflow-y: auto; }
 
-        /* Command panel */
-        .command-panel {
-            position: fixed; left: 10px; bottom: 10px;
-            width: 90%; max-width: 500px;
-            background: var(--panel-bg); border-radius: 12px;
-            border: 1px solid var(--accent-cyan);
-            z-index: 1000; display: none;
-            box-shadow: 0 4px 30px rgba(0,0,0,0.7);
-            backdrop-filter: blur(8px);
+        #commandPanel {
+            position: fixed; left: 50%; bottom: 20px; transform: translateX(-50%);
+            width: 90%; max-width: 500px; background: rgba(15, 23, 42, 0.95);
+            border-radius: 12px; border: 1px solid var(--accent-cyan);
+            z-index: 1000; display: none; backdrop-filter: blur(10px); padding: 10px;
         }
-        .command-header {
-            display: flex; justify-content: space-between; align-items: center;
-            padding: 12px 16px; border-bottom: 1px solid #3a3a4a;
-        }
-        .command-header strong { color: var(--accent-cyan); }
-        .command-buttons { display: flex; gap: 8px; padding: 12px; }
+        .command-header { display: flex; justify-content: space-between; align-items: center; margin-bottom: 8px; color: var(--accent-cyan); }
         textarea {
-            width: calc(100% - 24px); margin: 12px;
-            background: #0f0f17; color: #eee;
-            border: 1px solid #3a3a4a; border-radius: 8px;
-            padding: 12px; font-family: 'Courier New', monospace;
-            font-size: 14px; resize: vertical; outline: none;
+            width: 100%; margin: 0; background: #0f0f17; color: #eee;
+            border: 1px solid #3a3a4a; border-radius: 8px; padding: 10px;
+            font-family: 'Courier New', monospace; font-size: 13px; resize: vertical;
         }
-        textarea:focus { border-color: var(--accent-cyan); }
+        .command-buttons { display: flex; gap: 8px; margin-top: 8px; }
+        .history-indicator { font-size: 10px; color: #64748b; margin-top: 4px; text-align: right; }
 
-        /* Notification */
         .notification {
-            position: fixed; top: 20px; left: 50%; transform: translateX(-50%);
-            background: #238636; padding: 10px 20px; border-radius: 8px;
-            z-index: 2000; display: none; text-align: center;
-            font-weight: bold; box-shadow: 0 2px 15px rgba(0,0,0,0.5);
+            position: fixed; top: 70px; left: 50%; transform: translateX(-50%);
+            background: #238636; padding: 8px 16px; border-radius: 8px;
+            z-index: 2000; display: none; font-weight: bold; font-size: 13px; pointer-events: none;
         }
 
-        /* Status bar */
         .status-bar {
-            background: #020617; padding: 8px 20px; font-size: 10px;
-            border-top: 1px solid var(--accent-blue); color: var(--accent-cyan);
-            font-family: 'Courier New', Courier, monospace;
-            display: flex; justify-content: space-between;
+            position: fixed; bottom: 8px; left: 12px; z-index: 300;
+            background: rgba(2, 6, 23, 0.7); padding: 4px 12px; font-size: 10px;
+            border-radius: 4px; color: var(--accent-cyan); pointer-events: none;
+            backdrop-filter: blur(4px); border: 1px solid rgba(0,242,255,0.2);
         }
 
-        /* Tools panel flotante */
         .tools-panel {
-            position: fixed; left: 20px; top: 100px;
-            background: var(--panel-bg); border-radius: 12px;
-            padding: 8px; display: flex; flex-direction: column; gap: 8px;
-            z-index: 900; border: 1px solid var(--accent-blue);
-            backdrop-filter: blur(8px);
+            position: fixed; left: 10px; top: 80px; background: rgba(15, 23, 42, 0.9);
+            border-radius: 10px; padding: 6px; z-index: 400; border: 1px solid rgba(0,242,255,0.3);
+            backdrop-filter: blur(6px); display: flex; flex-direction: column; gap: 4px; transition: all 0.3s;
         }
-        .tools-panel button { padding: 6px 12px; font-size: 12px; }
-        .tools-panel button.active { background: var(--accent-blue); color: white; }
+        .tools-panel.collapsed #toolsButtons { display: none; }
+        .tools-panel.collapsed { padding: 4px; }
+        #toolsButtons { display: flex; flex-direction: column; gap: 4px; }
+        #toolsButtons button { font-size: 10px; padding: 4px 8px; }
+        .elevation-inline { display: flex; gap: 4px; align-items: center; flex-wrap: wrap; margin-top: 4px; }
+        .elevation-inline span { font-size: 10px; color: var(--accent-cyan); }
+        .elevation-inline button { font-size: 10px; padding: 2px 6px; }
+        .elevation-inline input { width: 60px; background: #0f172a; border: 1px solid #334155; color: white; font-size: 10px; padding: 2px 4px; border-radius: 4px; }
 
-        /* Elevation panel */
-        .elevation-panel {
-            position: fixed; bottom: 20px; right: 20px;
-            background: var(--panel-bg); padding: 8px 12px; border-radius: 8px;
-            border: 1px solid var(--accent-cyan); z-index: 900;
-            display: flex; gap: 6px; align-items: center;
-            backdrop-filter: blur(8px);
+        #fullscreen-controls {
+            display: none; position: fixed; bottom: 20px; left: 50%; transform: translateX(-50%);
+            z-index: 9999; gap: 12px;
         }
-        .elevation-panel input { width: 70px; background: #0f0f17; border: 1px solid #3a3a4a; color: white; border-radius: 4px; padding: 4px 6px; }
+        body.fullscreen-mode .toolbar,
+        body.fullscreen-mode #side-panel,
+        body.fullscreen-mode #commandPanel,
+        body.fullscreen-mode .status-bar,
+        body.fullscreen-mode .tools-panel,
+        body.fullscreen-mode #notification { display: none !important; }
+        body.fullscreen-mode .canvas-container { position: fixed; top: 0; left: 0; width: 100%; height: 100%; z-index: 10; }
+        body.fullscreen-mode #fullscreen-controls { display: flex !important; }
 
-        /* ==================== MODO CAPTURA ==================== */
-        body.capture-mode {
-            overflow: hidden !important;
-        }
+        .label-3d { transition: opacity 0.3s ease; user-select: none; }
+        .label-3d:hover { transform: scale(1.08); z-index: 30 !important; }
 
-        body.capture-mode .toolbar,
-        body.capture-mode .status-bar,
-        body.capture-mode .property-panel,
-        body.capture-mode .command-panel,
-        body.capture-mode .tools-panel,
-        body.capture-mode .elevation-panel,
-        body.capture-mode .notification,
-        body.capture-mode #mobile-menu-panel,
-        body.capture-mode #mobile-menu-toggle,
-        body.capture-mode #selectionInfo,
-        body.capture-mode #splash-screen,
-        body.capture-mode #welcome-panel,
-        body.capture-mode #project-name-modal {
-            display: none !important;
-        }
-
-        body.capture-mode #canvas-container {
-            position: fixed !important;
-            top: 0 !important;
-            left: 0 !important;
-            width: 100vw !important;
-            height: 100vh !important;
-            z-index: 9999 !important;
-            margin: 0 !important;
-            padding: 0 !important;
-        }
-
-        body.capture-mode #btnExitCapture {
-            display: flex !important;
-        }
-
-        body.capture-mode #canvas-container {
-            animation: captureZoom 0.3s ease-out;
-        }
-
-        @keyframes captureZoom {
-            from { transform: scale(0.95); opacity: 0.5; }
-            to { transform: scale(1); opacity: 1; }
-        }
-
-        /* ==================== MODO MÓVIL (Pantallas < 768px) ==================== */
         @media (max-width: 768px) {
-            
-            .toolbar {
-                padding: 6px 8px !important;
-                gap: 4px !important;
-                flex-wrap: nowrap !important;
-                overflow-x: auto !important;
-                justify-content: flex-start !important;
-                -webkit-overflow-scrolling: touch;
-            }
-            
-            .toolbar-logo {
-                margin-right: 4px !important;
-            }
-            
-            .toolbar-logo img {
-                height: 20px !important;
-            }
-            
-            .toolbar-title {
-                font-size: 12px !important;
-                letter-spacing: 1px !important;
-            }
-            
-            .toolbar button {
-                display: none !important;
-                font-size: 9px !important;
-                padding: 4px 6px !important;
-                white-space: nowrap !important;
-            }
-            
-            .toolbar #btnCommand,
-            .toolbar #btnCapture,
-            .toolbar #btnUndo,
-            .toolbar #btnRedo,
-            .toolbar #btnSave {
-                display: inline-block !important;
-                font-size: 10px !important;
-                padding: 5px 8px !important;
-            }
-            
-            #mobile-menu-toggle {
-                display: flex !important;
-                align-items: center;
-                justify-content: center;
-                background: var(--button-bg);
-                border: 1px solid var(--button-border);
-                color: white;
-                font-size: 20px;
-                width: 36px;
-                height: 36px;
-                border-radius: 4px;
-                cursor: pointer;
-                flex-shrink: 0;
-            }
-            
-            #mobile-menu-panel {
-                display: none;
-                position: fixed;
-                top: 0;
-                left: 0;
-                width: 100%;
-                height: 100%;
-                background: rgba(10, 14, 23, 0.98);
-                z-index: 5000;
-                padding: 20px;
-                overflow-y: auto;
-                flex-direction: column;
-                gap: 8px;
-            }
-            
-            #mobile-menu-panel.open {
-                display: flex !important;
-            }
-            
-            #mobile-menu-panel .menu-header {
-                display: flex;
-                justify-content: space-between;
-                align-items: center;
-                margin-bottom: 15px;
-                border-bottom: 1px solid var(--accent-cyan);
-                padding-bottom: 10px;
-            }
-            
-            #mobile-menu-panel .menu-header span {
-                color: var(--accent-cyan);
-                font-size: 18px;
-                font-weight: bold;
-                text-transform: uppercase;
-            }
-            
-            #mobile-menu-panel .menu-header button {
-                background: none;
-                border: 1px solid var(--accent-cyan);
-                color: var(--accent-cyan);
-                font-size: 24px;
-                width: 40px;
-                height: 40px;
-                border-radius: 4px;
-                cursor: pointer;
-            }
-            
-            #mobile-menu-panel button {
-                display: block !important;
-                width: 100%;
-                padding: 14px !important;
-                font-size: 14px !important;
-                text-align: left;
-                margin-bottom: 4px;
-            }
-            
-            #mobile-menu-panel .menu-section {
-                color: var(--accent-cyan);
-                font-size: 11px;
-                text-transform: uppercase;
-                letter-spacing: 2px;
-                margin-top: 15px;
-                margin-bottom: 5px;
-                padding-left: 5px;
-            }
-            
-            #canvas-container {
-                flex: 1 !important;
-            }
-            
-            .property-panel {
-                width: 260px !important;
-                right: 5px !important;
-                top: 50px !important;
-                max-height: 60vh !important;
-                font-size: 11px !important;
-                transform: translateX(105%) !important;
-                transition: transform 0.3s ease !important;
-            }
-            
-            .property-panel.mobile-visible {
-                transform: translateX(0) !important;
-            }
-            
-            .command-panel {
-                width: 95% !important;
-                max-width: none !important;
-                left: 2.5% !important;
-                bottom: 5px !important;
-                border-radius: 12px 12px 0 0 !important;
-            }
-            
-            .command-panel textarea {
-                font-size: 16px !important;
-                min-height: 100px !important;
-            }
-            
-            .tools-panel {
-                display: none !important;
-            }
-            
-            .elevation-panel {
-                display: none !important;
-            }
-            
-            .status-bar {
-                font-size: 8px !important;
-                padding: 4px 8px !important;
-            }
-            
-            .notification {
-                width: 90% !important;
-                font-size: 12px !important;
-                padding: 8px 12px !important;
-            }
-            
-            .splash-content {
-                width: 280px !important;
-            }
-            
-            .hex-container {
-                width: 80px !important;
-                height: 80px !important;
-            }
-            
-            .splash-title {
-                font-size: 22px !important;
-                letter-spacing: 4px !important;
-            }
-            
-            .welcome-container {
-                width: 90% !important;
-                padding: 25px 15px !important;
-            }
-            
-            .corp-name, .user-name {
-                font-size: 12px !important;
-            }
-            
-            .home-logo-img {
-                width: 90px !important;
-            }
-            
-            .welcome-btn {
-                padding: 14px 18px !important;
-                font-size: 15px !important;
-                letter-spacing: 1px !important;
-            }
-            
-            button {
-                min-height: 36px !important;
-                -webkit-tap-highlight-color: transparent;
-            }
-            
-            .toolbar::-webkit-scrollbar {
-                display: none;
-            }
+            .toolbar button { font-size: 9px; padding: 4px 6px; }
+            .toolbar-title { font-size: 14px; }
+            #side-panel { width: 260px; right: 5px; }
+            .tools-panel { top: 70px; left: 4px; }
         }
     </style>
 </head>
 <body>
 
-    <!-- Splash screen -->
     <div id="splash-screen">
         <div class="splash-content">
             <div class="corporate-header">
@@ -588,9 +244,9 @@
                 <img src="img/logo.PNG" alt="Logo" onerror="this.style.display='none'">
             </div>
             <h1 class="splash-title">SmartEngp</h1>
-            <p class="splash-subtitle">INGENIERÍA INTELIGENTE 3D</p>
+            <p class="splash-subtitle">INGENIERÍA INTELIGENTE</p>
             <div class="loading-bar-container"><div class="loading-bar-fill"></div></div>
-            <div class="splash-status" id="splash-status">Inicializando motor Three.js...</div>
+            <div class="splash-status" id="splash-status">Inicializando protocolos SmartEngp...</div>
             <div class="author-footer">
                 <span class="leader-by">Ingeniero Líder de Proyecto:</span>
                 <span class="engineer-name">Ing. Osnay Romero</span>
@@ -598,26 +254,26 @@
         </div>
     </div>
 
-    <!-- Welcome panel -->
     <div id="welcome-panel">
         <div class="welcome-container">
-            <img src="img/logo.PNG" alt="Logo SmartEngp" class="home-logo-img" onerror="this.style.display='none'">
+            <div class="home-logo-wrapper">
+                <img src="img/logo.PNG" alt="Logo" class="home-logo-img" onerror="this.style.display='none'">
+            </div>
             <div class="header-names">
                 <h1 class="corp-name">ACQUABLUE<br>INTERNATIONAL CORP.</h1>
                 <h2 class="user-name">ING.<br>OSNAY ROMERO</h2>
             </div>
             <div class="button-group">
-                <button class="welcome-btn" id="welcome-new-project">➕ NUEVO PROYECTO 3D</button>
+                <button class="welcome-btn" id="welcome-new-project">➕ NUEVO PROYECTO</button>
                 <button class="welcome-btn secondary" id="welcome-open-project">📂 ABRIR PROYECTO EXISTENTE</button>
             </div>
         </div>
     </div>
 
-    <!-- Modal para nombre de proyecto -->
     <div id="project-name-modal">
         <div class="modal-content">
-            <h3>Nuevo Proyecto 3D</h3>
-            <input type="text" id="project-name-input" placeholder="Nombre del proyecto" value="Proyecto_SmartEngp3D">
+            <h3>Nuevo Proyecto</h3>
+            <input type="text" id="project-name-input" placeholder="Nombre del proyecto" value="Proyecto_SmartEngp">
             <div class="modal-actions">
                 <button class="modal-btn" id="modal-accept">Aceptar</button>
                 <button class="modal-btn cancel" id="modal-skip">Saltar</button>
@@ -625,373 +281,133 @@
         </div>
     </div>
 
-    <!-- Toolbar principal -->
-    <div class="toolbar" role="toolbar" aria-label="Barra de herramientas principal">
+    <div class="toolbar" role="toolbar">
         <div class="toolbar-logo">
-            <img src="img/logo.PNG" alt="Logo" style="height: 28px;" onerror="this.style.display='none'">
-            <span class="toolbar-title">SmartEngp 3D</span>
+            <img src="img/logo.PNG" alt="Logo" style="height: 24px;" onerror="this.style.display='none'">
+            <span class="toolbar-title">SmartEngp</span>
         </div>
         
-        <!-- Botón menú hamburguesa (solo visible en móvil) -->
-        <button id="mobile-menu-toggle" style="display:none;" aria-label="Menú">☰</button>
-        
-        <button id="btnOpen" aria-label="Abrir proyecto">📂 Abrir</button>
-        <button id="btnSave" aria-label="Guardar proyecto">💾 Guardar</button>
-        <button id="btnExportProject" aria-label="Exportar proyecto">📤 Exportar Proy</button>
-        <button id="btnImportProject" aria-label="Importar proyecto">📥 Importar Proy</button>
-        <button id="btnReset" aria-label="Centrar vista isométrica">🎥 Isométrico</button>
-        <button id="btnTopView" aria-label="Vista superior">⬇️ Top</button>
-        <button id="btnFrontView" aria-label="Vista frontal">➡️ Front</button>
-        <button id="btnSideView" aria-label="Vista lateral">⬅️ Side</button>
-        <button id="btnCommand" class="btn-primary" aria-label="Abrir panel de comandos">🤖 Comandos</button>
-        <button id="btnAddTank" aria-label="Añadir tanque">🏭 Tanque</button>
-        <button id="btnAddPump" aria-label="Añadir bomba">⚙️ Bomba</button>
-        <button id="btnMTO" aria-label="Exportar lista de materiales">📊 MTO</button>
-        <button id="btnPDF" aria-label="Exportar PDF">📄 PDF</button>
-        <button id="btnExportPCF" aria-label="Exportar archivo PCF">📦 Export PCF</button>
-        <button id="btnImportPCF" aria-label="Importar archivo PCF">📂 Import PCF</button>
-        <button id="btnUndo" class="btn-warning" aria-label="Deshacer">↩️ Undo</button>
-        <button id="btnRedo" class="btn-warning" aria-label="Rehacer">↪️ Redo</button>
-        <button id="btnVoice" class="btn-speak" aria-label="Activar o desactivar voz">🔊 Voz ON</button>
-        <button id="btnApplyNorm" aria-label="Aplicar normas">📐 Normas</button>
-        <button id="btnSpeakSummary" class="btn-speak" aria-label="Leer resumen del proyecto">📢 Resumen</button>
-        <button id="btnRecalc" aria-label="Recalcular">🔄 Recalcular</button>
-        <button id="btnToggleCatalog" aria-label="Mostrar catálogo">📦 Catálogo</button>
-        <button id="btnCapture" class="btn-capture" aria-label="Modo captura">📸 Captura</button>
-    </div>
-
-    <!-- Panel de menú móvil -->
-    <div id="mobile-menu-panel">
-        <div class="menu-header">
-            <span>SmartEngp 3D</span>
-            <button id="mobile-menu-close" aria-label="Cerrar menú">✕</button>
+        <div class="dropdown">
+            <button id="btnFileMenu">📂 Archivo</button>
+            <div class="dropdown-content">
+                <button id="btnOpen">📂 Abrir</button>
+                <button id="btnSave">💾 Guardar</button>
+                <button id="btnExportProject">📤 Exportar Proy</button>
+                <button id="btnImportProject">📥 Importar Proy</button>
+            </div>
         </div>
         
-        <div class="menu-section">📂 Archivo</div>
-        <button id="m-btnOpen">📂 Abrir Proyecto</button>
-        <button id="m-btnSave">💾 Guardar Proyecto</button>
-        <button id="m-btnExportProject">📤 Exportar</button>
-        <button id="m-btnImportProject">📥 Importar</button>
-        <button id="m-btnCapture">📸 Modo Captura</button>
+        <button id="btnReset">🔄 Centrar</button>
+        <button id="btnFullscreen">⛶ Full</button>
         
-        <div class="menu-section">🎥 Vistas</div>
-        <button id="m-btnReset">🎥 Isométrico</button>
-        <button id="m-btnTopView">⬇️ Vista Superior</button>
-        <button id="m-btnFrontView">➡️ Vista Frontal</button>
-        <button id="m-btnSideView">⬅️ Vista Lateral</button>
+        <button id="btn-mode-2d" class="active" title="Vista 2D Isométrica">📐 2D</button>
+        <button id="btn-mode-3d" title="Vista 3D">🧊 3D</button>
         
-        <div class="menu-section">🏭 Crear</div>
-        <button id="m-btnAddTank">🏭 Añadir Tanque</button>
-        <button id="m-btnAddPump">⚙️ Añadir Bomba</button>
+        <button id="btnCommand">🤖 Cmd</button>
+        <button id="btnMTO">📊 MTO</button>
+        <button id="btnPDF">📄 PDF</button>
+        <button id="btnTogglePanels" title="Mostrar/ocultar paneles">👁️</button>
         
-        <div class="menu-section">📊 Exportar</div>
-        <button id="m-btnMTO">📊 Exportar MTO</button>
-        <button id="m-btnPDF">📄 Exportar PDF</button>
-        <button id="m-btnExportPCF">📦 Exportar PCF</button>
-        
-        <div class="menu-section">⚙️ Herramientas</div>
-        <button id="m-btnUndo">↩️ Deshacer</button>
-        <button id="m-btnRedo">↪️ Rehacer</button>
-        <button id="m-btnRecalc">🔄 Recalcular</button>
-        <button id="m-btnSpeakSummary">📢 Resumen</button>
-        <button id="m-btnCommand">🤖 Comandos</button>
-    </div>
-
-    <!-- Contenedor principal -->
-    <div id="canvas-container" class="canvas-container"></div>
-
-    <!-- Botón salir modo captura (inicialmente oculto) -->
-    <button id="btnExitCapture" style="
-        display: none;
-        position: fixed;
-        top: 10px;
-        right: 10px;
-        z-index: 10000;
-        background: rgba(0,0,0,0.7);
-        color: white;
-        border: 1px solid #00f2ff;
-        padding: 10px 16px;
-        border-radius: 8px;
-        font-size: 16px;
-        cursor: pointer;
-    " aria-label="Salir del modo captura">✕ Salir</button>
-
-    <!-- Panel de propiedades lateral -->
-    <div id="side-panel" class="property-panel hidden">
-        <div class="panel-header">
-            <span>PROPIEDADES TÉCNICAS</span>
-            <button onclick="togglePanel(false)" aria-label="Cerrar panel">×</button>
-        </div>
-        <div id="panel-content">
-            <p class="empty-msg">Seleccione un elemento para ver sus detalles</p>
+        <div class="dropdown">
+            <button id="btnMoreMenu">⚙️ +</button>
+            <div class="dropdown-content">
+                <button id="btnAddTank">🏭 Tanque</button>
+                <button id="btnAddPump">⚙️ Bomba</button>
+                <button id="btnUndo">↩️ Undo</button>
+                <button id="btnRedo">↪️ Redo</button>
+                <button id="btnVoice">🔊 Voz ON</button>
+                <button id="btnExportPCF">📦 Export PCF</button>
+                <button id="btnImportPCF">📂 Import PCF</button>
+                <button id="btnApplyNorm">📐 Normas</button>
+                <button id="btnSpeakSummary">📢 Resumen</button>
+                <button id="btnRecalc">🔄 Recalcular</button>
+            </div>
         </div>
     </div>
 
-    <!-- Panel de comandos -->
-    <div id="commandPanel" class="command-panel" role="dialog" aria-label="Panel de comandos">
+    <div class="canvas-container" id="canvas-container">
+        <canvas id="isoCanvas"></canvas>
+        <div id="viewer-3d"></div>
+        <div id="side-panel" class="property-panel hidden">
+            <div class="panel-header" style="display:flex; justify-content:space-between; align-items:center; margin-bottom:8px;">
+                <span style="color:var(--accent-cyan); font-weight:bold;">PROPIEDADES TÉCNICAS</span>
+                <button onclick="togglePanel(false)" style="background:none;border:none;color:white;font-size:18px;padding:0;width:24px;">×</button>
+            </div>
+            <div id="panel-content"><p class="empty-msg">Seleccione un elemento para ver sus detalles</p></div>
+        </div>
+    </div>
+
+    <div id="commandPanel" class="command-panel">
         <div class="command-header">
             <strong>🤖 Comandos IA</strong>
-            <button id="closeCommand" style="background:none;border:none;color:white;font-size:20px;padding:0;width:30px;" aria-label="Cerrar panel">✖</button>
+            <button id="closeCommand" style="background:none;border:none;color:white;font-size:20px;padding:0;width:30px;">✖</button>
         </div>
-        <textarea id="commandText" rows="5" placeholder="Ejemplos:&#10;crear tanque_v TK-01 at (0,1450,0) diam 2380 altura 2900 material PE&#10;ruta desde TK-01 N1 a B-01 SUC diametro 3&#10;seleccionar TK-01&#10;leer escena&#10;ayuda"></textarea>
+        <textarea id="commandText" rows="3" placeholder="Ej: conectar TK-01 N1 to B-01 SUC diametro 3&#10;Ej: crear tanque_v TK-02 at (3000,1450,0) diam 2000 altura 2500"></textarea>
+        <div class="history-indicator" id="historyIndicator"></div>
         <div class="command-buttons">
-            <button id="runCommands" class="btn-primary" aria-label="Ejecutar comandos">Ejecutar</button>
-            <button id="clearCommand" aria-label="Limpiar panel">Limpiar</button>
+            <button id="runCommands">Ejecutar</button>
+            <button id="clearCommand">Limpiar</button>
         </div>
     </div>
 
-    <!-- Notificación flotante -->
-    <div id="notification" class="notification" role="status"></div>
+    <div id="notification" class="notification"></div>
 
-    <!-- Barra de estado -->
-    <div class="status-bar">
-        <div id="statusMsg">SISTEMA 3D LISTO | SmartEngp</div>
-        <div>AcQuaBlue International Corp. | Ing. Osnay Romero</div>
+    <div class="status-bar" id="statusMsg">SISTEMA LISTO | SmartEngp</div>
+
+    <div class="tools-panel" id="toolsPanel">
+        <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:4px;">
+            <span style="font-size:10px; color:var(--accent-cyan);">HERRAMIENTAS</span>
+            <button id="toolToggleHide" style="padding:2px 6px; font-size:10px; background:none; border:1px solid #334155;">−</button>
+        </div>
+        <div id="toolsButtons">
+            <button id="toolSelect" class="active">🔍 Seleccionar</button>
+            <button id="toolMoveEq">✋ Mover equipo</button>
+            <button id="toolEditPipe">✏️ Editar tubería</button>
+            <button id="toolAddPoint">➕ Añadir punto</button>
+            <div class="elevation-inline">
+                <span>📐 Elev:</span>
+                <button onclick="setElevation(0)">0</button>
+                <button onclick="setElevation(2500)">2.5m</button>
+                <button onclick="setElevation(5000)">5.0m</button>
+                <input type="number" id="customElev" value="0" step="100" style="width:60px;">
+                <button id="btnSetElev">Set</button>
+            </div>
+        </div>
     </div>
 
-    <!-- Panel de herramientas flotantes -->
-    <div class="tools-panel" id="toolsPanel" role="toolbar" aria-label="Herramientas de dibujo">
-        <button id="toolSelect" class="active" aria-label="Seleccionar">🔍 Seleccionar</button>
-        <button id="toolMoveEq" aria-label="Mover equipo">✋ Mover equipo</button>
-        <button id="toolEditPipe" aria-label="Editar tubería">✏️ Editar tubería</button>
-        <button id="toolAddPoint" aria-label="Añadir punto">➕ Add punto</button>
+    <div id="fullscreen-controls">
+        <button id="btnFullscreenCenter" style="padding:12px 20px; border-radius:30px; background:var(--accent-cyan); color:#000; font-weight:bold; border:none;">🔄 Centrar</button>
+        <button id="btnFullscreenExit" style="padding:12px 20px; border-radius:30px; background:#ef4444; color:white; font-weight:bold; border:none;">✕ Salir</button>
     </div>
 
-    <!-- Panel de elevación -->
-    <div class="elevation-panel" id="elevationPanel">
-        <span style="font-size:12px;">📐 Elev. (mm):</span>
-        <button onclick="setElevation(0)" style="padding:2px 8px;" aria-label="Elevación 0">0</button>
-        <button onclick="setElevation(2500)" style="padding:2px 8px;" aria-label="Elevación 2.5 metros">2.5m</button>
-        <button onclick="setElevation(5000)" style="padding:2px 8px;" aria-label="Elevación 5 metros">5.0m</button>
-        <input type="number" id="customElev" value="0" step="100" aria-label="Elevación personalizada">
-        <button id="btnSetElev" style="padding:2px 8px;" aria-label="Establecer elevación">Set</button>
-    </div>
-
-    <!-- Módulos de la aplicación (orden correcto) -->
-    <script src="js/smartflow-adapter.js"></script>
+    <!-- Módulos en orden correcto -->
+    <script src="js/ThreeJsEngine.js"></script>
     <script src="js/core.js"></script>
     <script src="js/catalog.js"></script>
     <script src="js/router.js"></script>
+    <script src="js/renderer.js"></script>
     <script src="js/render.js"></script>
     <script src="js/commands.js"></script>
-    <script src="js/accessibility.js"></script>
-    <script src="js/autocomplete.js"></script>
-    <script src="js/labels.js"></script>
-    <script src="js/io.js"></script>
+    <script src="js/SmartFlowLabels3D.js"></script>
     <script src="js/main.js"></script>
 
     <script>
-        // Variables globales y funciones auxiliares
         window.voiceEnabled = true;
-        window.currentProjectName = "Proyecto_SmartEngp3D";
+        window.currentProjectName = 'Proyecto_SmartEngp';
 
         function setElevation(level) {
             if (SmartFlowCore && SmartFlowCore.setElevation) SmartFlowCore.setElevation(level);
-            const elevInput = document.getElementById('customElev');
+            var elevInput = document.getElementById('customElev');
             if (elevInput) elevInput.value = level;
         }
 
         function togglePanel(show) {
-            const panel = document.getElementById('side-panel');
+            var panel = document.getElementById('side-panel');
             if (panel) {
                 if (show) panel.classList.remove('hidden');
                 else panel.classList.add('hidden');
             }
         }
-
-        // Stub de accesibilidad para commands.js
-        if (!window.SmartFlowAccessibility) {
-            window.SmartFlowAccessibility = {
-                isVoiceEnabled: () => window.voiceEnabled,
-                speak: (msg) => console.log("[VOZ]", msg),
-                processAccessibilityCommand: (cmd) => false
-            };
-        }
-
-        // ==================== MODO CAPTURA ====================
-        (function() {
-            const btnCapture = document.getElementById('btnCapture');
-            const btnExitCapture = document.getElementById('btnExitCapture');
-            let captureMode = false;
-            
-            function enterCaptureMode() {
-                captureMode = true;
-                document.body.classList.add('capture-mode');
-                
-                setTimeout(() => {
-                    if (typeof SmartFlowCore !== 'undefined') {
-                        const renderer = SmartFlowCore.getRenderer();
-                        const camera = SmartFlowCore.getCamera();
-                        if (renderer && camera) {
-                            renderer.setSize(window.innerWidth, window.innerHeight);
-                            camera.aspect = window.innerWidth / window.innerHeight;
-                            camera.updateProjectionMatrix();
-                        }
-                    }
-                    if (typeof SmartFlowRender !== 'undefined' && SmartFlowRender.fitCameraToEquipments) {
-                        SmartFlowRender.fitCameraToEquipments();
-                    }
-                }, 200);
-                
-                if (typeof SmartFlowLabels !== 'undefined') {
-                    SmartFlowLabels.crearLabelsProyecto();
-                }
-            }
-            
-            function exitCaptureMode() {
-                captureMode = false;
-                document.body.classList.remove('capture-mode');
-                
-                setTimeout(() => {
-                    const container = document.getElementById('canvas-container');
-                    if (container && typeof SmartFlowCore !== 'undefined') {
-                        const renderer = SmartFlowCore.getRenderer();
-                        const camera = SmartFlowCore.getCamera();
-                        if (renderer && camera) {
-                            const w = container.clientWidth;
-                            const h = container.clientHeight;
-                            renderer.setSize(w, h);
-                            camera.aspect = w / h;
-                            camera.updateProjectionMatrix();
-                        }
-                    }
-                }, 200);
-            }
-            
-            if (btnCapture) {
-                btnCapture.addEventListener('click', enterCaptureMode);
-            }
-            
-            if (btnExitCapture) {
-                btnExitCapture.addEventListener('click', exitCaptureMode);
-            }
-            
-            document.addEventListener('keydown', function(e) {
-                if (e.key === 'Escape' && captureMode) {
-                    exitCaptureMode();
-                }
-            });
-            
-            window.addEventListener('resize', function() {
-                if (captureMode && typeof SmartFlowCore !== 'undefined') {
-                    const renderer = SmartFlowCore.getRenderer();
-                    const camera = SmartFlowCore.getCamera();
-                    if (renderer && camera) {
-                        renderer.setSize(window.innerWidth, window.innerHeight);
-                        camera.aspect = window.innerWidth / window.innerHeight;
-                        camera.updateProjectionMatrix();
-                    }
-                }
-            });
-        })();
-
-        // ==================== MENÚ MÓVIL ====================
-        (function() {
-            const toggle = document.getElementById('mobile-menu-toggle');
-            const panel = document.getElementById('mobile-menu-panel');
-            const close = document.getElementById('mobile-menu-close');
-            
-            if (!toggle || !panel || !close) return;
-            
-            toggle.addEventListener('click', function(e) {
-                e.stopPropagation();
-                panel.classList.add('open');
-            });
-            
-            close.addEventListener('click', function() {
-                panel.classList.remove('open');
-            });
-            
-            panel.addEventListener('click', function(e) {
-                if (e.target === panel) {
-                    panel.classList.remove('open');
-                }
-            });
-            
-            panel.querySelectorAll('button').forEach(btn => {
-                btn.addEventListener('click', function() {
-                    setTimeout(() => panel.classList.remove('open'), 300);
-                });
-            });
-            
-            const mobileMap = {
-                'm-btnOpen': 'btnOpen',
-                'm-btnSave': 'btnSave',
-                'm-btnExportProject': 'btnExportProject',
-                'm-btnImportProject': 'btnImportProject',
-                'm-btnReset': 'btnReset',
-                'm-btnTopView': 'btnTopView',
-                'm-btnFrontView': 'btnFrontView',
-                'm-btnSideView': 'btnSideView',
-                'm-btnAddTank': 'btnAddTank',
-                'm-btnAddPump': 'btnAddPump',
-                'm-btnMTO': 'btnMTO',
-                'm-btnPDF': 'btnPDF',
-                'm-btnExportPCF': 'btnExportPCF',
-                'm-btnUndo': 'btnUndo',
-                'm-btnRedo': 'btnRedo',
-                'm-btnRecalc': 'btnRecalc',
-                'm-btnSpeakSummary': 'btnSpeakSummary',
-                'm-btnCommand': 'btnCommand',
-                'm-btnCapture': 'btnCapture'
-            };
-            
-            setTimeout(() => {
-                for (let [mobileId, desktopId] of Object.entries(mobileMap)) {
-                    const mobileBtn = document.getElementById(mobileId);
-                    const desktopBtn = document.getElementById(desktopId);
-                    if (mobileBtn && desktopBtn) {
-                        mobileBtn.addEventListener('click', function(e) {
-                            e.stopPropagation();
-                            desktopBtn.click();
-                        });
-                    }
-                }
-            }, 1000);
-        })();
-
-        // Manejo de splash, welcome y modal
-        window.addEventListener('load', function() {
-            const splash = document.getElementById('splash-screen');
-            const welcome = document.getElementById('welcome-panel');
-            const modal = document.getElementById('project-name-modal');
-            const inputProject = document.getElementById('project-name-input');
-            const statusEl = document.getElementById('splash-status');
-            
-            const messages = [
-                "Cargando librerías de AcQuaBlue...",
-                "Iniciando motor Three.js con post-procesado...",
-                "Sincronizando modelos 3D...",
-                "Optimizando efectos visuales...",
-                "¡SmartEngp 3D Activo!"
-            ];
-            let i = 0;
-            const interval = setInterval(() => {
-                if(i < messages.length) { statusEl.innerText = messages[i]; i++; }
-            }, 800);
-
-            setTimeout(() => { splash.classList.add('splash-hidden'); clearInterval(interval); }, 4500);
-            setTimeout(() => { welcome.classList.remove('welcome-hidden'); }, 4800);
-            
-            document.getElementById('welcome-new-project').onclick = () => { modal.style.display = 'flex'; };
-            document.getElementById('welcome-open-project').onclick = () => {
-                document.getElementById('btnOpen')?.click();
-                welcome.classList.add('welcome-hidden');
-            };
-            document.getElementById('modal-accept').onclick = () => {
-                const name = inputProject.value.trim();
-                if (name) window.currentProjectName = name;
-                modal.style.display = 'none';
-                welcome.classList.add('welcome-hidden');
-                if (SmartFlowCore && SmartFlowCore.clearProject) SmartFlowCore.clearProject();
-                document.getElementById('statusMsg').innerText = `Proyecto: ${window.currentProjectName} | Listo`;
-            };
-            document.getElementById('modal-skip').onclick = () => {
-                modal.style.display = 'none';
-                welcome.classList.add('welcome-hidden');
-                document.getElementById('statusMsg').innerText = `Proyecto: ${window.currentProjectName} | Listo`;
-            };
-        });
     </script>
 </body>
 </html>
