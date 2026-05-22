@@ -1,12 +1,13 @@
 
-
 // ============================================================
-// ARCHIVO: js/ThreeJsEngine.js
-// Adaptador: SmartFlowCore ↔ Three.js (Escena, Cámara, Raycaster)
-// Dependencia: Three.js cargado globalmente (CDN)
+// ARCHIVO: js/ThreeJsEngine.js - v2.0
+// Adaptador: SmartFlowCore v5.5 ↔ Three.js 0.128.0
 // ============================================================
 const ThreeJsEngine = (function() {
-    let _scene, _camera, _renderer, _controls;
+    let _scene = null;
+    let _camera = null;
+    let _renderer = null;
+    let _controls = null;
     let _container = null;
     let _core = null;
     let _visualMeshes = new Map();
@@ -15,20 +16,17 @@ const ThreeJsEngine = (function() {
     let _animationId = null;
     let _isDragging = false;
     let _dragStart = { x: 0, y: 0 };
-    let _onSelectionCallback = null;
     
-    // ============ INICIALIZACIÓN PRINCIPAL ============
-    function init(containerElement, coreInstance, onSelectionFn) {
+    // ============ INICIALIZACIÓN ============
+    function init(containerElement, coreInstance) {
         _container = containerElement;
         _core = coreInstance;
-        _onSelectionCallback = onSelectionFn || null;
         
         if (!_container) {
             console.error('ThreeJsEngine: contenedor no encontrado');
             return false;
         }
         
-        // Limpiar contenedor
         _container.innerHTML = '';
         
         // ── Renderer WebGL ──
@@ -42,9 +40,6 @@ const ThreeJsEngine = (function() {
             _renderer.setSize(_container.clientWidth, _container.clientHeight);
             _renderer.shadowMap.enabled = true;
             _renderer.shadowMap.type = THREE.PCFSoftShadowMap;
-            if (_renderer.outputColorSpace !== undefined) {
-                _renderer.outputColorSpace = THREE.SRGBColorSpace;
-            }
             _container.appendChild(_renderer.domElement);
         } catch (e) {
             console.error('ThreeJsEngine: Error al crear WebGLRenderer', e);
@@ -57,8 +52,8 @@ const ThreeJsEngine = (function() {
         _scene.fog = new THREE.Fog(0x0a0f1a, 50, 300);
         
         // ── Cámara Ortográfica Isométrica ──
-        const aspect = _container.clientWidth / _container.clientHeight || 1;
-        const frustumSize = 20;
+        var aspect = _container.clientWidth / _container.clientHeight || 1;
+        var frustumSize = 20;
         _camera = new THREE.OrthographicCamera(
             frustumSize * aspect / -2,
             frustumSize * aspect / 2,
@@ -76,14 +71,12 @@ const ThreeJsEngine = (function() {
             _controls.target.set(0, 0, 0);
             _controls.enableDamping = true;
             _controls.dampingFactor = 0.08;
-            _controls.mouseButtons = {
-                LEFT: THREE.MOUSE.ROTATE,
-                MIDDLE: THREE.MOUSE.PAN,
-                RIGHT: THREE.MOUSE.PAN
-            };
+            _controls.rotateSpeed = 0.8;
+            _controls.zoomSpeed = 1.2;
+            _controls.panSpeed = 0.8;
             _controls.update();
         } catch (e) {
-            console.warn('ThreeJsEngine: OrbitControls no disponible, usando fallback');
+            console.warn('ThreeJsEngine: OrbitControls no disponible');
             _controls = {
                 target: new THREE.Vector3(0, 0, 0),
                 update: function() {},
@@ -92,10 +85,10 @@ const ThreeJsEngine = (function() {
         }
         
         // ── Luces ──
-        const ambientLight = new THREE.AmbientLight(0x334455, 1.8);
+        var ambientLight = new THREE.AmbientLight(0x334455, 1.8);
         _scene.add(ambientLight);
         
-        const sunLight = new THREE.DirectionalLight(0xffffff, 3);
+        var sunLight = new THREE.DirectionalLight(0xffffff, 3);
         sunLight.position.set(20, 30, 15);
         sunLight.castShadow = true;
         sunLight.shadow.mapSize.width = 2048;
@@ -108,23 +101,23 @@ const ThreeJsEngine = (function() {
         sunLight.shadow.camera.bottom = -40;
         _scene.add(sunLight);
         
-        const fillLight = new THREE.DirectionalLight(0x8899cc, 0.7);
+        var fillLight = new THREE.DirectionalLight(0x8899cc, 0.7);
         fillLight.position.set(-8, 4, -10);
         _scene.add(fillLight);
         
-        const hemiLight = new THREE.HemisphereLight(0x8899cc, 0x334455, 0.5);
+        var hemiLight = new THREE.HemisphereLight(0x8899cc, 0x334455, 0.5);
         _scene.add(hemiLight);
         
         // ── Grid ──
-        const gridHelper = new THREE.GridHelper(40, 20, 0x2a3a5a, 0x1a2a3a);
+        var gridHelper = new THREE.GridHelper(40, 20, 0x2a3a5a, 0x1a2a3a);
         gridHelper.position.y = -0.01;
         _scene.add(gridHelper);
         
         // ── Ejes de origen ──
-        const originGroup = new THREE.Group();
-        const arrowLen = 2;
-        const arrowHead = 0.3;
-        const arrowHeadSize = 0.15;
+        var originGroup = new THREE.Group();
+        var arrowLen = 2;
+        var arrowHead = 0.3;
+        var arrowHeadSize = 0.15;
         originGroup.add(new THREE.ArrowHelper(
             new THREE.Vector3(1, 0, 0), new THREE.Vector3(0, 0, 0), arrowLen, 0xff4444, arrowHead, arrowHeadSize
         ));
@@ -145,27 +138,25 @@ const ThreeJsEngine = (function() {
         // ── Redimensionamiento ──
         window.addEventListener('resize', onResize);
         
-        // ── Arrancar bucle de animación ──
+        // ── Bucle de animación ──
         animate();
         
-        console.log('✔ ThreeJsEngine inicializado correctamente');
+        console.log('✔ ThreeJsEngine v2.0 inicializado');
         return true;
     }
     
-    // ============ RAYCASTER Y SELECCIÓN ============
+    // ============ RAYCASTER ============
     function getIntersections(event) {
         if (!_renderer || !_camera) return [];
-        const rect = _renderer.domElement.getBoundingClientRect();
+        var rect = _renderer.domElement.getBoundingClientRect();
         _mouse.x = ((event.clientX - rect.left) / rect.width) * 2 - 1;
         _mouse.y = -((event.clientY - rect.top) / rect.height) * 2 + 1;
         
         _raycaster.setFromCamera(_mouse, _camera);
         
-        const objects = [];
-        _scene.traverse(child => {
+        var objects = [];
+        _scene.traverse(function(child) {
             if (child.isMesh && child.visible && 
-                !(child.parent instanceof THREE.GridHelper) &&
-                !(child.parent instanceof THREE.ArrowHelper) &&
                 child.userData && child.userData.tag) {
                 objects.push(child);
             }
@@ -174,8 +165,8 @@ const ThreeJsEngine = (function() {
     }
     
     function findRootWithTag(object) {
-        let current = object;
-        let depth = 0;
+        var current = object;
+        var depth = 0;
         while (current && depth < 30) {
             if (current.userData && current.userData.tag) return current;
             current = current.parent;
@@ -190,33 +181,28 @@ const ThreeJsEngine = (function() {
     }
     
     function onPointerUp(event) {
-        const dx = event.clientX - _dragStart.x;
-        const dy = event.clientY - _dragStart.y;
-        const dist = Math.hypot(dx, dy);
+        var dx = event.clientX - _dragStart.x;
+        var dy = event.clientY - _dragStart.y;
+        var dist = Math.hypot(dx, dy);
         
-        // Solo clic si no hubo arrastre
         if (dist < 5) {
-            const intersects = getIntersections(event);
+            var intersects = getIntersections(event);
             if (intersects.length > 0) {
-                const root = findRootWithTag(intersects[0].object);
+                var root = findRootWithTag(intersects[0].object);
                 if (root && root.userData.tag && _core) {
-                    const tag = root.userData.tag;
-                    const dbObj = _core.findObjectByTag(tag);
+                    var tag = root.userData.tag;
+                    var dbObj = _core.findObjectByTag(tag);
                     if (dbObj) {
-                        const isLine = _core.getLinesMap().has(tag);
-                        const selection = { 
+                        var isLine = _core.linesMap.has(tag);
+                        _core.setSelected({ 
                             obj: dbObj, 
                             type: isLine ? 'line' : 'equipment' 
-                        };
-                        _core.setSelected(selection);
-                        if (_onSelectionCallback) _onSelectionCallback(selection);
+                        });
                         return;
                     }
                 }
             }
-            // Clic en vacío → deseleccionar
             if (_core) _core.setSelected(null);
-            if (_onSelectionCallback) _onSelectionCallback(null);
         }
         _isDragging = false;
     }
@@ -227,9 +213,9 @@ const ThreeJsEngine = (function() {
             _isDragging = true;
         }
         
-        const intersects = getIntersections(event);
+        var intersects = getIntersections(event);
         if (intersects.length > 0) {
-            const root = findRootWithTag(intersects[0].object);
+            var root = findRootWithTag(intersects[0].object);
             if (root && root.userData.tag) {
                 _renderer.domElement.style.cursor = 'pointer';
                 return;
@@ -259,8 +245,8 @@ const ThreeJsEngine = (function() {
     }
     
     function clearAllMeshes() {
-        const toRemove = [];
-        _scene.traverse(child => {
+        var toRemove = [];
+        _scene.traverse(function(child) {
             if (child.userData && child.userData.tag && 
                 (child.isMesh || child.isGroup) &&
                 !child.userData.isSymbolGroup &&
@@ -271,14 +257,12 @@ const ThreeJsEngine = (function() {
                 toRemove.push(child);
             }
         });
-        toRemove.forEach(obj => {
-            obj.traverse(child => {
-                if (child.geometry && child.geometry !== obj.geometry) {
-                    child.geometry.dispose();
-                }
+        toRemove.forEach(function(obj) {
+            obj.traverse(function(child) {
+                if (child.geometry && child !== obj) child.geometry.dispose();
                 if (child.material) {
                     if (Array.isArray(child.material)) {
-                        child.material.forEach(m => m.dispose());
+                        child.material.forEach(function(m) { m.dispose(); });
                     } else {
                         child.material.dispose();
                     }
@@ -287,7 +271,7 @@ const ThreeJsEngine = (function() {
             if (obj.geometry) obj.geometry.dispose();
             if (obj.material) {
                 if (Array.isArray(obj.material)) {
-                    obj.material.forEach(m => m.dispose());
+                    obj.material.forEach(function(m) { m.dispose(); });
                 } else {
                     obj.material.dispose();
                 }
@@ -298,9 +282,7 @@ const ThreeJsEngine = (function() {
     }
     
     function addToScene(object) {
-        if (object && _scene) {
-            _scene.add(object);
-        }
+        if (object && _scene) _scene.add(object);
     }
     
     function removeFromScene(object) {
@@ -321,12 +303,12 @@ const ThreeJsEngine = (function() {
     // ============ RESIZE ============
     function onResize() {
         if (!_container || !_camera || !_renderer) return;
-        const width = _container.clientWidth;
-        const height = _container.clientHeight;
+        var width = _container.clientWidth;
+        var height = _container.clientHeight;
         if (width === 0 || height === 0) return;
         
-        const aspect = width / height;
-        const frustumSize = 20;
+        var aspect = width / height;
+        var frustumSize = 20;
         
         _camera.left = frustumSize * aspect / -2;
         _camera.right = frustumSize * aspect / 2;
@@ -337,11 +319,11 @@ const ThreeJsEngine = (function() {
         _renderer.setSize(width, height);
     }
     
-    // ============ VISTAS PREDEFINIDAS ============
+    // ============ VISTAS ============
     function setView(type) {
         if (!_camera || !_controls) return;
-        const dist = 15;
-        const target = new THREE.Vector3(0, 0, 0);
+        var dist = 15;
+        var target = new THREE.Vector3(0, 0, 0);
         switch(type) {
             case 'iso':
                 _camera.position.set(dist * 0.7, dist * 0.55, dist * 0.7);
@@ -359,6 +341,61 @@ const ThreeJsEngine = (function() {
         }
         _camera.lookAt(target);
         _controls.target.copy(target);
+        _controls.update();
+    }
+    
+    function fitCameraToEquipments() {
+        if (!_scene || !_camera || !_controls) return;
+        
+        var bounds = new THREE.Box3();
+        var hasValidObject = false;
+        
+        _scene.traverse(function(child) {
+            if (child.isMesh && child.visible && child.geometry) {
+                if (child.userData && (child.userData.isComponentSymbol || 
+                    child.userData.isDimensionLine || 
+                    child.userData.isFlowArrow ||
+                    child.userData.isLabel ||
+                    child.userData.isLabelAnchor ||
+                    child.userData.isLineLabel)) {
+                    return;
+                }
+                if (child instanceof THREE.GridHelper) return;
+                if (child instanceof THREE.ArrowHelper) return;
+                
+                var box = new THREE.Box3().setFromObject(child);
+                var size = box.getSize(new THREE.Vector3());
+                
+                if (size.x > 100000 || size.y > 100000 || size.z > 100000) return;
+                if (size.x < 0.01 && size.y < 0.01 && size.z < 0.01) return;
+                
+                bounds.expandByObject(child);
+                hasValidObject = true;
+            }
+        });
+        
+        if (!hasValidObject) {
+            _camera.position.set(12, 8, 12);
+            _controls.target.set(0, 0, 0);
+            _controls.update();
+            return;
+        }
+        
+        var center = bounds.getCenter(new THREE.Vector3());
+        var size = bounds.getSize(new THREE.Vector3());
+        var maxDim = Math.max(size.x, size.y, size.z);
+        var effectiveMaxDim = Math.max(maxDim, 5);
+        var distance = effectiveMaxDim * 1.5;
+        
+        distance = Math.min(distance, 100);
+        distance = Math.max(distance, 5);
+        
+        _camera.position.set(
+            center.x + distance * 0.7,
+            center.y + distance * 0.55,
+            center.z + distance * 0.7
+        );
+        _controls.target.copy(center);
         _controls.update();
     }
     
@@ -393,25 +430,21 @@ const ThreeJsEngine = (function() {
     
     // ============ API PÚBLICA ============
     return {
-        init,
-        getScene: () => _scene,
-        getCamera: () => _camera,
-        getRenderer: () => _renderer,
-        getControls: () => _controls,
-        registerVisualMesh,
-        unregisterVisualMesh,
-        getVisualMesh,
-        clearAllMeshes,
-        addToScene,
-        removeFromScene,
-        setView,
-        exportToDataURL,
-        onResize,
-        dispose
+        init: init,
+        getScene: function() { return _scene; },
+        getCamera: function() { return _camera; },
+        getRenderer: function() { return _renderer; },
+        getControls: function() { return _controls; },
+        registerVisualMesh: registerVisualMesh,
+        unregisterVisualMesh: unregisterVisualMesh,
+        getVisualMesh: getVisualMesh,
+        clearAllMeshes: clearAllMeshes,
+        addToScene: addToScene,
+        removeFromScene: removeFromScene,
+        setView: setView,
+        fitCameraToEquipments: fitCameraToEquipments,
+        exportToDataURL: exportToDataURL,
+        onResize: onResize,
+        dispose: dispose
     };
 })();
-```
-
----
-
-Confírmame cuando hayas creado este archivo y paso al siguiente.
