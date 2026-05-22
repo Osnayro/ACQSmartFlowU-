@@ -1,10 +1,9 @@
-
 // ============================================================
-// SMARTFLOW RENDER v7.3 (Símbolos 3D + Cotas + Flujo + Cámara corregida)
+// SMARTFLOW RENDER v7.2 (Símbolos 3D + Cotas + Flujo + Cámara corregida)
 // Archivo: js/render.js
-// Cambios: compatibilidad con Core v5.4, integración ThreeJsEngine,
+// Cambios: compatibilidad con Core v5.4, Router v3.8.4,
 //          suscripción a eventos modelChanged, soporte plataformas,
-//          etiquetas 3D integradas
+//          uso de findObjectByTag/getLinePoints del Core
 // ============================================================
 
 const SmartFlowRender = (function() {
@@ -39,7 +38,10 @@ const SmartFlowRender = (function() {
         highlight: new THREE.MeshBasicMaterial({ color: 0x00f2ff, transparent: true, opacity: 0.3 })
     };
 
-    function setupEffects(scene, camera, renderer) {
+    function setupEffects() {
+        const scene = _core.getScene();
+        const camera = _core.getCamera();
+        const renderer = _core.getRenderer();
         if (!scene || !camera || !renderer) return;
         
         if (typeof THREE.EffectComposer !== 'undefined') {
@@ -47,19 +49,17 @@ const SmartFlowRender = (function() {
             const renderPass = new THREE.RenderPass(scene, camera);
             _composer.addPass(renderPass);
             
-            if (typeof THREE.OutlinePass !== 'undefined') {
-                _outlinePass = new THREE.OutlinePass(
-                    new THREE.Vector2(window.innerWidth, window.innerHeight),
-                    scene, camera
-                );
-                _outlinePass.edgeStrength = 3;
-                _outlinePass.edgeGlow = 0.6;
-                _outlinePass.edgeThickness = 1.5;
-                _outlinePass.pulsePeriod = 2;
-                _outlinePass.visibleEdgeColor.setHex(0x00f2ff);
-                _outlinePass.hiddenEdgeColor.setHex(0x1e293b);
-                _composer.addPass(_outlinePass);
-            }
+            _outlinePass = new THREE.OutlinePass(
+                new THREE.Vector2(window.innerWidth, window.innerHeight),
+                scene, camera
+            );
+            _outlinePass.edgeStrength = 3;
+            _outlinePass.edgeGlow = 0.6;
+            _outlinePass.edgeThickness = 1.5;
+            _outlinePass.pulsePeriod = 2;
+            _outlinePass.visibleEdgeColor.setHex(0x00f2ff);
+            _outlinePass.hiddenEdgeColor.setHex(0x1e293b);
+            _composer.addPass(_outlinePass);
         }
     }
     
@@ -85,7 +85,7 @@ const SmartFlowRender = (function() {
         if (direction) {
             group.quaternion.setFromUnitVectors(
                 new THREE.Vector3(1, 0, 0),
-                new THREE.Vector3(direction.dx || direction.x || 0, direction.dy || direction.y || 0, direction.dz || direction.z || 0)
+                new THREE.Vector3(direction.dx, direction.dy, direction.dz)
             );
         }
         
@@ -112,7 +112,7 @@ const SmartFlowRender = (function() {
         
         group.position.copy(position);
         if (direction && perpendicular) {
-            const dirVec = new THREE.Vector3(direction.dx || direction.x || 0, direction.dy || direction.y || 0, direction.dz || direction.z || 0);
+            const dirVec = new THREE.Vector3(direction.dx, direction.dy, direction.dz);
             const quat = new THREE.Quaternion();
             quat.setFromUnitVectors(new THREE.Vector3(1, 0, 0), dirVec);
             group.quaternion.copy(quat);
@@ -134,7 +134,7 @@ const SmartFlowRender = (function() {
         if (direction) {
             group.quaternion.setFromUnitVectors(
                 new THREE.Vector3(1, 0, 0),
-                new THREE.Vector3(direction.dx || direction.x || 0, direction.dy || direction.y || 0, direction.dz || direction.z || 0)
+                new THREE.Vector3(direction.dx, direction.dy, direction.dz)
             );
         }
         
@@ -171,7 +171,7 @@ const SmartFlowRender = (function() {
         if (direction) {
             group.quaternion.setFromUnitVectors(
                 new THREE.Vector3(1, 0, 0),
-                new THREE.Vector3(direction.dx || direction.x || 0, direction.dy || direction.y || 0, direction.dz || direction.z || 0)
+                new THREE.Vector3(direction.dx, direction.dy, direction.dz)
             );
         }
         
@@ -218,7 +218,7 @@ const SmartFlowRender = (function() {
             { x: w/2 - 0.15, z: d/2 - 0.15 },
             { x: -w/2 + 0.15, z: d/2 - 0.15 }
         ];
-        positions.forEach(function(pos) {
+        positions.forEach(pos => {
             const leg = new THREE.Mesh(legGeo, legMat);
             leg.position.set(pos.x, -h/2, pos.z);
             group.add(leg);
@@ -228,13 +228,13 @@ const SmartFlowRender = (function() {
             const railGeo = new THREE.BoxGeometry(w, 0.05, 0.05);
             const railMat = new THREE.MeshStandardMaterial({ color: 0x9ca3af, metalness: 0.6, roughness: 0.3 });
             const railH = h + 0.2;
-            ['front', 'back'].forEach(function(side, idx) {
+            ['front', 'back'].forEach((side, idx) => {
                 const rail = new THREE.Mesh(railGeo, railMat);
                 rail.position.set(0, railH, idx === 0 ? d/2 : -d/2);
                 group.add(rail);
             });
             const sideGeo = new THREE.BoxGeometry(0.05, 0.05, d);
-            ['left', 'right'].forEach(function(side, idx) {
+            ['left', 'right'].forEach((side, idx) => {
                 const rail = new THREE.Mesh(sideGeo, railMat);
                 rail.position.set(idx === 0 ? -w/2 : w/2, railH, 0);
                 group.add(rail);
@@ -261,7 +261,7 @@ const SmartFlowRender = (function() {
         }
         if (totalLen === 0) return;
         
-        line.components.forEach(function(comp) {
+        line.components.forEach(comp => {
             const param = comp.param || 0.5;
             const targetLen = totalLen * Math.min(1, Math.max(0, param));
             let accum = 0, segIdx = 0, t = 0;
@@ -320,7 +320,7 @@ const SmartFlowRender = (function() {
             }
             
             if (symbol) {
-                symbol.userData = { tag: comp.tag || (line.tag + '_' + type), type: comp.type, lineTag: line.tag, isComponentSymbol: true };
+                symbol.userData = { tag: comp.tag, type: comp.type, lineTag: line.tag, isComponentSymbol: true };
                 _symbolGroup.add(symbol);
             }
         });
@@ -337,13 +337,12 @@ const SmartFlowRender = (function() {
         }
         
         const db = _core.getDb();
-        (db.lines || []).forEach(function(line) {
+        (db.lines || []).forEach(line => {
             createComponentSymbols(line);
         });
     }
     
-    function createDimensionLine(p1, p2, color) {
-        color = color || 0xfacc15;
+    function createDimensionLine(p1, p2, color = 0xfacc15) {
         const pos1 = new THREE.Vector3(p1.x / 1000, p1.y / 1000 + 0.3, p1.z / 1000);
         const pos2 = new THREE.Vector3(p2.x / 1000, p2.y / 1000 + 0.3, p2.z / 1000);
         
@@ -380,7 +379,7 @@ const SmartFlowRender = (function() {
         }
         
         const db = _core.getDb();
-        (db.lines || []).forEach(function(line) {
+        (db.lines || []).forEach(line => {
             const pts = _core.getLinePoints(line) || line._cachedPoints || line.points3D || [];
             if (pts.length >= 2) {
                 for (let i = 0; i < pts.length - 1; i++) {
@@ -440,17 +439,15 @@ const SmartFlowRender = (function() {
         }
         
         const db = _core.getDb();
-        (db.lines || []).forEach(function(line) {
+        (db.lines || []).forEach(line => {
             createFlowArrows(line);
         });
     }
     
     function focusOnObject(mesh) {
-        if (!mesh || !_core) return;
-        const camera = _core.getCamera ? _core.getCamera() : null;
-        const controls = _core.getControls ? _core.getControls() : null;
-        if (!camera || !controls) return;
-        
+        if (!mesh || !_core.getControls()) return;
+        const camera = _core.getCamera();
+        const controls = _core.getControls();
         const box = new THREE.Box3().setFromObject(mesh);
         const center = box.getCenter(new THREE.Vector3());
         const size = box.getSize(new THREE.Vector3());
@@ -464,15 +461,15 @@ const SmartFlowRender = (function() {
     }
     
     function fitCameraToEquipments() {
-        const scene = _core.getScene ? _core.getScene() : null;
-        const camera = _core.getCamera ? _core.getCamera() : null;
-        const controls = _core.getControls ? _core.getControls() : null;
+        const scene = _core.getScene();
+        const camera = _core.getCamera();
+        const controls = _core.getControls();
         if (!scene || !camera || !controls) return;
         
         const bounds = new THREE.Box3();
         let hasValidObject = false;
         
-        scene.traverse(function(child) {
+        scene.traverse((child) => {
             if (child.isMesh && child.visible && child.geometry) {
                 if (child.userData && (child.userData.isComponentSymbol || 
                     child.userData.isDimensionLine || 
@@ -535,7 +532,7 @@ const SmartFlowRender = (function() {
         if (_outlinePass) {
             if (selected && selected.obj) {
                 const tag = selected.obj.tag;
-                const mesh = _core.getVisualMesh ? _core.getVisualMesh(tag) : null;
+                const mesh = _core.getVisualMesh(tag);
                 if (mesh) {
                     _outlinePass.selectedObjects = [mesh];
                     _currentHighlighted = mesh;
@@ -554,7 +551,7 @@ const SmartFlowRender = (function() {
             }
             if (selected && selected.obj) {
                 const tag = selected.obj.tag;
-                const mesh = _core.getVisualMesh ? _core.getVisualMesh(tag) : null;
+                const mesh = _core.getVisualMesh(tag);
                 if (mesh && mesh.material) {
                     mesh.material.emissiveIntensity = 0.5;
                     mesh.material.emissive = new THREE.Color(0x00f2ff);
@@ -568,8 +565,8 @@ const SmartFlowRender = (function() {
     }
     
     function setView(type) {
-        const camera = _core.getCamera ? _core.getCamera() : null;
-        const controls = _core.getControls ? _core.getControls() : null;
+        const camera = _core.getCamera();
+        const controls = _core.getControls();
         if (!camera) return;
         const distance = 8;
         const target = new THREE.Vector3(0, 0, 0);
@@ -610,9 +607,9 @@ const SmartFlowRender = (function() {
         if (!_infoPanel) _infoPanel = createInfoPanel();
         if (selected && selected.obj) {
             const obj = selected.obj;
-            const posX = obj.posX || (obj.pos && obj.pos.x) || 0;
-            const posY = obj.posY || (obj.pos && obj.pos.y) || 0;
-            const posZ = obj.posZ || (obj.pos && obj.pos.z) || 0;
+            const posX = obj.posX ?? obj.pos?.x ?? 0;
+            const posY = obj.posY ?? obj.pos?.y ?? 0;
+            const posZ = obj.posZ ?? obj.pos?.z ?? 0;
             _infoPanel.innerHTML = `
                 <div style="color: #00f2ff; font-weight: bold; border-bottom: 1px solid #334155; margin-bottom: 8px; padding-bottom: 4px;">
                     📌 ${obj.tag}
@@ -621,7 +618,7 @@ const SmartFlowRender = (function() {
                 <div><span style="color:#94a3b8;">MATERIAL:</span> ${obj.material || 'N/A'}</div>
                 <div><span style="color:#94a3b8;">DIÁMETRO:</span> ${obj.diameter || obj.diametro || '-'}"</div>
                 <div><span style="color:#94a3b8;">POSICIÓN:</span> X:${Math.round(posX)} Y:${Math.round(posY)} Z:${Math.round(posZ)}</div>
-                ${obj.puertos ? `<div style="margin-top:6px;"><span style="color:#94a3b8;">PUERTOS:</span> ${obj.puertos.map(function(p) { return p.id; }).join(', ')}</div>` : ''}
+                ${obj.puertos ? `<div style="margin-top:6px;"><span style="color:#94a3b8;">PUERTOS:</span> ${obj.puertos.map(p => p.id).join(', ')}</div>` : ''}
             `;
         } else {
             _infoPanel.innerHTML = `
@@ -633,7 +630,7 @@ const SmartFlowRender = (function() {
     
     function scheduleRefresh() {
         if (_debounceTimer) clearTimeout(_debounceTimer);
-        _debounceTimer = setTimeout(function() {
+        _debounceTimer = setTimeout(() => {
             refreshAllSymbols();
             refreshAllDimensions();
             refreshAllFlowArrows();
@@ -645,7 +642,7 @@ const SmartFlowRender = (function() {
         _infoPanel = createInfoPanel();
         
         if (typeof _core.on === 'function') {
-            _core.on('modelChanged', function() {
+            _core.on('modelChanged', () => {
                 scheduleRefresh();
                 const selected = _core.getSelected();
                 updateInfoPanel(selected);
@@ -653,62 +650,67 @@ const SmartFlowRender = (function() {
             });
         }
         
-        setInterval(function() {
+        setInterval(() => {
             const selected = _core.getSelected();
             updateInfoPanel(selected);
             updateSelectionHighlight();
         }, 500);
     }
     
-    function init(coreInstance, engineInstance) {
+    function init(coreInstance) {
         _core = coreInstance;
+        if (!_core) return;
         
-        if (!engineInstance) {
-            console.error('SmartFlowRender: engineInstance es requerido');
-            return;
-        }
-        
-        const scene = engineInstance.getScene();
-        const camera = engineInstance.getCamera();
-        const renderer = engineInstance.getRenderer();
-        
-        if (!scene || !camera || !renderer) {
-            console.error('SmartFlowRender: Engine no inicializado correctamente');
-            return;
-        }
-        
-        setupEffects(scene, camera, renderer);
+        setupEffects();
         initUIBridge();
         
-        _symbolGroup.userData = { isSymbolGroup: true };
-        _dimensionGroup.userData = { isDimensionGroup: true };
-        _flowArrowGroup.userData = { isFlowArrowGroup: true };
-        scene.add(_symbolGroup);
-        scene.add(_dimensionGroup);
-        scene.add(_flowArrowGroup);
-        
-        if (typeof SmartFlowLabels3D !== 'undefined') {
-            SmartFlowLabels3D.init(coreInstance, engineInstance);
-            
-            setTimeout(function() {
-                SmartFlowLabels3D.refreshAllLabels();
-                SmartFlowLabels3D.refreshAllDimensions();
-            }, 800);
+        const scene = _core.getScene();
+        if (scene) {
+            _symbolGroup.userData = { isSymbolGroup: true };
+            _dimensionGroup.userData = { isDimensionGroup: true };
+            _flowArrowGroup.userData = { isFlowArrowGroup: true };
+            scene.add(_symbolGroup);
+            scene.add(_dimensionGroup);
+            scene.add(_flowArrowGroup);
         }
         
-        window.set3DView = function(type) {
-            engineInstance.setView(type);
-        };
+        const originalAnimate = _core.getAnimate();
+        if (originalAnimate) {
+            const newAnimate = () => {
+                if (_isAnimating) {
+                    const camera = _core.getCamera();
+                    const controls = _core.getControls();
+                    camera.position.lerp(_targetPos, _transitionSpeed);
+                    controls.target.lerp(_targetLookAt, _transitionSpeed);
+                    controls.update();
+                    if (camera.position.distanceTo(_targetPos) < 0.01) {
+                        _isAnimating = false;
+                    }
+                } else {
+                    if (_core.getControls()) _core.getControls().update();
+                }
+                if (_composer) _composer.render();
+                if (_labelRenderer && scene && _core.getCamera()) {
+                    _labelRenderer.render(scene, _core.getCamera());
+                }
+                if (typeof SmartFlowLabels !== 'undefined' && SmartFlowLabels.actualizarVisibilidad) {
+                    SmartFlowLabels.actualizarVisibilidad();
+                }
+                requestAnimationFrame(newAnimate);
+            };
+            _core.setAnimate(newAnimate);
+        }
         
-        setTimeout(function() {
+        setTimeout(() => {
             refreshAllSymbols();
             refreshAllDimensions();
             refreshAllFlowArrows();
-        }, 500);
+        }, 1000);
         
         scheduleRefresh();
         
-        console.log("✔ SmartFlowRender v7.3 listo (integrado con ThreeJsEngine + Labels)");
+        window.set3DView = setView;
+        console.log("✔ SmartFlowRender v7.2 listo (compatible con Core v5.4, Router v3.8.4)");
     }
     
     function setLabelRenderer(lr) {
@@ -716,15 +718,15 @@ const SmartFlowRender = (function() {
     }
     
     return {
-        init: init,
-        setView: setView,
-        fitCameraToEquipments: fitCameraToEquipments,
-        updateSelectionHighlight: updateSelectionHighlight,
-        refreshAllSymbols: refreshAllSymbols,
-        refreshAllDimensions: refreshAllDimensions,
-        refreshAllFlowArrows: refreshAllFlowArrows,
-        setLabelRenderer: setLabelRenderer,
-        getComposer: function() { return _composer; },
-        getOutlinePass: function() { return _outlinePass; }
+        init,
+        setView,
+        fitCameraToEquipments,
+        updateSelectionHighlight,
+        refreshAllSymbols,
+        refreshAllDimensions,
+        refreshAllFlowArrows,
+        setLabelRenderer,
+        getComposer: () => _composer,
+        getOutlinePass: () => _outlinePass
     };
 })();
