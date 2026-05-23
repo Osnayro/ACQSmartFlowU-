@@ -6,15 +6,15 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no">
     <title>SmartEngp | AcQuaBlue</title>
     
-    <!-- Three.js v0.128.0 + complementos -->
+    <!-- Three.js v0.128.0 + complementos (Orden optimizado) -->
     <script src="https://cdn.jsdelivr.net/npm/three@0.128.0/build/three.min.js"></script>
     <script src="https://cdn.jsdelivr.net/npm/three@0.128.0/examples/js/controls/OrbitControls.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/three@0.128.0/examples/js/shaders/CopyShader.js"></script>
     <script src="https://cdn.jsdelivr.net/npm/three@0.128.0/examples/js/renderers/CSS2DRenderer.js"></script>
     <script src="https://cdn.jsdelivr.net/npm/three@0.128.0/examples/js/postprocessing/EffectComposer.js"></script>
     <script src="https://cdn.jsdelivr.net/npm/three@0.128.0/examples/js/postprocessing/RenderPass.js"></script>
     <script src="https://cdn.jsdelivr.net/npm/three@0.128.0/examples/js/postprocessing/ShaderPass.js"></script>
     <script src="https://cdn.jsdelivr.net/npm/three@0.128.0/examples/js/postprocessing/OutlinePass.js"></script>
-    <script src="https://cdn.jsdelivr.net/npm/three@0.128.0/examples/js/shaders/CopyShader.js"></script>
     
     <!-- Librerías de exportación -->
     <script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"></script>
@@ -331,7 +331,7 @@
         <div id="side-panel" class="property-panel hidden">
             <div class="panel-header" style="display:flex; justify-content:space-between; align-items:center; margin-bottom:8px;">
                 <span style="color:var(--accent-cyan); font-weight:bold;">PROPIEDADES TÉCNICAS</span>
-                <button onclick="togglePanel(false)" style="background:none;border:none;color:white;font-size:18px;padding:0;width:24px;">×</button>
+                <button id="btnClosePanel" style="background:none;border:none;color:white;font-size:18px;padding:0;width:24px;">×</button>
             </div>
             <div id="panel-content"><p class="empty-msg">Seleccione un elemento para ver sus detalles</p></div>
         </div>
@@ -366,9 +366,9 @@
             <button id="toolAddPoint">➕ Añadir punto</button>
             <div class="elevation-inline">
                 <span>📐 Elev:</span>
-                <button onclick="setElevation(0)">0</button>
-                <button onclick="setElevation(2500)">2.5m</button>
-                <button onclick="setElevation(5000)">5.0m</button>
+                <button id="btnElev0" data-level="0">0</button>
+                <button id="btnElev2500" data-level="2500">2.5m</button>
+                <button id="btnElev5000" data-level="5000">5.0m</button>
                 <input type="number" id="customElev" value="0" step="100" style="width:60px;">
                 <button id="btnSetElev">Set</button>
             </div>
@@ -380,7 +380,7 @@
         <button id="btnFullscreenExit" style="padding:12px 20px; border-radius:30px; background:#ef4444; color:white; font-weight:bold; border:none;">✕ Salir</button>
     </div>
 
-    <!-- Módulos en orden correcto -->
+    <!-- Módulos en orden de inicialización -->
     <script src="js/ThreeJsEngine.js"></script>
     <script src="js/core.js"></script>
     <script src="js/catalog.js"></script>
@@ -395,8 +395,27 @@
         window.voiceEnabled = true;
         window.currentProjectName = 'Proyecto_SmartEngp';
 
+        document.addEventListener("DOMContentLoaded", function() {
+            var btnClosePanel = document.getElementById('btnClosePanel');
+            if (btnClosePanel) {
+                btnClosePanel.addEventListener('click', function() { togglePanel(false); });
+            }
+
+            ['btnElev0', 'btnElev2500', 'btnElev5000'].forEach(function(id) {
+                var btn = document.getElementById(id);
+                if (btn) {
+                    btn.addEventListener('click', function() {
+                        var level = parseInt(this.getAttribute('data-level'), 10);
+                        setElevation(level);
+                    });
+                }
+            });
+        });
+
         function setElevation(level) {
-            if (SmartFlowCore && SmartFlowCore.setElevation) SmartFlowCore.setElevation(level);
+            if (typeof SmartFlowCore !== 'undefined' && SmartFlowCore.setElevation) {
+                SmartFlowCore.setElevation(level);
+            }
             var elevInput = document.getElementById('customElev');
             if (elevInput) elevInput.value = level;
         }
