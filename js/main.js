@@ -1,8 +1,9 @@
 
 // ============================================================
-// SMARTFLOW MAIN - Punto de Entrada Principal v2.13
+// SMARTFLOW MAIN - Punto de Entrada Principal v2.15
 // Archivo: js/main.js
-// Soporte: Modo 2D (Canvas) + Modo 3D (Three.js) con mismo Core v5.5
+// Correcciones: Historial estable, Debounce resize,
+//               Sincronización Router en switchViewMode
 // ============================================================
 
 (function() {
@@ -28,6 +29,9 @@
     let voiceEnabled = true;
     let currentViewMode = '2d';
     
+    let _is2DInitialized = false;
+    let _is3DInitialized = false;
+    
     let draggingEquipment = false;
     let draggedEquipTag = null;
     let dragLastPos = { x: 0, y: 0 };
@@ -37,6 +41,7 @@
     const MAX_HISTORY = 50;
     let _historyIndex = -1;
     let _tempCommand = '';
+    let _isNavigatingHistory = false;
     
     function addToHistory(cmd) {
         const trimmed = cmd.trim();
@@ -61,9 +66,13 @@
     
     function navigateHistory(direction) {
         if (!commandText) return;
+        if (_isNavigatingHistory) return;
+        _isNavigatingHistory = true;
+        
         if (_historyIndex === _commandHistory.length) {
             _tempCommand = commandText.value;
         }
+        
         if (direction === 'up') {
             if (_historyIndex > 0) {
                 _historyIndex--;
@@ -78,6 +87,8 @@
                 commandText.value = _tempCommand || '';
             }
         }
+        
+        setTimeout(function() { _isNavigatingHistory = false; }, 50);
     }
     
     // -------------------- 4. FUNCIONES DE UI --------------------
@@ -201,6 +212,7 @@
             
             if (typeof SmartFlowRenderer !== 'undefined') {
                 SmartFlowRenderer.init(canvas, SmartFlowCore, notify);
+                _is2DInitialized = true;
             }
         } else {
             if (canvas) canvas.style.display = 'none';
@@ -208,6 +220,7 @@
             
             if (typeof ThreeJsEngine !== 'undefined' && container3D) {
                 ThreeJsEngine.init(container3D, SmartFlowCore);
+                _is3DInitialized = true;
                 if (typeof SmartFlowRender !== 'undefined') {
                     SmartFlowRender.init(SmartFlowCore, ThreeJsEngine);
                 }
@@ -226,7 +239,6 @@
         notify('SmartEngp listo (' + currentViewMode.toUpperCase() + ')', false);
     }
     
-    // ============ CAMBIO DE MODO 2D ↔ 3D ============
     function switchViewMode(mode) {
         if (currentViewMode === mode) return;
         
@@ -236,17 +248,19 @@
         var container3D = document.getElementById('viewer-3d');
         
         if (mode === '2d') {
-            if (typeof SmartFlowLabels3D !== 'undefined') {
-                SmartFlowLabels3D.dispose();
-            }
-            if (typeof ThreeJsEngine !== 'undefined') {
-                ThreeJsEngine.dispose();
+            if (typeof ThreeJsEngine !== 'undefined' && _is3DInitialized) {
+                if (ThreeJsEngine.pauseLoop) ThreeJsEngine.pauseLoop();
             }
             if (container3D) container3D.style.display = 'none';
             if (canvas) canvas.style.display = 'block';
             
             if (typeof SmartFlowRenderer !== 'undefined' && canvas) {
-                SmartFlowRenderer.init(canvas, SmartFlowCore, notify);
+                if (!_is2DInitialized) {
+                    SmartFlowRenderer.init(canvas, SmartFlowCore, notify);
+                    _is2DInitialized = true;
+                } else {
+                    if (SmartFlowRenderer.resumeLoop) SmartFlowRenderer.resumeLoop();
+                }
                 SmartFlowRenderer.autoCenter();
             }
         } else {
@@ -258,11 +272,23 @@
             }
             
             if (typeof ThreeJsEngine !== 'undefined' && container3D) {
-                ThreeJsEngine.init(container3D, SmartFlowCore);
+                if (!_is3DInitialized) {
+                    ThreeJsEngine.init(container3D, SmartFlowCore);
+                    _is3DInitialized = true;
+                } else {
+                    if (ThreeJsEngine.resumeLoop) ThreeJsEngine.resumeLoop();
+                    if (ThreeJsEngine.syncFromCore) ThreeJsEngine.syncFromCore();
+                }
+                
                 if (typeof SmartFlowRender !== 'undefined') {
                     SmartFlowRender.init(SmartFlowCore, ThreeJsEngine);
                 }
             }
+        }
+        
+        // Sincronizar el enrutador con el motor activo
+        if (typeof SmartFlowRouter !== 'undefined') {
+            SmartFlowRouter.init(SmartFlowCore, SmartFlowCatalog, notify, scheduleRender);
         }
         
         SmartFlowCommands.init(SmartFlowCore, SmartFlowCatalog,
@@ -272,7 +298,7 @@
         updateViewModeButtons();
         
         if (selected) {
-            setTimeout(function() { SmartFlowCore.setSelected(selected); }, 300);
+            setTimeout(function() { SmartFlowCore.setSelected(selected); }, 150);
         }
         
         scheduleRender();
@@ -468,11 +494,11 @@
         });
     }
     
-    // -------------------- 10. EVENTOS DEL CANVAS --------------------
+    // -------------------- 10. EVENTOS DEL CANVAS (CAPTURA DE PUNTERO) --------------------
     function initCanvasEvents() {
         if (!canvas) return;
         
-        canvas.addEventListener('mousedown', function(e) {
+        canvas.addEventListener('pointerdown', function(e) {
             if (currentViewMode !== '2d') return;
             if (toolMode !== 'moveEq' && toolMode !== 'addPoint') return;
             
@@ -488,6 +514,10 @@
                     draggingEquipment = true;
                     draggedEquipTag = picked.obj.tag;
                     dragLastPos = { x: e.clientX, y: e.clientY };
+                    
+                    if (canvas.setPointerCapture) {
+                        canvas.setPointerCapture(e.pointerId);
+                    }
                     canvas.style.cursor = 'grabbing';
                     e.preventDefault();
                     e.stopPropagation();
@@ -512,28 +542,38 @@
             }
         });
         
-        window.addEventListener('mousemove', function(e) {
+        canvas.addEventListener('pointermove', function(e) {
             if (!draggingEquipment || !draggedEquipTag || currentViewMode !== '2d') return;
-            const dx = (e.clientX - dragLastPos.x) / SmartFlowRenderer.getCam().scale;
-            const dy = (e.clientY - dragLastPos.y) / SmartFlowRenderer.getCam().scale;
+            
+            const camScale = SmartFlowRenderer.getCam().scale || 1.0;
+            const dx = (e.clientX - dragLastPos.x) / camScale;
+            const dy = (e.clientY - dragLastPos.y) / camScale;
+            
             const eq = SmartFlowCore.findObjectByTag(draggedEquipTag);
             if (eq) {
                 eq.posX += dx;
                 eq.posZ += dy;
             }
+            
             dragLastPos = { x: e.clientX, y: e.clientY };
             scheduleRender();
         });
         
-        window.addEventListener('mouseup', function() {
+        function endDragHandler(e) {
             if (draggingEquipment) {
                 SmartFlowCore.syncPhysicalData();
                 SmartFlowCore._saveState();
+                if (canvas.releasePointerCapture) {
+                    canvas.releasePointerCapture(e.pointerId);
+                }
             }
             draggingEquipment = false;
             draggedEquipTag = null;
             if (canvas) canvas.style.cursor = 'grab';
-        });
+        }
+        
+        canvas.addEventListener('pointerup', endDragHandler);
+        canvas.addEventListener('pointercancel', endDragHandler);
     }
     
     // -------------------- 11. CABLEADO DE BOTONES --------------------
@@ -564,8 +604,11 @@
             addToHistory(textoCompleto);
         }
         
+        // ═══ CORRECCIÓN #1: Historial estable ═══
         commandText.value = '';
+        _commandHistory.length = Math.min(_commandHistory.length, MAX_HISTORY);
         _historyIndex = _commandHistory.length;
+        _tempCommand = '';
         
         const primeraLinea = lineas[0].toLowerCase();
         if (!primeraLinea.startsWith('info') && !primeraLinea.startsWith('coordenadas') && 
@@ -607,7 +650,7 @@
         
         vincular('btnCommand', abrirPanelComandos);
         vincular('closeCommand', function() { if (commandPanel) commandPanel.style.display = 'none'; });
-        vincular('clearCommand', function() { if (commandText) { commandText.value = ''; _historyIndex = _commandHistory.length; } });
+        vincular('clearCommand', function() { if (commandText) { commandText.value = ''; _historyIndex = _commandHistory.length; _tempCommand = ''; } });
         vincular('runCommands', ejecutarComando);
         
         vincular('btnAddTank', function() {
@@ -727,13 +770,19 @@
             });
         }
         
+        // ═══ CORRECCIÓN #2: Debounce en resize ═══
+        let resizeTimeout;
         window.addEventListener('resize', function() {
             if (currentViewMode === '2d' && window.SmartFlowRenderer) {
                 window.SmartFlowRenderer.resizeCanvas();
             } else if (currentViewMode === '3d' && window.ThreeJsEngine) {
                 window.ThreeJsEngine.onResize();
             }
-            autoCenter();
+            
+            clearTimeout(resizeTimeout);
+            resizeTimeout = setTimeout(function() {
+                autoCenter();
+            }, 150);
         });
     }
     
@@ -758,21 +807,28 @@
             }
         }, 800);
         
-        initModules();
-        bindEvents();
-        initCanvasEvents();
-        setupKeyboardShortcuts();
-        setTool('select');
-        window.setElevation(0);
-        
-        setTimeout(function() {
+        function bootstrapWhenReady() {
+            if (typeof SmartFlowCore === 'undefined' || typeof SmartFlowCommands === 'undefined') {
+                setTimeout(bootstrapWhenReady, 100);
+                return;
+            }
+            
+            initModules();
+            bindEvents();
+            initCanvasEvents();
+            setupKeyboardShortcuts();
+            setTool('select');
+            window.setElevation(0);
+            
             if (splashScreen) splashScreen.classList.add('splash-hidden');
             clearInterval(interval);
-        }, 4500);
+            
+            setTimeout(function() {
+                if (welcomePanel) welcomePanel.classList.remove('welcome-hidden');
+            }, 300);
+        }
         
-        setTimeout(function() {
-            if (welcomePanel) welcomePanel.classList.remove('welcome-hidden');
-        }, 4800);
+        setTimeout(bootstrapWhenReady, 3000);
         
         if (window.innerWidth < 768) {
             togglePanel(false);
@@ -783,7 +839,7 @@
                 window.SmartFlowRenderer.resizeCanvas();
             }
             autoCenter();
-        }, 100);
+        }, 200);
     }
     
     init();
