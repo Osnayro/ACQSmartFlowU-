@@ -1,8 +1,9 @@
+
 // ============================================================
-// ARCHIVO: js/ThreeJsEngine.js - v2.1
+// ARCHIVO: js/ThreeJsEngine.js - v2.2
 // Adaptador: SmartFlowCore v5.5 ↔ Three.js 0.128.0
-// Optimizaciones: Frustum dinámico, Raycaster por arreglo plano,
-//                 Limpieza GPU sin exclusiones, Pausa/Reanudación
+// Estrategia: 1 unidad Three.js = 1 milímetro
+// Correcciones: Planos de recorte, GridHelper, sombras
 // ============================================================
 const ThreeJsEngine = (function() {
     let _scene = null;
@@ -52,31 +53,38 @@ const ThreeJsEngine = (function() {
         // ── Escena ──
         _scene = new THREE.Scene();
         _scene.background = new THREE.Color(0x0a0f1a);
-        _scene.fog = new THREE.Fog(0x0a0f1a, 50, 300);
+        _scene.fog = new THREE.Fog(0x0a0f1a, 1000, 100000);
         
-        // ── Cámara Ortográfica Isométrica ──
+        // ═══════════════════════════════════════════════════
+        // CÁMARA ORTOGRÁFICA - CORRECCIÓN DE PLANOS
+        // near=10mm, far=500,000mm (500 metros)
+        // ═══════════════════════════════════════════════════
         var aspect = _container.clientWidth / _container.clientHeight || 1;
-        var frustumSize = 20000; // ═══ CORRECCIÓN #1: Escala en mm ═══
+        var frustumSize = 20000;
         _camera = new THREE.OrthographicCamera(
             frustumSize * aspect / -2,
             frustumSize * aspect / 2,
             frustumSize / 2,
             frustumSize / -2,
-            0.1,
-            500000
+            10,        // ← CORREGIDO: 10mm (antes 0.1)
+            500000     // ← 500 metros de alcance
         );
-        _camera.position.set(12000, 8000, 12000);
+        _camera.position.set(15000, 10000, 15000);
         _camera.lookAt(0, 0, 0);
         
-        // ── OrbitControls ──
+        // ═══════════════════════════════════════════════════
+        // ORBIT CONTROLS - SENSIBILIDAD MILIMÉTRICA
+        // ═══════════════════════════════════════════════════
         try {
             _controls = new THREE.OrbitControls(_camera, _renderer.domElement);
             _controls.target.set(0, 0, 0);
             _controls.enableDamping = true;
             _controls.dampingFactor = 0.08;
             _controls.rotateSpeed = 0.8;
-            _controls.zoomSpeed = 1.2;
-            _controls.panSpeed = 0.8;
+            _controls.zoomSpeed = 1.5;     // ← CORREGIDO
+            _controls.panSpeed = 1.2;      // ← CORREGIDO
+            _controls.minZoom = 0.1;
+            _controls.maxZoom = 50;
             _controls.update();
         } catch (e) {
             console.warn('ThreeJsEngine: OrbitControls no disponible');
@@ -87,7 +95,9 @@ const ThreeJsEngine = (function() {
             };
         }
         
-        // ── Luces ──
+        // ═══════════════════════════════════════════════════
+        // LUCES - PLANOS DE SOMBRA CORREGIDOS
+        // ═══════════════════════════════════════════════════
         var ambientLight = new THREE.AmbientLight(0x334455, 1.8);
         _scene.add(ambientLight);
         
@@ -96,12 +106,13 @@ const ThreeJsEngine = (function() {
         sunLight.castShadow = true;
         sunLight.shadow.mapSize.width = 2048;
         sunLight.shadow.mapSize.height = 2048;
-        sunLight.shadow.camera.near = 0.5;
-        sunLight.shadow.camera.far = 150000;
-        sunLight.shadow.camera.left = -40000;
-        sunLight.shadow.camera.right = 40000;
-        sunLight.shadow.camera.top = 40000;
-        sunLight.shadow.camera.bottom = -40000;
+        sunLight.shadow.camera.near = 10;       // ← CORREGIDO: 10mm
+        sunLight.shadow.camera.far = 150000;    // ← 150 metros
+        sunLight.shadow.camera.left = -50000;
+        sunLight.shadow.camera.right = 50000;
+        sunLight.shadow.camera.top = 50000;
+        sunLight.shadow.camera.bottom = -50000;
+        sunLight.shadow.bias = -0.0001;
         _scene.add(sunLight);
         
         var fillLight = new THREE.DirectionalLight(0x8899cc, 0.7);
@@ -111,12 +122,17 @@ const ThreeJsEngine = (function() {
         var hemiLight = new THREE.HemisphereLight(0x8899cc, 0x334455, 0.5);
         _scene.add(hemiLight);
         
-        // ── Grid ──
-        var gridHelper = new THREE.GridHelper(40000, 40, 0x2a3a5a, 0x1a2a3a);
+        // ═══════════════════════════════════════════════════
+        // GRID HELPER - ESCALA MILIMÉTRICA
+        // 50m × 50m con líneas cada 1m (1000mm)
+        // ═══════════════════════════════════════════════════
+        var gridHelper = new THREE.GridHelper(50000, 50, 0x4b5563, 0x1f2937);
         gridHelper.position.y = -10;
         _scene.add(gridHelper);
         
-        // ── Ejes de origen ──
+        // ═══════════════════════════════════════════════════
+        // EJES DE ORIGEN - FLECHAS EN mm
+        // ═══════════════════════════════════════════════════
         var originGroup = new THREE.Group();
         var arrowLen = 2000;
         var arrowHead = 300;
@@ -145,17 +161,15 @@ const ThreeJsEngine = (function() {
         _loopActive = true;
         animate();
         
-        console.log('✔ ThreeJsEngine v2.1 inicializado (escala mm, frustum dinámico)');
+        console.log('✔ ThreeJsEngine v2.2 - ESCALA MILIMÉTRICA (1u=1mm)');
         return true;
     }
     
-    // ============ RAYCASTER OPTIMIZADO (CORRECCIÓN #2) ============
+    // ============ RAYCASTER OPTIMIZADO ============
     function registerVisualMesh(tag, mesh) {
         if (mesh) {
             mesh.userData.tag = tag;
             _visualMeshes.set(tag, mesh);
-            
-            // Agregar a arreglo plano para intersecciones rápidas
             if (mesh.isMesh || mesh.isGroup) {
                 _raycastTargets.push(mesh);
             }
@@ -180,10 +194,7 @@ const ThreeJsEngine = (function() {
         var rect = _renderer.domElement.getBoundingClientRect();
         _mouse.x = ((event.clientX - rect.left) / rect.width) * 2 - 1;
         _mouse.y = -((event.clientY - rect.top) / rect.height) * 2 + 1;
-        
         _raycaster.setFromCamera(_mouse, _camera);
-        
-        // Usar arreglo plano optimizado en lugar de traverse()
         return _raycaster.intersectObjects(_raycastTargets, true);
     }
     
@@ -251,7 +262,7 @@ const ThreeJsEngine = (function() {
         event.preventDefault();
     }
     
-    // ============ LIMPIEZA GPU SIN EXCLUSIONES (CORRECCIÓN #3) ============
+    // ============ LIMPIEZA GPU ============
     function clearAllMeshes() {
         var toRemove = [];
         _scene.traverse(function(child) {
@@ -268,7 +279,6 @@ const ThreeJsEngine = (function() {
         
         toRemove.forEach(function(obj) {
             obj.traverse(function(child) {
-                // Limpieza absoluta SIN exclusiones
                 if (child.geometry) {
                     child.geometry.dispose();
                     child.geometry = null;
@@ -303,7 +313,7 @@ const ThreeJsEngine = (function() {
         }
     }
     
-    // ============ PAUSA / REANUDACIÓN (RECOMENDACIÓN EXTRA) ============
+    // ============ PAUSA / REANUDACIÓN ============
     function pauseLoop() {
         _loopActive = false;
         if (_animationId) {
@@ -320,8 +330,6 @@ const ThreeJsEngine = (function() {
     }
     
     function syncFromCore() {
-        // Sincronizar estado del Core al motor 3D
-        // Se dispara refreshAllSymbols a través de SmartFlowRender
         if (typeof SmartFlowRender !== 'undefined' && SmartFlowRender.refreshAllSymbols) {
             SmartFlowRender.refreshAllSymbols();
         }
@@ -333,7 +341,6 @@ const ThreeJsEngine = (function() {
         _animationId = requestAnimationFrame(animate);
         if (_controls && _controls.update) _controls.update();
         if (_renderer && _scene && _camera) {
-            // Usar renderFrame de SmartFlowRender si está disponible
             if (typeof SmartFlowRender !== 'undefined' && SmartFlowRender.renderFrame) {
                 SmartFlowRender.renderFrame();
             } else {
@@ -361,7 +368,7 @@ const ThreeJsEngine = (function() {
         _renderer.setSize(width, height);
     }
     
-    // ============ ENCUADRE DINÁMICO (CORRECCIÓN #1) ============
+    // ============ ENCUADRE DINÁMICO ============
     function fitCameraToEquipments() {
         if (!_scene || !_camera || !_controls) return;
         
@@ -382,7 +389,7 @@ const ThreeJsEngine = (function() {
         });
         
         if (!hasValidObject) {
-            _camera.position.set(12000, 8000, 12000);
+            _camera.position.set(15000, 10000, 15000);
             _camera.zoom = 1.0;
             _camera.updateProjectionMatrix();
             _controls.target.set(0, 0, 0);
@@ -394,7 +401,6 @@ const ThreeJsEngine = (function() {
         var size = bounds.getSize(new THREE.Vector3());
         var maxDim = Math.max(size.x, size.y, size.z);
         
-        // Ajustar el Frustum de la cámara ortográfica
         var aspect = _container.clientWidth / _container.clientHeight || 1;
         var padding = 1.3;
         
