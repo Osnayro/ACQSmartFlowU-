@@ -1,9 +1,9 @@
 
 // ============================================================
-// SMARTFLOW MAIN - Punto de Entrada Principal v2.15
+// SMARTFLOW MAIN - Punto de Entrada Principal v2.16
 // Archivo: js/main.js
-// Correcciones: Historial estable, Debounce resize,
-//               Sincronización Router en switchViewMode
+// Correcciones: autoCenter 3D, Fullscreen 3D, scheduleRender 3D,
+//               Resize estable con debounce
 // ============================================================
 
 (function() {
@@ -91,7 +91,7 @@
         setTimeout(function() { _isNavigatingHistory = false; }, 50);
     }
     
-    // -------------------- 4. FUNCIONES DE UI --------------------
+    // -------------------- 4. FUNCIONES DE UI (CORREGIDAS) --------------------
     function notify(msg, isErr) {
         if (isErr === undefined) isErr = false;
         if (notificationEl) {
@@ -120,22 +120,27 @@
         }
     }
     
+    // ═══ CORREGIDO: scheduleRender también dispara en 3D ═══
     function scheduleRender() {
         if (currentViewMode === '2d' && window.SmartFlowRenderer) {
             window.SmartFlowRenderer.render();
+        } else if (currentViewMode === '3d' && window.SmartFlowRender && window.SmartFlowRender.renderFrame) {
+            window.SmartFlowRender.renderFrame();
         }
     }
     
+    // ═══ CORREGIDO: autoCenter funciona en 3D ═══
     function autoCenter() {
         if (currentViewMode === '2d' && window.SmartFlowRenderer) {
             window.SmartFlowRenderer.autoCenter();
-            notify("✅ Vista centrada correctamente.", false);
-        } else if (currentViewMode === '3d' && window.ThreeJsEngine) {
+            notify("✅ Vista 2D centrada correctamente.", false);
+        } else if (currentViewMode === '3d' && window.ThreeJsEngine && typeof window.ThreeJsEngine.fitCameraToEquipments === 'function') {
             window.ThreeJsEngine.fitCameraToEquipments();
-            notify("✅ Vista centrada correctamente.", false);
+            notify("✅ Vista 3D centrada correctamente.", false);
         }
     }
     
+    // ═══ CORREGIDO: Fullscreen funciona en 3D ═══
     function toggleFullscreen() {
         document.body.classList.add('fullscreen-mode');
         if (currentViewMode === '2d' && window.SmartFlowRenderer) {
@@ -143,10 +148,15 @@
             window.SmartFlowRenderer.autoCenter();
         } else if (currentViewMode === '3d' && window.ThreeJsEngine) {
             window.ThreeJsEngine.onResize();
-            window.ThreeJsEngine.fitCameraToEquipments();
+            setTimeout(function() {
+                if (window.ThreeJsEngine && window.ThreeJsEngine.fitCameraToEquipments) {
+                    window.ThreeJsEngine.fitCameraToEquipments();
+                }
+            }, 100);
         }
     }
     
+    // ═══ CORREGIDO: Exit Fullscreen funciona en 3D ═══
     function exitFullscreen() {
         document.body.classList.remove('fullscreen-mode');
         if (currentViewMode === '2d' && window.SmartFlowRenderer) {
@@ -154,7 +164,11 @@
             window.SmartFlowRenderer.autoCenter();
         } else if (currentViewMode === '3d' && window.ThreeJsEngine) {
             window.ThreeJsEngine.onResize();
-            window.ThreeJsEngine.fitCameraToEquipments();
+            setTimeout(function() {
+                if (window.ThreeJsEngine && window.ThreeJsEngine.fitCameraToEquipments) {
+                    window.ThreeJsEngine.fitCameraToEquipments();
+                }
+            }, 100);
         }
     }
     
@@ -239,6 +253,7 @@
         notify('SmartEngp listo (' + currentViewMode.toUpperCase() + ')', false);
     }
     
+    // ═══ SINGLETON DE VISTAS ═══
     function switchViewMode(mode) {
         if (currentViewMode === mode) return;
         
@@ -277,16 +292,21 @@
                     _is3DInitialized = true;
                 } else {
                     if (ThreeJsEngine.resumeLoop) ThreeJsEngine.resumeLoop();
-                    if (ThreeJsEngine.syncFromCore) ThreeJsEngine.syncFromCore();
                 }
                 
                 if (typeof SmartFlowRender !== 'undefined') {
                     SmartFlowRender.init(SmartFlowCore, ThreeJsEngine);
                 }
+                
+                // Encuadrar después de cambiar a 3D
+                setTimeout(function() {
+                    if (ThreeJsEngine && ThreeJsEngine.fitCameraToEquipments) {
+                        ThreeJsEngine.fitCameraToEquipments();
+                    }
+                }, 500);
             }
         }
         
-        // Sincronizar el enrutador con el motor activo
         if (typeof SmartFlowRouter !== 'undefined') {
             SmartFlowRouter.init(SmartFlowCore, SmartFlowCatalog, notify, scheduleRender);
         }
@@ -494,7 +514,7 @@
         });
     }
     
-    // -------------------- 10. EVENTOS DEL CANVAS (CAPTURA DE PUNTERO) --------------------
+    // -------------------- 10. EVENTOS DEL CANVAS --------------------
     function initCanvasEvents() {
         if (!canvas) return;
         
@@ -604,7 +624,6 @@
             addToHistory(textoCompleto);
         }
         
-        // ═══ CORRECCIÓN #1: Historial estable ═══
         commandText.value = '';
         _commandHistory.length = Math.min(_commandHistory.length, MAX_HISTORY);
         _historyIndex = _commandHistory.length;
@@ -770,7 +789,7 @@
             });
         }
         
-        // ═══ CORRECCIÓN #2: Debounce en resize ═══
+        // ═══ GESTIÓN DE RESIZE ESTABLE ═══
         let resizeTimeout;
         window.addEventListener('resize', function() {
             if (currentViewMode === '2d' && window.SmartFlowRenderer) {
