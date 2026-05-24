@@ -1,9 +1,8 @@
-
 // ============================================================
 // ARCHIVO: js/ThreeJsEngine.js - v2.2
-// Adaptador: SmartFlowCore v5.5 ↔ Three.js 0.128.0
-// Estrategia: 1 unidad Three.js = 1 milímetro
-// Correcciones: Planos de recorte, GridHelper, sombras
+// Motor 3D: Escena, Cámara Ortográfica, Luces, Controles, Raycaster
+// Escala: Mundo en metros (mm → m en SmartFlowRender)
+// Dependencia: Three.js 0.128.0 (CDN)
 // ============================================================
 const ThreeJsEngine = (function() {
     let _scene = null;
@@ -12,12 +11,16 @@ const ThreeJsEngine = (function() {
     let _controls = null;
     let _container = null;
     let _core = null;
+    
     let _visualMeshes = new Map();
     let _raycastTargets = [];
+    
     let _raycaster = new THREE.Raycaster();
     let _mouse = new THREE.Vector2();
+    
     let _animationId = null;
-    let _loopActive = true;
+    let _loopActive = false;
+    
     let _isDragging = false;
     let _dragStart = { x: 0, y: 0 };
     
@@ -36,9 +39,9 @@ const ThreeJsEngine = (function() {
         // ── Renderer WebGL ──
         try {
             _renderer = new THREE.WebGLRenderer({ 
-                antialias: true, 
+                antialias: true,
                 alpha: false,
-                preserveDrawingBuffer: true 
+                preserveDrawingBuffer: true
             });
             _renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
             _renderer.setSize(_container.clientWidth, _container.clientHeight);
@@ -53,38 +56,19 @@ const ThreeJsEngine = (function() {
         // ── Escena ──
         _scene = new THREE.Scene();
         _scene.background = new THREE.Color(0x0a0f1a);
-        _scene.fog = new THREE.Fog(0x0a0f1a, 1000, 100000);
         
-        // ═══════════════════════════════════════════════════
-        // CÁMARA ORTOGRÁFICA - CORRECCIÓN DE PLANOS
-        // near=10mm, far=500,000mm (500 metros)
-        // ═══════════════════════════════════════════════════
-        var aspect = _container.clientWidth / _container.clientHeight || 1;
-        var frustumSize = 20000;
-        _camera = new THREE.OrthographicCamera(
-            frustumSize * aspect / -2,
-            frustumSize * aspect / 2,
-            frustumSize / 2,
-            frustumSize / -2,
-            10,        // ← CORREGIDO: 10mm (antes 0.1)
-            500000     // ← 500 metros de alcance
-        );
-        _camera.position.set(15000, 10000, 15000);
-        _camera.lookAt(0, 0, 0);
+        // ── Cámara Ortográfica (mundo en metros) ──
+        _camera = createCamera();
         
-        // ═══════════════════════════════════════════════════
-        // ORBIT CONTROLS - SENSIBILIDAD MILIMÉTRICA
-        // ═══════════════════════════════════════════════════
+        // ── Controles de órbita ──
         try {
             _controls = new THREE.OrbitControls(_camera, _renderer.domElement);
             _controls.target.set(0, 0, 0);
             _controls.enableDamping = true;
             _controls.dampingFactor = 0.08;
-            _controls.rotateSpeed = 0.8;
-            _controls.zoomSpeed = 1.5;     // ← CORREGIDO
-            _controls.panSpeed = 1.2;      // ← CORREGIDO
-            _controls.minZoom = 0.1;
-            _controls.maxZoom = 50;
+            _controls.rotateSpeed = 0.6;
+            _controls.zoomSpeed = 1.0;
+            _controls.panSpeed = 0.6;
             _controls.update();
         } catch (e) {
             console.warn('ThreeJsEngine: OrbitControls no disponible');
@@ -95,105 +79,117 @@ const ThreeJsEngine = (function() {
             };
         }
         
-        // ═══════════════════════════════════════════════════
-        // LUCES - PLANOS DE SOMBRA CORREGIDOS
-        // ═══════════════════════════════════════════════════
-        var ambientLight = new THREE.AmbientLight(0x334455, 1.8);
-        _scene.add(ambientLight);
+        // ── Luces ──
+        setupLights();
         
-        var sunLight = new THREE.DirectionalLight(0xffffff, 3);
-        sunLight.position.set(20000, 30000, 15000);
-        sunLight.castShadow = true;
-        sunLight.shadow.mapSize.width = 2048;
-        sunLight.shadow.mapSize.height = 2048;
-        sunLight.shadow.camera.near = 10;       // ← CORREGIDO: 10mm
-        sunLight.shadow.camera.far = 150000;    // ← 150 metros
-        sunLight.shadow.camera.left = -50000;
-        sunLight.shadow.camera.right = 50000;
-        sunLight.shadow.camera.top = 50000;
-        sunLight.shadow.camera.bottom = -50000;
-        sunLight.shadow.bias = -0.0001;
-        _scene.add(sunLight);
+        // ── Grid de referencia ──
+        setupGrid();
         
-        var fillLight = new THREE.DirectionalLight(0x8899cc, 0.7);
-        fillLight.position.set(-8000, 4000, -10000);
-        _scene.add(fillLight);
+        // ── Ejes de origen ──
+        setupAxes();
         
-        var hemiLight = new THREE.HemisphereLight(0x8899cc, 0x334455, 0.5);
-        _scene.add(hemiLight);
-        
-        // ═══════════════════════════════════════════════════
-        // GRID HELPER - ESCALA MILIMÉTRICA
-        // 50m × 50m con líneas cada 1m (1000mm)
-        // ═══════════════════════════════════════════════════
-        var gridHelper = new THREE.GridHelper(50000, 50, 0x4b5563, 0x1f2937);
-        gridHelper.position.y = -10;
-        _scene.add(gridHelper);
-        
-        // ═══════════════════════════════════════════════════
-        // EJES DE ORIGEN - FLECHAS EN mm
-        // ═══════════════════════════════════════════════════
-        var originGroup = new THREE.Group();
-        var arrowLen = 2000;
-        var arrowHead = 300;
-        var arrowHeadSize = 150;
-        originGroup.add(new THREE.ArrowHelper(
-            new THREE.Vector3(1, 0, 0), new THREE.Vector3(0, 0, 0), arrowLen, 0xff4444, arrowHead, arrowHeadSize
-        ));
-        originGroup.add(new THREE.ArrowHelper(
-            new THREE.Vector3(0, 1, 0), new THREE.Vector3(0, 0, 0), arrowLen, 0x44ff44, arrowHead, arrowHeadSize
-        ));
-        originGroup.add(new THREE.ArrowHelper(
-            new THREE.Vector3(0, 0, 1), new THREE.Vector3(0, 0, 0), arrowLen, 0x4444ff, arrowHead, arrowHeadSize
-        ));
-        _scene.add(originGroup);
-        
-        // ── Eventos de puntero ──
+        // ── Eventos ──
         _renderer.domElement.addEventListener('pointerdown', onPointerDown);
         _renderer.domElement.addEventListener('pointerup', onPointerUp);
         _renderer.domElement.addEventListener('pointermove', onPointerMove);
-        _renderer.domElement.addEventListener('wheel', onWheel, { passive: false });
+        _renderer.domElement.addEventListener('wheel', function(e) { e.preventDefault(); }, { passive: false });
         
-        // ── Redimensionamiento ──
         window.addEventListener('resize', onResize);
         
-        // ── Bucle de animación ──
-        _loopActive = true;
-        animate();
+        // ── Arrancar bucle ──
+        resumeLoop();
         
-        console.log('✔ ThreeJsEngine v2.2 - ESCALA MILIMÉTRICA (1u=1mm)');
+        console.log('✔ ThreeJsEngine v2.2 inicializado (escala metros)');
         return true;
     }
     
-    // ============ RAYCASTER OPTIMIZADO ============
-    function registerVisualMesh(tag, mesh) {
-        if (mesh) {
-            mesh.userData.tag = tag;
-            _visualMeshes.set(tag, mesh);
-            if (mesh.isMesh || mesh.isGroup) {
-                _raycastTargets.push(mesh);
-            }
-        }
+    // ============ CÁMARA ============
+    function createCamera() {
+        var aspect = (_container.clientWidth / _container.clientHeight) || 1;
+        var frustumSize = 20; // 20 metros de vista vertical
+        
+        var camera = new THREE.OrthographicCamera(
+            frustumSize * aspect / -2,
+            frustumSize * aspect / 2,
+            frustumSize / 2,
+            frustumSize / -2,
+            0.1,
+            1000
+        );
+        
+        // Posición isométrica estándar (en metros)
+        camera.position.set(12, 8, 12);
+        camera.lookAt(0, 0, 0);
+        
+        return camera;
     }
     
-    function unregisterVisualMesh(tag) {
-        var mesh = _visualMeshes.get(tag);
-        if (mesh) {
-            var index = _raycastTargets.indexOf(mesh);
-            if (index > -1) _raycastTargets.splice(index, 1);
-        }
-        _visualMeshes.delete(tag);
+    // ============ LUCES ============
+    function setupLights() {
+        // Luz ambiental suave
+        var ambientLight = new THREE.AmbientLight(0x334455, 1.5);
+        _scene.add(ambientLight);
+        
+        // Luz principal (sol)
+        var sunLight = new THREE.DirectionalLight(0xffffff, 2.5);
+        sunLight.position.set(20, 30, 15);
+        sunLight.castShadow = true;
+        sunLight.shadow.mapSize.width = 2048;
+        sunLight.shadow.mapSize.height = 2048;
+        sunLight.shadow.camera.near = 0.5;
+        sunLight.shadow.camera.far = 150;
+        sunLight.shadow.camera.left = -40;
+        sunLight.shadow.camera.right = 40;
+        sunLight.shadow.camera.top = 40;
+        sunLight.shadow.camera.bottom = -40;
+        _scene.add(sunLight);
+        
+        // Luz de relleno
+        var fillLight = new THREE.DirectionalLight(0x8899cc, 0.6);
+        fillLight.position.set(-8, 4, -10);
+        _scene.add(fillLight);
+        
+        // Luz hemisférica
+        var hemiLight = new THREE.HemisphereLight(0x8899cc, 0x334455, 0.4);
+        _scene.add(hemiLight);
     }
     
-    function getVisualMesh(tag) {
-        return _visualMeshes.get(tag) || null;
+    // ============ GRID ============
+    function setupGrid() {
+        // 40m x 40m con divisiones cada 1m
+        var gridHelper = new THREE.GridHelper(40, 40, 0x2a3a5a, 0x1a2a3a);
+        gridHelper.position.y = -0.01;
+        _scene.add(gridHelper);
     }
     
+    // ============ EJES ============
+    function setupAxes() {
+        var originGroup = new THREE.Group();
+        var len = 2;        // 2 metros
+        var head = 0.3;     // 30 cm
+        var headSize = 0.15;
+        
+        originGroup.add(new THREE.ArrowHelper(
+            new THREE.Vector3(1, 0, 0), new THREE.Vector3(0, 0, 0), len, 0xff4444, head, headSize
+        ));
+        originGroup.add(new THREE.ArrowHelper(
+            new THREE.Vector3(0, 1, 0), new THREE.Vector3(0, 0, 0), len, 0x44ff44, head, headSize
+        ));
+        originGroup.add(new THREE.ArrowHelper(
+            new THREE.Vector3(0, 0, 1), new THREE.Vector3(0, 0, 0), len, 0x4444ff, head, headSize
+        ));
+        
+        _scene.add(originGroup);
+    }
+    
+    // ============ RAYCASTER ============
     function getIntersections(event) {
         if (!_renderer || !_camera) return [];
+        
         var rect = _renderer.domElement.getBoundingClientRect();
         _mouse.x = ((event.clientX - rect.left) / rect.width) * 2 - 1;
         _mouse.y = -((event.clientY - rect.top) / rect.height) * 2 + 1;
+        
         _raycaster.setFromCamera(_mouse, _camera);
         return _raycaster.intersectObjects(_raycastTargets, true);
     }
@@ -228,10 +224,7 @@ const ThreeJsEngine = (function() {
                     var dbObj = _core.findObjectByTag(tag);
                     if (dbObj) {
                         var isLine = _core.linesMap.has(tag);
-                        _core.setSelected({ 
-                            obj: dbObj, 
-                            type: isLine ? 'line' : 'equipment' 
-                        });
+                        _core.setSelected({ obj: dbObj, type: isLine ? 'line' : 'equipment' });
                         return;
                     }
                 }
@@ -246,23 +239,32 @@ const ThreeJsEngine = (function() {
             Math.abs(event.clientY - _dragStart.y) > 3)) {
             _isDragging = true;
         }
-        
         var intersects = getIntersections(event);
-        if (intersects.length > 0) {
-            var root = findRootWithTag(intersects[0].object);
-            if (root && root.userData.tag) {
-                _renderer.domElement.style.cursor = 'pointer';
-                return;
-            }
+        _renderer.domElement.style.cursor = (intersects.length > 0) ? 'pointer' : 'default';
+    }
+    
+    // ============ GESTIÓN DE MALLAS ============
+    function registerVisualMesh(tag, mesh) {
+        if (mesh) {
+            mesh.userData.tag = tag;
+            _visualMeshes.set(tag, mesh);
+            _raycastTargets.push(mesh);
         }
-        _renderer.domElement.style.cursor = 'default';
     }
     
-    function onWheel(event) {
-        event.preventDefault();
+    function unregisterVisualMesh(tag) {
+        var mesh = _visualMeshes.get(tag);
+        if (mesh) {
+            var index = _raycastTargets.indexOf(mesh);
+            if (index > -1) _raycastTargets.splice(index, 1);
+        }
+        _visualMeshes.delete(tag);
     }
     
-    // ============ LIMPIEZA GPU ============
+    function getVisualMesh(tag) {
+        return _visualMeshes.get(tag) || null;
+    }
+    
     function clearAllMeshes() {
         var toRemove = [];
         _scene.traverse(function(child) {
@@ -279,15 +281,11 @@ const ThreeJsEngine = (function() {
         
         toRemove.forEach(function(obj) {
             obj.traverse(function(child) {
-                if (child.geometry) {
-                    child.geometry.dispose();
-                    child.geometry = null;
-                }
+                if (child.geometry) { child.geometry.dispose(); child.geometry = null; }
                 if (child.material) {
                     if (Array.isArray(child.material)) {
                         child.material.forEach(function(m) { 
-                            if (m.map) { m.map.dispose(); m.map = null; }
-                            m.dispose(); 
+                            if (m.map) { m.map.dispose(); m.map = null; } m.dispose(); 
                         });
                     } else {
                         if (child.material.map) { child.material.map.dispose(); child.material.map = null; }
@@ -313,7 +311,7 @@ const ThreeJsEngine = (function() {
         }
     }
     
-    // ============ PAUSA / REANUDACIÓN ============
+    // ============ BUCLE DE ANIMACIÓN ============
     function pauseLoop() {
         _loopActive = false;
         if (_animationId) {
@@ -329,35 +327,33 @@ const ThreeJsEngine = (function() {
         }
     }
     
-    function syncFromCore() {
-        if (typeof SmartFlowRender !== 'undefined' && SmartFlowRender.refreshAllSymbols) {
-            SmartFlowRender.refreshAllSymbols();
-        }
-    }
-    
-    // ============ ANIMACIÓN ============
     function animate() {
         if (!_loopActive) return;
+        
         _animationId = requestAnimationFrame(animate);
+        
         if (_controls && _controls.update) _controls.update();
+        
         if (_renderer && _scene && _camera) {
-            if (typeof SmartFlowRender !== 'undefined' && SmartFlowRender.renderFrame) {
-                SmartFlowRender.renderFrame();
-            } else {
-                _renderer.render(_scene, _camera);
-            }
+            _renderer.render(_scene, _camera);
+        }
+        
+        // Renderizar etiquetas CSS2D
+        if (typeof SmartFlowLabels3D !== 'undefined' && SmartFlowLabels3D.render) {
+            SmartFlowLabels3D.render();
         }
     }
     
     // ============ RESIZE ============
     function onResize() {
         if (!_container || !_camera || !_renderer) return;
+        
         var width = _container.clientWidth;
         var height = _container.clientHeight;
         if (width === 0 || height === 0) return;
         
         var aspect = width / height;
-        var frustumSize = 20000;
+        var frustumSize = 20;
         
         _camera.left = frustumSize * aspect / -2;
         _camera.right = frustumSize * aspect / 2;
@@ -377,11 +373,10 @@ const ThreeJsEngine = (function() {
         
         _scene.traverse(function(child) {
             if (child.isMesh && child.visible && child.geometry) {
-                if (child.userData && (child.userData.isComponentSymbol || 
-                    child.userData.isDimensionLine || child.userData.isFlowArrow ||
-                    child.userData.isLabel || child.userData.isLabelAnchor ||
+                if (child instanceof THREE.GridHelper) return;
+                if (child instanceof THREE.ArrowHelper) return;
+                if (child.userData && (child.userData.isLabel || child.userData.isLabelAnchor || 
                     child.userData.isLineLabel || child.userData.isDimensionText)) return;
-                if (child instanceof THREE.GridHelper || child instanceof THREE.ArrowHelper) return;
                 
                 bounds.expandByObject(child);
                 hasValidObject = true;
@@ -389,7 +384,7 @@ const ThreeJsEngine = (function() {
         });
         
         if (!hasValidObject) {
-            _camera.position.set(15000, 10000, 15000);
+            _camera.position.set(12, 8, 12);
             _camera.zoom = 1.0;
             _camera.updateProjectionMatrix();
             _controls.target.set(0, 0, 0);
@@ -399,9 +394,10 @@ const ThreeJsEngine = (function() {
         
         var center = bounds.getCenter(new THREE.Vector3());
         var size = bounds.getSize(new THREE.Vector3());
-        var maxDim = Math.max(size.x, size.y, size.z);
+        var maxDim = Math.max(size.x, size.y, size.z, 1);
         
-        var aspect = _container.clientWidth / _container.clientHeight || 1;
+        // Ajustar el frustum al tamaño de la escena
+        var aspect = (_container.clientWidth / _container.clientHeight) || 1;
         var padding = 1.3;
         
         _camera.left = (maxDim * aspect) / -2 * padding;
@@ -418,16 +414,17 @@ const ThreeJsEngine = (function() {
         
         _camera.zoom = 1.0;
         _camera.updateProjectionMatrix();
-        
         _controls.target.copy(center);
         _controls.update();
     }
     
-    // ============ VISTAS ============
+    // ============ VISTAS PREDEFINIDAS ============
     function setView(type) {
         if (!_camera || !_controls) return;
-        var dist = 15000;
+        
+        var dist = 15;
         var target = new THREE.Vector3(0, 0, 0);
+        
         switch(type) {
             case 'iso':
                 _camera.position.set(dist * 0.7, dist * 0.55, dist * 0.7);
@@ -441,8 +438,8 @@ const ThreeJsEngine = (function() {
             case 'side':
                 _camera.position.set(dist, dist * 0.15, 0);
                 break;
-            default: return;
         }
+        
         _camera.lookAt(target);
         _controls.target.copy(target);
         _controls.update();
@@ -462,13 +459,14 @@ const ThreeJsEngine = (function() {
         pauseLoop();
         window.removeEventListener('resize', onResize);
         clearAllMeshes();
+        
         if (_renderer) {
             _renderer.dispose();
             if (_renderer.domElement && _renderer.domElement.parentNode) {
                 _renderer.domElement.parentNode.removeChild(_renderer.domElement);
             }
-            _renderer.forceContextLoss && _renderer.forceContextLoss();
         }
+        
         _scene = null;
         _camera = null;
         _renderer = null;
@@ -492,13 +490,12 @@ const ThreeJsEngine = (function() {
         clearAllMeshes: clearAllMeshes,
         addToScene: addToScene,
         removeFromScene: removeFromScene,
-        setView: setView,
-        fitCameraToEquipments: fitCameraToEquipments,
-        exportToDataURL: exportToDataURL,
-        onResize: onResize,
         pauseLoop: pauseLoop,
         resumeLoop: resumeLoop,
-        syncFromCore: syncFromCore,
+        fitCameraToEquipments: fitCameraToEquipments,
+        setView: setView,
+        exportToDataURL: exportToDataURL,
+        onResize: onResize,
         dispose: dispose
     };
 })();
