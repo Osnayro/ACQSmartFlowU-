@@ -1,10 +1,8 @@
 
 // ============================================================
-// SMARTFLOW LABELS 3D v2.2.1 - FINAL UNIFICADO
+// SMARTFLOW LABELS 3D v2.3 - Escalas ajustadas (mm → m)
 // Archivo: js/SmartFlowLabels3D.js
-// Cambio: Líneas de cota amarillas (#facc15) para coherencia visual
 // ============================================================
-
 const SmartFlowLabels3D = (function() {
     let _core = null;
     let _engine = null;
@@ -27,10 +25,11 @@ const SmartFlowLabels3D = (function() {
     let _sharedAnchorMat = null;
     let _sharedAnchorGeo = null;
     
-    const EQUIPMENT_LABEL_OFFSET = 0.8;
-    const LINE_LABEL_OFFSET = 0.4;
-    const DIMENSION_OFFSET = 0.5;
-    const MIN_SEGMENT_LENGTH = 0.3;
+    // Configuración de offsets (en metros)
+    const EQUIPMENT_LABEL_OFFSET = 0.5;     // metros sobre el equipo
+    const LINE_LABEL_OFFSET = 0.15;          // metros sobre la tubería
+    const DIMENSION_OFFSET = 0.3;            // metros de desfase para cotas
+    const MIN_SEGMENT_LENGTH = 0.1;          // metros mínimos para dibujar cota
     
     const COLORS = {
         equipment: '#f59e0b',
@@ -48,6 +47,15 @@ const SmartFlowLabels3D = (function() {
         dimensionText: '#ffffff'
     };
     
+    // ============ CONVERSIÓN DE UNIDADES ============
+    function toMeters(mmValue) {
+        return (mmValue || 0) / 1000;
+    }
+    
+    function diameterToRadiusMeters(diameterPulgadas) {
+        return ((diameterPulgadas || 4) * 25.4) / 2000;
+    }
+    
     // ============ INICIALIZACIÓN ============
     function init(coreInstance, engineInstance) {
         _core = coreInstance;
@@ -61,18 +69,17 @@ const SmartFlowLabels3D = (function() {
         }
         
         // Inicializar recursos compartidos (una sola vez)
-        // Unificado con amarillo industrial #facc15
         _sharedDimLineMat = new THREE.LineBasicMaterial({ 
             color: 0xfacc15, linewidth: 1, transparent: true, opacity: 0.8, depthTest: true
         });
         _sharedDimExtMat = new THREE.LineBasicMaterial({ 
-            color: 0xfacc15, linewidth: 1, transparent: true, opacity: 0.5, depthTest: true
+            color: 0xfacc15, linewidth: 1, transparent: true, opacity: 0.4, depthTest: true
         });
         _sharedDimTickMat = new THREE.LineBasicMaterial({ 
             color: 0xfacc15, linewidth: 1, transparent: true, opacity: 0.8, depthTest: true
         });
         _sharedAnchorMat = new THREE.MeshBasicMaterial({ visible: false });
-        _sharedAnchorGeo = new THREE.SphereGeometry(0.03, 4, 4);
+        _sharedAnchorGeo = new THREE.SphereGeometry(0.02, 4, 4);
         
         try {
             _labelRenderer = new THREE.CSS2DRenderer();
@@ -108,7 +115,7 @@ const SmartFlowLabels3D = (function() {
         
         window.addEventListener('resize', onResize);
         
-        console.log('✔ SmartFlowLabels3D v2.2.1 UNIFICADO (cotas amarillas)');
+        console.log('✔ SmartFlowLabels3D v2.3 inicializado (escala corregida)');
         return true;
     }
     
@@ -118,20 +125,21 @@ const SmartFlowLabels3D = (function() {
         }
     }
     
-    // ============ ETIQUETAS DE EQUIPOS (con limpieza de eventos) ============
+    // ============ ETIQUETAS DE EQUIPOS ============
     function createEquipmentLabel(eq) {
         if (!eq || !eq.tag) return null;
         
-        var posX = (eq.posX || 0) / 1000;
-        var posY = (eq.posY || 0) / 1000;
-        var posZ = (eq.posZ || 0) / 1000;
+        var posX = toMeters(eq.posX);
+        var posY = toMeters(eq.posY);
+        var posZ = toMeters(eq.posZ);
         
-        var altura = eq.altura || eq.diametro || 2000;
-        if (eq.tipo === 'tanque_h') altura = eq.diametro || 3000;
-        if (eq.tipo && eq.tipo.includes('bomba')) altura = eq.diametro || 800;
-        if (eq.tipo === 'plataforma') altura = eq.altura || 400;
+        // Calcular altura del equipo en metros
+        var altura = toMeters(eq.altura || eq.diametro || 2000);
+        if (eq.tipo === 'tanque_h') altura = toMeters(eq.diametro || 3000);
+        if (eq.tipo && eq.tipo.includes('bomba')) altura = toMeters(eq.diametro || 800);
+        if (eq.tipo === 'plataforma') altura = toMeters(eq.altura || 400);
         
-        var offsetY = (altura / 1000) / 2 + EQUIPMENT_LABEL_OFFSET;
+        var offsetY = (altura / 2) + EQUIPMENT_LABEL_OFFSET;
         
         var anchor = new THREE.Mesh(_sharedAnchorGeo, _sharedAnchorMat);
         anchor.position.set(posX, posY + offsetY, posZ);
@@ -140,7 +148,7 @@ const SmartFlowLabels3D = (function() {
         
         var tipoStr = eq.tipo || 'EQUIPO';
         var matStr = (eq.material || 'N/D').substring(0, 15);
-        var diamStr = eq.diametro ? ' ⌀' + (eq.diametro/1000).toFixed(1) + 'm' : '';
+        var diamStr = eq.diametro ? ' ⌀' + (eq.diametro / 1000).toFixed(1) + 'm' : '';
         
         var div = document.createElement('div');
         div.style.cssText = [
@@ -203,9 +211,9 @@ const SmartFlowLabels3D = (function() {
         
         var isVertical = Math.abs(p2.x - p1.x) < 10 && Math.abs(p2.z - p1.z) < 10;
         
-        var midX = (p1.x + (p2.x - p1.x) * t) / 1000 + (isVertical ? 0.3 : 0);
-        var midY = (p1.y + (p2.y - p1.y) * t) / 1000 + (isVertical ? 0 : LINE_LABEL_OFFSET);
-        var midZ = (p1.z + (p2.z - p1.z) * t) / 1000 + (isVertical ? 0.3 : 0);
+        var midX = toMeters(p1.x + (p2.x - p1.x) * t) + (isVertical ? 0.2 : 0);
+        var midY = toMeters(p1.y + (p2.y - p1.y) * t) + (isVertical ? 0 : LINE_LABEL_OFFSET);
+        var midZ = toMeters(p1.z + (p2.z - p1.z) * t) + (isVertical ? 0.2 : 0);
         
         var diam = line.diameter || '?';
         var service = line.service || '';
@@ -265,9 +273,9 @@ const SmartFlowLabels3D = (function() {
                 accum += lengths[j];
             }
             var pA = pts[segIdx], pB = pts[segIdx + 1];
-            var cx = (pA.x + (pB.x - pA.x) * t) / 1000;
-            var cy = (pA.y + (pB.y - pA.y) * t) / 1000 + LINE_LABEL_OFFSET;
-            var cz = (pA.z + (pB.z - pA.z) * t) / 1000;
+            var cx = toMeters(pA.x + (pB.x - pA.x) * t);
+            var cy = toMeters(pA.y + (pB.y - pA.y) * t) + LINE_LABEL_OFFSET;
+            var cz = toMeters(pA.z + (pB.z - pA.z) * t);
             
             var abbr = getAbbreviation(comp.type);
             
@@ -327,10 +335,10 @@ const SmartFlowLabels3D = (function() {
         return '??';
     }
     
-    // ============ COTAS CON LÍNEAS DE EXTENSIÓN Y MATERIALES COMPARTIDOS ============
+    // ============ COTAS CON LÍNEAS DE EXTENSIÓN ============
     function createDimensionLine3D(p1, p2, labelText) {
-        var pos1 = new THREE.Vector3(p1.x / 1000, p1.y / 1000, p1.z / 1000);
-        var pos2 = new THREE.Vector3(p2.x / 1000, p2.y / 1000, p2.z / 1000);
+        var pos1 = new THREE.Vector3(toMeters(p1.x), toMeters(p1.y), toMeters(p1.z));
+        var pos2 = new THREE.Vector3(toMeters(p2.x), toMeters(p2.y), toMeters(p2.z));
         
         var distance = pos1.distanceTo(pos2);
         if (distance < MIN_SEGMENT_LENGTH) return null;
@@ -339,6 +347,7 @@ const SmartFlowLabels3D = (function() {
                   Math.round(p2.x) + ',' + Math.round(p2.y) + ',' + Math.round(p2.z);
         if (_dimensionLines.has(key)) return null;
         
+        // Vector de desfase perpendicular
         var dir = new THREE.Vector3().subVectors(pos2, pos1).normalize();
         var perpendicular = new THREE.Vector3(-dir.z, 0, dir.x).normalize();
         if (perpendicular.length() < 0.1) {
@@ -349,18 +358,18 @@ const SmartFlowLabels3D = (function() {
         var cota1 = new THREE.Vector3().addVectors(pos1, perpendicular);
         var cota2 = new THREE.Vector3().addVectors(pos2, perpendicular);
         
-        // Líneas de extensión (material compartido)
+        // Líneas de extensión
         var extGeo1 = new THREE.BufferGeometry().setFromPoints([pos1, cota1]);
         var extGeo2 = new THREE.BufferGeometry().setFromPoints([pos2, cota2]);
         _dimensionGroup3D.add(new THREE.Line(extGeo1, _sharedDimExtMat));
         _dimensionGroup3D.add(new THREE.Line(extGeo2, _sharedDimExtMat));
         
-        // Línea de cota principal (material compartido)
+        // Línea de cota principal
         var lineGeo = new THREE.BufferGeometry().setFromPoints([cota1, cota2]);
         _dimensionGroup3D.add(new THREE.Line(lineGeo, _sharedDimLineMat));
         
-        // Ticks (material compartido)
-        var tickDir = dir.clone().multiplyScalar(0.15);
+        // Ticks
+        var tickDir = dir.clone().multiplyScalar(0.1);
         var tickGeo1 = new THREE.BufferGeometry().setFromPoints([
             cota1.clone().add(tickDir), cota1.clone().sub(tickDir)
         ]);
@@ -388,9 +397,7 @@ const SmartFlowLabels3D = (function() {
         textLabel.userData = { isDimensionText: true, key: key };
         _dimensionGroup3D.add(textLabel);
         
-        _dimensionLines.set(key, { 
-            textLabel: textLabel 
-        });
+        _dimensionLines.set(key, { textLabel: textLabel });
         return { cota1: cota1, cota2: cota2, textLabel: textLabel };
     }
     
@@ -406,7 +413,7 @@ const SmartFlowLabels3D = (function() {
         for (var i = 0; i < pts.length - 1; i++) {
             if (pts[i].isControlPoint || pts[i+1].isControlPoint) continue;
             var dist = Math.hypot(pts[i+1].x - pts[i].x, pts[i+1].y - pts[i].y, pts[i+1].z - pts[i].z);
-            if (dist >= 100) {
+            if (dist >= 100) { // 100 mm = 0.1 m mínimo
                 createDimensionLine3D(pts[i], pts[i+1]);
             }
         }
@@ -433,7 +440,7 @@ const SmartFlowLabels3D = (function() {
         }
     }
     
-    // ============ LIMPIEZA SEGURA (ANTI-FUGA DE EVENTOS) ============
+    // ============ LIMPIEZA SEGURA ============
     function clearAllLabels() {
         _equipmentLabels.forEach(function(item) {
             if (item.element && item.handler) {
