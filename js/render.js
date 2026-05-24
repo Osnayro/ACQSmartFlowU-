@@ -1,8 +1,10 @@
 
 // ============================================================
-// SMARTFLOW RENDER v9.2.2 - 100% CATÁLOGO + ESCALA CORREGIDA
+// SMARTFLOW RENDER v9.2.3 - FINAL
 // Archivo: js/render.js
-// Corrección: toM() en coordenadas/dimensiones, factores intactos
+// Mejoras: Domo orientado, Anillos proporcionales, Cámara ajustada,
+//          RenderOrder por capas, Plataforma concreto/metal,
+//          Conversión mm→m completa, 100% Catálogo
 // ============================================================
 
 const SmartFlowRender = (function() {
@@ -124,19 +126,37 @@ const SmartFlowRender = (function() {
     
     // ============ EQUIPOS ============
     function createTankVertical(eq) {
-        var color = getEquipmentColor(eq.tipo), mat = createMaterial(color, 0.4, 0.35), matRing = createMaterial(color, 0.6, 0.3);
-        var r = toM((eq.diametro || 3000) / 2), h = toM(eq.altura || 6000), group = new THREE.Group();
-        var body = new THREE.Mesh(new THREE.CylinderGeometry(r, r, h, 48), mat);
-        body.position.y = h/2; body.castShadow = true; body.receiveShadow = true;
+        var color = getEquipmentColor(eq.tipo), 
+            mat = createMaterial(color, 0.4, 0.35), 
+            matRing = createMaterial(color, 0.6, 0.3);
+        var r = toM((eq.diametro || 3000) / 2);
+        var h = toM(eq.altura || 6000);
+        var group = new THREE.Group();
+        
+        var body = new THREE.Mesh(new THREE.CylinderGeometry(r, r, h, 32), mat);
+        body.position.y = h / 2; 
+        body.castShadow = true; 
+        body.receiveShadow = true;
         group.add(body);
-        var dome = new THREE.Mesh(new THREE.SphereGeometry(r, 32, 16, 0, Math.PI*2, 0, Math.PI/3), mat);
-        dome.position.y = h; dome.castShadow = true;
+        
+        var dome = new THREE.Mesh(
+            new THREE.SphereGeometry(r, 32, 16, 0, Math.PI * 2, 0, Math.PI / 2), mat
+        );
+        dome.position.y = h;
+        dome.rotation.x = -Math.PI / 2;
+        dome.castShadow = true;
         group.add(dome);
-        for (var y = h*0.2; y < h; y += h*0.25) {
-            var ring = new THREE.Mesh(new THREE.TorusGeometry(r*1.02, r*0.02, 8, 32), matRing);
-            ring.position.y = y; ring.rotation.x = Math.PI/2;
+        
+        var step = h / 4;
+        for (var y = step; y < h; y += step) {
+            var ring = new THREE.Mesh(
+                new THREE.TorusGeometry(r + 0.02, 0.03, 8, 32), matRing
+            );
+            ring.position.y = y; 
+            ring.rotation.x = Math.PI / 2;
             group.add(ring);
         }
+        
         group.position.set(toM(eq.posX), toM(eq.posY), toM(eq.posZ));
         group.userData = { tag: eq.tag, tipo: 'equipo' };
         return group;
@@ -210,6 +230,138 @@ const SmartFlowRender = (function() {
         return group;
     }
     
+    // ═══ NUEVO: PLATAFORMA CONCRETO vs METAL ═══
+    function createPlataforma(eq) {
+        var material = (eq.material || '').toUpperCase();
+        var esConcreto = material.includes('CONCRETO') || material.includes('CEMENTO') || material.includes('HORMIGON');
+        var esMetal = material.includes('ACERO') || material.includes('METAL') || material.includes('STEEL') || material.includes('GALVANIZADO');
+        if (!esConcreto && !esMetal) esMetal = true;
+        
+        var w = toM(eq.largo || 6000);
+        var d = toM(eq.ancho || 3000);
+        var h = toM(eq.altura || 400);
+        var group = new THREE.Group();
+        
+        if (esConcreto) {
+            // ═══ PLATAFORMA DE CONCRETO ═══
+            var losaGeo = new THREE.BoxGeometry(w, h, d);
+            var losaMat = new THREE.MeshStandardMaterial({ color: 0x9ca3af, metalness: 0.05, roughness: 0.85 });
+            var losa = new THREE.Mesh(losaGeo, losaMat);
+            losa.position.y = h / 2;
+            losa.castShadow = true; losa.receiveShadow = true;
+            group.add(losa);
+            
+            var bordeGeo = new THREE.BoxGeometry(w + 0.1, h * 0.15, d + 0.1);
+            var bordeMat = new THREE.MeshStandardMaterial({ color: 0x6b7280, metalness: 0.05, roughness: 0.8 });
+            var borde = new THREE.Mesh(bordeGeo, bordeMat);
+            borde.position.y = h;
+            borde.receiveShadow = true;
+            group.add(borde);
+            
+            var pilarGeo = new THREE.BoxGeometry(0.25, h * 3, 0.25);
+            var pilarMat = new THREE.MeshStandardMaterial({ color: 0x78716c, metalness: 0.05, roughness: 0.75 });
+            var posiciones = [
+                { x: -w/2 + 0.2, z: -d/2 + 0.2 }, { x: w/2 - 0.2, z: -d/2 + 0.2 },
+                { x: w/2 - 0.2, z: d/2 - 0.2 }, { x: -w/2 + 0.2, z: d/2 - 0.2 }
+            ];
+            posiciones.forEach(function(pos) {
+                var pilar = new THREE.Mesh(pilarGeo, pilarMat);
+                pilar.position.set(pos.x, -h * 1.2, pos.z);
+                pilar.castShadow = true; pilar.receiveShadow = true;
+                group.add(pilar);
+            });
+            
+            if (eq.baranda !== false) {
+                var mureteH = 0.3;
+                var mureteGeoZ = new THREE.BoxGeometry(w + 0.05, mureteH, 0.08);
+                var mureteGeoX = new THREE.BoxGeometry(0.08, mureteH, d + 0.05);
+                var mureteMat = new THREE.MeshStandardMaterial({ color: 0x9ca3af, metalness: 0.05, roughness: 0.8 });
+                [-1, 1].forEach(function(side) {
+                    var mz = new THREE.Mesh(mureteGeoZ, mureteMat);
+                    mz.position.set(0, h + mureteH/2, side * (d/2));
+                    group.add(mz);
+                    var mx = new THREE.Mesh(mureteGeoX, mureteMat);
+                    mx.position.set(side * (w/2), h + mureteH/2, 0);
+                    group.add(mx);
+                });
+            }
+        } else {
+            // ═══ PLATAFORMA METÁLICA ═══
+            var pisoGeo = new THREE.BoxGeometry(w, h * 0.2, d);
+            var pisoMat = new THREE.MeshStandardMaterial({ color: 0x6b7280, metalness: 0.85, roughness: 0.3 });
+            var piso = new THREE.Mesh(pisoGeo, pisoMat);
+            piso.position.y = h;
+            piso.receiveShadow = true;
+            group.add(piso);
+            
+            var gratingMat = new THREE.MeshStandardMaterial({ color: 0x4b5563, metalness: 0.9, roughness: 0.25 });
+            for (var gx = -w/2 + 0.3; gx <= w/2 - 0.3; gx += 0.3) {
+                var gratingLine = new THREE.Mesh(new THREE.BoxGeometry(0.02, h * 0.22, d * 0.95), gratingMat);
+                gratingLine.position.set(gx, h, 0);
+                group.add(gratingLine);
+            }
+            
+            var vigaGeo = new THREE.BoxGeometry(w, h * 0.5, 0.1);
+            var vigaMat = new THREE.MeshStandardMaterial({ color: 0x4b5563, metalness: 0.9, roughness: 0.2 });
+            [-1, 1].forEach(function(side) {
+                var viga = new THREE.Mesh(vigaGeo, vigaMat);
+                viga.position.set(0, h * 0.3, side * (d/2 - 0.1));
+                viga.castShadow = true;
+                group.add(viga);
+            });
+            
+            var columnaGeo = new THREE.BoxGeometry(0.15, h * 3, 0.15);
+            var columnaMat = new THREE.MeshStandardMaterial({ color: 0x374151, metalness: 0.9, roughness: 0.2 });
+            var posCols = [
+                { x: -w/2 + 0.2, z: -d/2 + 0.2 }, { x: w/2 - 0.2, z: -d/2 + 0.2 },
+                { x: w/2 - 0.2, z: d/2 - 0.2 }, { x: -w/2 + 0.2, z: d/2 - 0.2 }
+            ];
+            posCols.forEach(function(pos) {
+                var columna = new THREE.Mesh(columnaGeo, columnaMat);
+                columna.position.set(pos.x, -h * 1.2, pos.z);
+                columna.castShadow = true;
+                group.add(columna);
+            });
+            
+            var placaGeo = new THREE.BoxGeometry(0.25, 0.03, 0.25);
+            var placaMat = new THREE.MeshStandardMaterial({ color: 0x1f2937, metalness: 0.8, roughness: 0.3 });
+            posCols.forEach(function(pos) {
+                var placa = new THREE.Mesh(placaGeo, placaMat);
+                placa.position.set(pos.x, -h * 2.7, pos.z);
+                group.add(placa);
+            });
+            
+            if (eq.baranda !== false) {
+                var barandaH = 1.1;
+                var pasamanosGeoZ = new THREE.CylinderGeometry(0.02, 0.02, w, 8);
+                var pasamanosGeoX = new THREE.CylinderGeometry(0.02, 0.02, d, 8);
+                var barandaMat = new THREE.MeshStandardMaterial({ color: 0xf59e0b, metalness: 0.7, roughness: 0.3 });
+                [-1, 1].forEach(function(side) {
+                    var pz = new THREE.Mesh(pasamanosGeoZ, barandaMat);
+                    pz.rotation.z = Math.PI / 2;
+                    pz.position.set(0, h + barandaH, side * (d/2 - 0.05));
+                    group.add(pz);
+                    var px = new THREE.Mesh(pasamanosGeoX, barandaMat);
+                    px.rotation.x = Math.PI / 2;
+                    px.position.set(side * (w/2 - 0.05), h + barandaH, 0);
+                    group.add(px);
+                });
+                var posteGeo = new THREE.CylinderGeometry(0.015, 0.015, barandaH, 8);
+                for (var px = -w/2 + 0.3; px <= w/2 - 0.3; px += 1.5) {
+                    [-1, 1].forEach(function(side) {
+                        var poste = new THREE.Mesh(posteGeo, barandaMat);
+                        poste.position.set(px, h + barandaH/2, side * (d/2 - 0.05));
+                        group.add(poste);
+                    });
+                }
+            }
+        }
+        
+        group.position.set(toM(eq.posX), toM(eq.posY), toM(eq.posZ));
+        group.userData = { tag: eq.tag, tipo: 'equipo' };
+        return group;
+    }
+    
     function createEquipmentMesh(eq) {
         if (!eq || !eq.tipo) return null;
         var tipo = (eq.tipo||'').toLowerCase();
@@ -222,7 +374,7 @@ const SmartFlowRender = (function() {
         if (tipo==='separador') return createTankHorizontal(eq);
         if (tipo==='clarificador'||tipo==='filtro_arena') return createTankVertical(eq);
         if (tipo==='osmosis'||tipo==='homogeneizador') return createBoxEquip(eq);
-        if (tipo==='plataforma') return createBoxEquip(eq);
+        if (tipo==='plataforma') return createPlataforma(eq);
         return createBoxEquip(eq);
     }
     
@@ -625,6 +777,7 @@ const SmartFlowRender = (function() {
         });
     }
     
+    // ═══ CÁMARA AJUSTADA ═══
     function fitCameraToEquipments() {
         if (!_engine) return;
         var scene=_engine.getScene(), camera=_engine.getCamera(), controls=_engine.getControls();
@@ -633,8 +786,8 @@ const SmartFlowRender = (function() {
         scene.traverse(function(c){ if (c.isMesh&&c.visible&&c.geometry&&!(c instanceof THREE.GridHelper||c instanceof THREE.ArrowHelper)){ bounds.expandByObject(c); has=true; }});
         if (!has){ camera.position.set(12,8,12); controls.target.set(0,0,0); controls.update(); return; }
         var center=bounds.getCenter(new THREE.Vector3()), size=bounds.getSize(new THREE.Vector3());
-        var maxDim=Math.max(size.x,size.y,size.z,1), dist=Math.min(maxDim*1.8,500);
-        camera.position.set(center.x+dist*0.7, center.y+dist*0.55, center.z+dist*0.7);
+        var maxDim=Math.max(size.x,size.y,size.z,1), dist=Math.min(maxDim*1.3,80);
+        camera.position.set(center.x+dist*0.8, center.y+dist*0.6, center.z+dist*0.8);
         controls.target.copy(center); controls.update();
     }
     
@@ -655,19 +808,27 @@ const SmartFlowRender = (function() {
         if (_labelRenderer&&_sceneRef&&_cameraRef) _labelRenderer.render(_sceneRef,_cameraRef);
     }
     
+    // ═══ INICIALIZACIÓN CON RENDER ORDER ═══
     function init(coreInstance, engineInstance) {
         _core=coreInstance; _engine=engineInstance;
         if (!_engine){ console.error('SmartFlowRender: engineInstance requerido'); return; }
         _sceneRef=_engine.getScene(); _cameraRef=_engine.getCamera(); _rendererRef=_engine.getRenderer();
         if (!_sceneRef||!_cameraRef||!_rendererRef){ console.error('SmartFlowRender: Engine no inicializado'); return; }
         setupEffects(_sceneRef,_cameraRef,_rendererRef);
-        _symbolGroup.userData={isSymbolGroup:true}; _dimensionGroup.userData={isDimensionGroup:true}; _flowArrowGroup.userData={isFlowArrowGroup:true};
+        
+        _symbolGroup.userData={isSymbolGroup:true}; 
+        _symbolGroup.renderOrder = 1;
+        _flowArrowGroup.userData={isFlowArrowGroup:true};
+        _flowArrowGroup.renderOrder = 2;
+        _dimensionGroup.userData={isDimensionGroup:true};
+        _dimensionGroup.renderOrder = 3;
+        
         _sceneRef.add(_symbolGroup); _sceneRef.add(_dimensionGroup); _sceneRef.add(_flowArrowGroup);
         if (typeof SmartFlowLabels3D!=='undefined'){ SmartFlowLabels3D.init(coreInstance,engineInstance); setTimeout(function(){ SmartFlowLabels3D.refreshAllLabels(); SmartFlowLabels3D.refreshAllDimensions(); },800); }
         if (typeof _core.on==='function') _core.on('modelChanged',function(){ scheduleRefresh(); });
         window.set3DView=function(type){ _engine.setView(type); };
         scheduleRefresh();
-        console.log("✔ SmartFlowRender v9.2.2 - Escala corregida (mm→m)");
+        console.log("✔ SmartFlowRender v9.2.3 - FINAL (Plataforma + Capas + Escala)");
     }
     
     return {
