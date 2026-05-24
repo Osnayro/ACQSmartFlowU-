@@ -1,7 +1,8 @@
+
 // ============================================================
-// ARCHIVO: js/ThreeJsEngine.js - v2.3
-// Motor 3D: Cámara fixed-frustum, Render delegado, Memoria estable
-// Correcciones: Zoom táctil, Doble render, Fuga en clearAllMeshes
+// ARCHIVO: js/ThreeJsEngine.js - v2.4 FINAL
+// Motor 3D: Fixed-Frustum + Anti-Clipping + Zoom seguro
+// Correcciones: near=0.01, zoom min=0.3, distancia min=5m
 // ============================================================
 const ThreeJsEngine = (function() {
     let _scene = null;
@@ -23,7 +24,6 @@ const ThreeJsEngine = (function() {
     let _isDragging = false;
     let _dragStart = { x: 0, y: 0 };
     
-    // ═══ FRUSTUM FIJO (NO SE MODIFICA) ═══
     const BASE_FRUSTUM_SIZE = 20;
     
     // ============ INICIALIZACIÓN ============
@@ -38,7 +38,6 @@ const ThreeJsEngine = (function() {
         
         _container.innerHTML = '';
         
-        // ── Renderer WebGL ──
         try {
             _renderer = new THREE.WebGLRenderer({ 
                 antialias: true,
@@ -55,14 +54,11 @@ const ThreeJsEngine = (function() {
             return false;
         }
         
-        // ── Escena ──
         _scene = new THREE.Scene();
         _scene.background = new THREE.Color(0x0a0f1a);
         
-        // ═══ CÁMARA FIXED-FRUSTUM ═══
         _camera = createCamera();
         
-        // ── Controles de órbita ──
         try {
             _controls = new THREE.OrbitControls(_camera, _renderer.domElement);
             _controls.target.set(0, 0, 0);
@@ -81,16 +77,10 @@ const ThreeJsEngine = (function() {
             };
         }
         
-        // ── Luces ──
         setupLights();
-        
-        // ── Grid de referencia ──
         setupGrid();
-        
-        // ── Ejes de origen ──
         setupAxes();
         
-        // ── Eventos ──
         _renderer.domElement.addEventListener('pointerdown', onPointerDown);
         _renderer.domElement.addEventListener('pointerup', onPointerUp);
         _renderer.domElement.addEventListener('pointermove', onPointerMove);
@@ -98,14 +88,13 @@ const ThreeJsEngine = (function() {
         
         window.addEventListener('resize', onResize);
         
-        // ── Arrancar bucle ──
         resumeLoop();
         
-        console.log('✔ ThreeJsEngine v2.3 inicializado (fixed-frustum + render delegado)');
+        console.log('✔ ThreeJsEngine v2.4 FINAL (anti-clipping + zoom seguro)');
         return true;
     }
     
-    // ═══ CÁMARA FIXED-FRUSTUM ═══
+    // ═══ CÁMARA FIXED-FRUSTUM (near=0.01 para evitar clipping) ═══
     function createCamera() {
         var aspect = (_container.clientWidth / _container.clientHeight) || 1;
         var frustumSize = BASE_FRUSTUM_SIZE;
@@ -115,7 +104,7 @@ const ThreeJsEngine = (function() {
             frustumSize * aspect / 2,
             frustumSize / 2,
             frustumSize / -2,
-            0.1,
+            0.01,   // ═══ CORREGIDO: near más bajo para evitar cortes ═══
             2000
         );
         
@@ -125,7 +114,6 @@ const ThreeJsEngine = (function() {
         return camera;
     }
     
-    // ============ LUCES ============
     function setupLights() {
         var ambientLight = new THREE.AmbientLight(0x334455, 1.5);
         _scene.add(ambientLight);
@@ -151,14 +139,12 @@ const ThreeJsEngine = (function() {
         _scene.add(hemiLight);
     }
     
-    // ============ GRID ============
     function setupGrid() {
         var gridHelper = new THREE.GridHelper(40, 40, 0x2a3a5a, 0x1a2a3a);
         gridHelper.position.y = -0.01;
         _scene.add(gridHelper);
     }
     
-    // ============ EJES (PROTEGIDOS CONTRA FUGAS) ============
     let _axesGroup = null;
     
     function setupAxes() {
@@ -182,14 +168,11 @@ const ThreeJsEngine = (function() {
         _scene.add(_axesGroup);
     }
     
-    // ============ RAYCASTER ============
     function getIntersections(event) {
         if (!_renderer || !_camera) return [];
-        
         var rect = _renderer.domElement.getBoundingClientRect();
         _mouse.x = ((event.clientX - rect.left) / rect.width) * 2 - 1;
         _mouse.y = -((event.clientY - rect.top) / rect.height) * 2 + 1;
-        
         _raycaster.setFromCamera(_mouse, _camera);
         return _raycaster.intersectObjects(_raycastTargets, true);
     }
@@ -214,7 +197,6 @@ const ThreeJsEngine = (function() {
         var dx = event.clientX - _dragStart.x;
         var dy = event.clientY - _dragStart.y;
         var dist = Math.hypot(dx, dy);
-        
         if (dist < 5) {
             var intersects = getIntersections(event);
             if (intersects.length > 0) {
@@ -236,14 +218,11 @@ const ThreeJsEngine = (function() {
     
     function onPointerMove(event) {
         if (_dragStart.x && (Math.abs(event.clientX - _dragStart.x) > 3 || 
-            Math.abs(event.clientY - _dragStart.y) > 3)) {
-            _isDragging = true;
-        }
+            Math.abs(event.clientY - _dragStart.y) > 3)) _isDragging = true;
         var intersects = getIntersections(event);
         _renderer.domElement.style.cursor = (intersects.length > 0) ? 'pointer' : 'default';
     }
     
-    // ============ GESTIÓN DE MALLAS ============
     function registerVisualMesh(tag, mesh) {
         if (mesh) {
             mesh.userData.tag = tag;
@@ -265,7 +244,6 @@ const ThreeJsEngine = (function() {
         return _visualMeshes.get(tag) || null;
     }
     
-    // ═══ LIMPIEZA CORREGIDA (PROTEGE ARROWHELPER) ═══
     function clearAllMeshes() {
         var toRemove = [];
         _scene.traverse(function(child) {
@@ -280,20 +258,12 @@ const ThreeJsEngine = (function() {
                 toRemove.push(child);
             }
         });
-        
         toRemove.forEach(function(obj) {
-            // Limpiar recursivamente los hijos ANTES de remover
             obj.traverse(function(node) {
-                if (node.geometry) { 
-                    node.geometry.dispose(); 
-                    node.geometry = null; 
-                }
+                if (node.geometry) { node.geometry.dispose(); node.geometry = null; }
                 if (node.material) {
                     if (Array.isArray(node.material)) {
-                        node.material.forEach(function(m) { 
-                            if (m.map) { m.map.dispose(); m.map = null; } 
-                            m.dispose(); 
-                        });
+                        node.material.forEach(function(m) { if (m.map) { m.map.dispose(); m.map = null; } m.dispose(); });
                     } else {
                         if (node.material.map) { node.material.map.dispose(); node.material.map = null; }
                         node.material.dispose();
@@ -303,79 +273,52 @@ const ThreeJsEngine = (function() {
             });
             if (obj.parent) obj.parent.remove(obj);
         });
-        
         _visualMeshes.clear();
         _raycastTargets = [];
     }
     
-    function addToScene(object) {
-        if (object && _scene) _scene.add(object);
-    }
+    function addToScene(object) { if (object && _scene) _scene.add(object); }
+    function removeFromScene(object) { if (object && _scene && object.parent) object.parent.remove(object); }
     
-    function removeFromScene(object) {
-        if (object && _scene && object.parent) {
-            object.parent.remove(object);
-        }
-    }
-    
-    // ============ BUCLE DE ANIMACIÓN (RENDER DELEGADO) ============
     function pauseLoop() {
         _loopActive = false;
-        if (_animationId) {
-            cancelAnimationFrame(_animationId);
-            _animationId = null;
-        }
+        if (_animationId) { cancelAnimationFrame(_animationId); _animationId = null; }
     }
     
     function resumeLoop() {
-        if (!_loopActive) {
-            _loopActive = true;
-            animate();
-        }
+        if (!_loopActive) { _loopActive = true; animate(); }
     }
     
     function animate() {
         if (!_loopActive) return;
-        
         _animationId = requestAnimationFrame(animate);
-        
         if (_controls && _controls.update) _controls.update();
-        
-        // ═══ DELEGAR RENDER AL MÓDULO SMARTFLOWRENDER ═══
         if (typeof SmartFlowRender !== 'undefined' && SmartFlowRender.renderFrame) {
             SmartFlowRender.renderFrame();
-        } else {
-            if (_renderer && _scene && _camera) {
-                _renderer.render(_scene, _camera);
-            }
+        } else if (_renderer && _scene && _camera) {
+            _renderer.render(_scene, _camera);
         }
-        
         if (typeof SmartFlowLabels3D !== 'undefined' && SmartFlowLabels3D.render) {
             SmartFlowLabels3D.render();
         }
     }
     
-    // ============ RESIZE (FRUSTUM FIJO, SOLO ASPECT) ============
     function onResize() {
         if (!_container || !_camera || !_renderer) return;
-        
         var width = _container.clientWidth;
         var height = _container.clientHeight;
         if (width === 0 || height === 0) return;
-        
         var aspect = width / height;
         var frustumSize = BASE_FRUSTUM_SIZE;
-        
         _camera.left = frustumSize * aspect / -2;
         _camera.right = frustumSize * aspect / 2;
         _camera.top = frustumSize / 2;
         _camera.bottom = frustumSize / -2;
         _camera.updateProjectionMatrix();
-        
         _renderer.setSize(width, height);
     }
     
-    // ═══ ENCUADRE POR ZOOM (NO MODIFICA FRUSTUM) ═══
+    // ═══ ENCUADRE POR ZOOM (CORREGIDO: zoom mínimo 0.3, distancia mínima 5m) ═══
     function fitCameraToEquipments() {
         if (!_scene || !_camera || !_controls) return;
         
@@ -388,7 +331,6 @@ const ThreeJsEngine = (function() {
                 if (child instanceof THREE.ArrowHelper) return;
                 if (child.userData && (child.userData.isLabel || child.userData.isLabelAnchor || 
                     child.userData.isLineLabel || child.userData.isDimensionText)) return;
-                
                 bounds.expandByObject(child);
                 hasValidObject = true;
             }
@@ -411,52 +353,38 @@ const ThreeJsEngine = (function() {
         var requiredZoom = BASE_FRUSTUM_SIZE / (maxDim * padding);
         
         var distance = maxDim * 2.5;
+        distance = Math.max(distance, 5); // ═══ NUEVO: mínimo 5 metros ═══
+        
         _camera.position.set(
             center.x + distance * 0.7,
             center.y + distance * 0.55,
             center.z + distance * 0.7
         );
         
-        _camera.zoom = Math.min(Math.max(requiredZoom, 0.1), 15.0);
+        _camera.zoom = Math.min(Math.max(requiredZoom, 0.3), 10.0); // ═══ CORREGIDO ═══
         _camera.updateProjectionMatrix();
         
         _controls.target.copy(center);
         _controls.update();
     }
     
-    // ═══ VISTAS PREDEFINIDAS (RESPETAN CENTRO DE MASA) ═══
     function setView(type) {
         if (!_camera || !_controls) return;
-        
         var center = new THREE.Vector3();
-        if (_controls.target) {
-            center.copy(_controls.target);
-        }
-        
+        if (_controls.target) center.copy(_controls.target);
         var dist = 30;
-        
         switch(type) {
-            case 'iso':
-                _camera.position.set(center.x + dist * 0.7, center.y + dist * 0.55, center.z + dist * 0.7);
-                break;
-            case 'top':
-                _camera.position.set(center.x, center.y + dist, center.z);
-                break;
-            case 'front':
-                _camera.position.set(center.x, center.y, center.z + dist);
-                break;
-            case 'side':
-                _camera.position.set(center.x + dist, center.y, center.z);
-                break;
+            case 'iso': _camera.position.set(center.x + dist*0.7, center.y + dist*0.55, center.z + dist*0.7); break;
+            case 'top': _camera.position.set(center.x, center.y + dist, center.z); break;
+            case 'front': _camera.position.set(center.x, center.y, center.z + dist); break;
+            case 'side': _camera.position.set(center.x + dist, center.y, center.z); break;
         }
-        
         _camera.lookAt(center);
         _camera.zoom = 1.0;
         _camera.updateProjectionMatrix();
         _controls.update();
     }
     
-    // ============ EXPORTACIÓN ============
     function exportToDataURL() {
         if (_renderer && _scene && _camera) {
             _renderer.render(_scene, _camera);
@@ -465,19 +393,16 @@ const ThreeJsEngine = (function() {
         return null;
     }
     
-    // ============ LIMPIEZA TOTAL ============
     function dispose() {
         pauseLoop();
         window.removeEventListener('resize', onResize);
         clearAllMeshes();
-        
         if (_renderer) {
             _renderer.dispose();
             if (_renderer.domElement && _renderer.domElement.parentNode) {
                 _renderer.domElement.parentNode.removeChild(_renderer.domElement);
             }
         }
-        
         _scene = null;
         _camera = null;
         _renderer = null;
@@ -488,7 +413,6 @@ const ThreeJsEngine = (function() {
         _raycastTargets = [];
     }
     
-    // ============ API PÚBLICA ============
     return {
         init: init,
         getScene: function() { return _scene; },
