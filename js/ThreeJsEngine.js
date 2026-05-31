@@ -429,3 +429,5 @@ const ThreeJsEngine = (function() {
         dispose: dispose
     };
 })();
+
+window.ThreeJsEngine = ThreeJsEngine;
