@@ -823,3 +823,5 @@ const SmartFlowRender = (function() {
         setLabelRenderer:function(lr){_labelRenderer=lr;}
     };
 })();
+
+window.SmartFlowRender = SmartFlowRender;
