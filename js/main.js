@@ -1,9 +1,8 @@
-
 // ============================================================
-// SMARTFLOW MAIN - Punto de Entrada Principal v2.16
+// SMARTFLOW MAIN - Punto de Entrada Principal v2.17
 // Archivo: js/main.js
-// Correcciones: autoCenter 3D, Fullscreen 3D, scheduleRender 3D,
-//               Resize estable con debounce
+// Correcciones: waitFor3DModules, autoCenter 3D, Fullscreen 3D,
+//               scheduleRender 3D, Resize estable con debounce
 // ============================================================
 
 (function() {
@@ -120,7 +119,6 @@
         }
     }
     
-    // ═══ CORREGIDO: scheduleRender también dispara en 3D ═══
     function scheduleRender() {
         if (currentViewMode === '2d' && window.SmartFlowRenderer) {
             window.SmartFlowRenderer.render();
@@ -129,7 +127,6 @@
         }
     }
     
-    // ═══ CORREGIDO: autoCenter funciona en 3D ═══
     function autoCenter() {
         if (currentViewMode === '2d' && window.SmartFlowRenderer) {
             window.SmartFlowRenderer.autoCenter();
@@ -140,7 +137,6 @@
         }
     }
     
-    // ═══ CORREGIDO: Fullscreen funciona en 3D ═══
     function toggleFullscreen() {
         document.body.classList.add('fullscreen-mode');
         if (currentViewMode === '2d' && window.SmartFlowRenderer) {
@@ -156,7 +152,6 @@
         }
     }
     
-    // ═══ CORREGIDO: Exit Fullscreen funciona en 3D ═══
     function exitFullscreen() {
         document.body.classList.remove('fullscreen-mode');
         if (currentViewMode === '2d' && window.SmartFlowRenderer) {
@@ -214,6 +209,25 @@
         `;
     }
     
+    // -------------------- 4.5. WAIT FOR 3D MODULES (NUEVO) --------------------
+    function waitFor3DModules(callback) {
+        var maxAttempts = 50;
+        var attempts = 0;
+        function check() {
+            if (window.ThreeJsEngine && window.SmartFlowRender && window.SmartFlowLabels3D) {
+                console.log('✅ Módulos 3D listos');
+                callback();
+            } else if (attempts < maxAttempts) {
+                attempts++;
+                setTimeout(check, 200);
+            } else {
+                console.warn('⚠️ Módulos 3D no disponibles después de ' + (maxAttempts * 200) + 'ms');
+                callback();
+            }
+        }
+        check();
+    }
+    
     // -------------------- 5. INICIALIZACIÓN DE MÓDULOS --------------------
     function initModules() {
         SmartFlowCore.init(notify, scheduleRender, updatePropertyPanel);
@@ -232,13 +246,15 @@
             if (canvas) canvas.style.display = 'none';
             if (container3D) container3D.style.display = 'block';
             
-            if (typeof ThreeJsEngine !== 'undefined' && container3D) {
-                ThreeJsEngine.init(container3D, SmartFlowCore);
-                _is3DInitialized = true;
-                if (typeof SmartFlowRender !== 'undefined') {
-                    SmartFlowRender.init(SmartFlowCore, ThreeJsEngine);
+            waitFor3DModules(function() {
+                if (typeof ThreeJsEngine !== 'undefined' && container3D) {
+                    ThreeJsEngine.init(container3D, SmartFlowCore);
+                    _is3DInitialized = true;
+                    if (typeof SmartFlowRender !== 'undefined') {
+                        SmartFlowRender.init(SmartFlowCore, ThreeJsEngine);
+                    }
                 }
-            }
+            });
         }
         
         if (typeof SmartFlowRouter !== 'undefined') {
@@ -286,25 +302,26 @@
                 container3D.style.height = '100%';
             }
             
-            if (typeof ThreeJsEngine !== 'undefined' && container3D) {
-                if (!_is3DInitialized) {
-                    ThreeJsEngine.init(container3D, SmartFlowCore);
-                    _is3DInitialized = true;
-                } else {
-                    if (ThreeJsEngine.resumeLoop) ThreeJsEngine.resumeLoop();
-                }
-                
-                if (typeof SmartFlowRender !== 'undefined') {
-                    SmartFlowRender.init(SmartFlowCore, ThreeJsEngine);
-                }
-                
-                // Encuadrar después de cambiar a 3D
-                setTimeout(function() {
-                    if (ThreeJsEngine && ThreeJsEngine.fitCameraToEquipments) {
-                        ThreeJsEngine.fitCameraToEquipments();
+            waitFor3DModules(function() {
+                if (typeof ThreeJsEngine !== 'undefined' && container3D) {
+                    if (!_is3DInitialized) {
+                        ThreeJsEngine.init(container3D, SmartFlowCore);
+                        _is3DInitialized = true;
+                    } else {
+                        if (ThreeJsEngine.resumeLoop) ThreeJsEngine.resumeLoop();
                     }
-                }, 500);
-            }
+                    
+                    if (typeof SmartFlowRender !== 'undefined') {
+                        SmartFlowRender.init(SmartFlowCore, ThreeJsEngine);
+                    }
+                    
+                    setTimeout(function() {
+                        if (ThreeJsEngine && ThreeJsEngine.fitCameraToEquipments) {
+                            ThreeJsEngine.fitCameraToEquipments();
+                        }
+                    }, 500);
+                }
+            });
         }
         
         if (typeof SmartFlowRouter !== 'undefined') {
@@ -715,8 +732,8 @@
             if (currentViewMode === '2d' && SmartFlowRenderer && SmartFlowRenderer.exportPDF) {
                 SmartFlowRenderer.exportPDF();
                 notify("✅ PDF generado correctamente.", false);
-            } else if (currentViewMode === '3d' && ThreeJsEngine) {
-                var dataURL = ThreeJsEngine.exportToDataURL();
+            } else if (currentViewMode === '3d' && window.ThreeJsEngine) {
+                var dataURL = window.ThreeJsEngine.exportToDataURL();
                 if (dataURL && typeof window.jspdf !== 'undefined') {
                     var doc = new window.jspdf.jsPDF({ orientation: 'landscape' });
                     doc.addImage(dataURL, 'PNG', 10, 10, 277, 150);
@@ -789,7 +806,6 @@
             });
         }
         
-        // ═══ GESTIÓN DE RESIZE ESTABLE ═══
         let resizeTimeout;
         window.addEventListener('resize', function() {
             if (currentViewMode === '2d' && window.SmartFlowRenderer) {
