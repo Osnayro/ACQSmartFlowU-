@@ -6,15 +6,15 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no">
     <title>SmartEngp | AcQuaBlue</title>
     
-    <!-- Three.js v0.128.0 + complementos (Orden optimizado) -->
-    <script src="https://cdn.jsdelivr.net/npm/three@0.128.0/build/three.min.js"></script>
-    <script src="https://cdn.jsdelivr.net/npm/three@0.128.0/examples/js/controls/OrbitControls.js"></script>
-    <script src="https://cdn.jsdelivr.net/npm/three@0.128.0/examples/js/shaders/CopyShader.js"></script>
-    <script src="https://cdn.jsdelivr.net/npm/three@0.128.0/examples/js/renderers/CSS2DRenderer.js"></script>
-    <script src="https://cdn.jsdelivr.net/npm/three@0.128.0/examples/js/postprocessing/EffectComposer.js"></script>
-    <script src="https://cdn.jsdelivr.net/npm/three@0.128.0/examples/js/postprocessing/RenderPass.js"></script>
-    <script src="https://cdn.jsdelivr.net/npm/three@0.128.0/examples/js/postprocessing/ShaderPass.js"></script>
-    <script src="https://cdn.jsdelivr.net/npm/three@0.128.0/examples/js/postprocessing/OutlinePass.js"></script>
+    <!-- Three.js r160 con Import Map -->
+    <script type="importmap">
+        {
+            "imports": {
+                "three": "https://cdn.jsdelivr.net/npm/three@0.160.0/build/three.module.js",
+                "three/addons/": "https://cdn.jsdelivr.net/npm/three@0.160.0/examples/jsm/"
+            }
+        }
+    </script>
     
     <!-- Librerías de exportación -->
     <script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"></script>
@@ -380,15 +380,19 @@
         <button id="btnFullscreenExit" style="padding:12px 20px; border-radius:30px; background:#ef4444; color:white; font-weight:bold; border:none;">✕ Salir</button>
     </div>
 
-    <!-- Módulos en orden de inicialización -->
-    <script src="js/ThreeJsEngine.js"></script>
+    <!-- Módulos 2.5D (sin cambios) -->
     <script src="js/core.js"></script>
     <script src="js/catalog.js"></script>
     <script src="js/router.js"></script>
     <script src="js/renderer.js"></script>
-    <script src="js/render.js"></script>
     <script src="js/commands.js"></script>
-    <script src="js/SmartFlowLabels3D.js"></script>
+
+    <!-- Módulos 3D migrados a r160 (type="module") -->
+    <script type="module" src="js/ThreeJsEngine.js"></script>
+    <script type="module" src="js/render.js"></script>
+    <script type="module" src="js/SmartFlowLabels3D.js"></script>
+
+    <!-- Main (sin cambios) -->
     <script src="js/main.js"></script>
 
     <script>
