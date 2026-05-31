@@ -1,9 +1,7 @@
 
-// ============================================================
-// ARCHIVO: js/ThreeJsEngine.js - v2.4 FINAL
-// Motor 3D: Fixed-Frustum + Anti-Clipping + Zoom seguro
-// Correcciones: near=0.01, zoom min=0.3, distancia min=5m
-// ============================================================
+import * as THREE from 'three';
+import { OrbitControls } from 'three/addons/controls/OrbitControls.js';
+
 const ThreeJsEngine = (function() {
     let _scene = null;
     let _camera = null;
@@ -26,7 +24,6 @@ const ThreeJsEngine = (function() {
     
     const BASE_FRUSTUM_SIZE = 20;
     
-    // ============ INICIALIZACIÓN ============
     function init(containerElement, coreInstance) {
         _container = containerElement;
         _core = coreInstance;
@@ -60,7 +57,7 @@ const ThreeJsEngine = (function() {
         _camera = createCamera();
         
         try {
-            _controls = new THREE.OrbitControls(_camera, _renderer.domElement);
+            _controls = new OrbitControls(_camera, _renderer.domElement);
             _controls.target.set(0, 0, 0);
             _controls.enableDamping = true;
             _controls.dampingFactor = 0.08;
@@ -90,11 +87,10 @@ const ThreeJsEngine = (function() {
         
         resumeLoop();
         
-        console.log('✔ ThreeJsEngine v2.4 FINAL (anti-clipping + zoom seguro)');
+        console.log('✔ ThreeJsEngine v3.0 r160 (migrado)');
         return true;
     }
     
-    // ═══ CÁMARA FIXED-FRUSTUM (near=0.01 para evitar clipping) ═══
     function createCamera() {
         var aspect = (_container.clientWidth / _container.clientHeight) || 1;
         var frustumSize = BASE_FRUSTUM_SIZE;
@@ -104,7 +100,7 @@ const ThreeJsEngine = (function() {
             frustumSize * aspect / 2,
             frustumSize / 2,
             frustumSize / -2,
-            0.01,   // ═══ CORREGIDO: near más bajo para evitar cortes ═══
+            0.01,
             2000
         );
         
@@ -318,7 +314,6 @@ const ThreeJsEngine = (function() {
         _renderer.setSize(width, height);
     }
     
-    // ═══ ENCUADRE POR ZOOM (CORREGIDO: zoom mínimo 0.3, distancia mínima 5m) ═══
     function fitCameraToEquipments() {
         if (!_scene || !_camera || !_controls) return;
         
@@ -353,7 +348,7 @@ const ThreeJsEngine = (function() {
         var requiredZoom = BASE_FRUSTUM_SIZE / (maxDim * padding);
         
         var distance = maxDim * 2.5;
-        distance = Math.max(distance, 5); // ═══ NUEVO: mínimo 5 metros ═══
+        distance = Math.max(distance, 5);
         
         _camera.position.set(
             center.x + distance * 0.7,
@@ -361,7 +356,7 @@ const ThreeJsEngine = (function() {
             center.z + distance * 0.7
         );
         
-        _camera.zoom = Math.min(Math.max(requiredZoom, 0.3), 10.0); // ═══ CORREGIDO ═══
+        _camera.zoom = Math.min(Math.max(requiredZoom, 0.3), 10.0);
         _camera.updateProjectionMatrix();
         
         _controls.target.copy(center);
