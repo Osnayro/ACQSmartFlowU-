@@ -1,11 +1,8 @@
 
-// ============================================================
-// SMARTFLOW RENDER v9.2.3 - FINAL
-// Archivo: js/render.js
-// Mejoras: Domo orientado, Anillos proporcionales, Cámara ajustada,
-//          RenderOrder por capas, Plataforma concreto/metal,
-//          Conversión mm→m completa, 100% Catálogo
-// ============================================================
+import * as THREE from 'three';
+import { EffectComposer } from 'three/addons/postprocessing/EffectComposer.js';
+import { RenderPass } from 'three/addons/postprocessing/RenderPass.js';
+import { OutlinePass } from 'three/addons/postprocessing/OutlinePass.js';
 
 const SmartFlowRender = (function() {
     let _composer = null;
@@ -26,12 +23,10 @@ const SmartFlowRender = (function() {
     let _cameraRef = null;
     let _rendererRef = null;
     
-    // ============ CONVERSIÓN DE UNIDADES ============
     function toM(mmValue) { return (mmValue || 0) / 1000; }
     function diamToRadiusM(diamPulg) { return ((diamPulg || 4) * 25.4) / 2000; }
     function compSize(diamPulg) { return diamToRadiusM(diamPulg) * 3; }
     
-    // ============ COLORES ============
     function getPipeColor(spec) {
         var s = (spec || '').toUpperCase();
         if (s.includes('PPR')) return 0x10b981;
@@ -75,7 +70,6 @@ const SmartFlowRender = (function() {
     const matGreen = new THREE.MeshStandardMaterial({ color: 0x22c55e, roughness: 0.4 });
     const matBrass = new THREE.MeshStandardMaterial({ color: 0xd4a800, metalness: 0.8, roughness: 0.2 });
     
-    // ============ ORIENTACIÓN ESTABLE ============
     function orientComponent(group, dirVec) {
         if (!dirVec || dirVec.lengthSq() < 0.001) return;
         var targetMatrix = new THREE.Matrix4();
@@ -85,19 +79,20 @@ const SmartFlowRender = (function() {
         group.rotateY(Math.PI / 2);
     }
     
-    // ============ EFECTOS ============
     function setupEffects(scene, camera, renderer) {
         if (!scene || !camera || !renderer) return;
-        if (typeof THREE.EffectComposer !== 'undefined') {
-            _composer = new THREE.EffectComposer(renderer);
-            _composer.addPass(new THREE.RenderPass(scene, camera));
-            if (typeof THREE.OutlinePass !== 'undefined') {
-                _outlinePass = new THREE.OutlinePass(new THREE.Vector2(window.innerWidth, window.innerHeight), scene, camera);
-                _outlinePass.edgeStrength = 3; _outlinePass.edgeGlow = 0.6; _outlinePass.edgeThickness = 1.5;
-                _outlinePass.pulsePeriod = 2;
-                _outlinePass.visibleEdgeColor.setHex(0x00f2ff); _outlinePass.hiddenEdgeColor.setHex(0x1e293b);
-                _composer.addPass(_outlinePass);
-            }
+        try {
+            _composer = new EffectComposer(renderer);
+            _composer.addPass(new RenderPass(scene, camera));
+            _outlinePass = new OutlinePass(new THREE.Vector2(window.innerWidth, window.innerHeight), scene, camera);
+            _outlinePass.edgeStrength = 3; _outlinePass.edgeGlow = 0.6; _outlinePass.edgeThickness = 1.5;
+            _outlinePass.pulsePeriod = 2;
+            _outlinePass.visibleEdgeColor.setHex(0x00f2ff); _outlinePass.hiddenEdgeColor.setHex(0x1e293b);
+            _composer.addPass(_outlinePass);
+        } catch (e) {
+            console.warn('SmartFlowRender: Efectos de postprocesado no disponibles', e);
+            _composer = null;
+            _outlinePass = null;
         }
     }
     
@@ -124,7 +119,6 @@ const SmartFlowRender = (function() {
         }
     }
     
-    // ============ EQUIPOS ============
     function createTankVertical(eq) {
         var color = getEquipmentColor(eq.tipo), 
             mat = createMaterial(color, 0.4, 0.35), 
@@ -230,7 +224,6 @@ const SmartFlowRender = (function() {
         return group;
     }
     
-    // ═══ NUEVO: PLATAFORMA CONCRETO vs METAL ═══
     function createPlataforma(eq) {
         var material = (eq.material || '').toUpperCase();
         var esConcreto = material.includes('CONCRETO') || material.includes('CEMENTO') || material.includes('HORMIGON');
@@ -243,7 +236,6 @@ const SmartFlowRender = (function() {
         var group = new THREE.Group();
         
         if (esConcreto) {
-            // ═══ PLATAFORMA DE CONCRETO ═══
             var losaGeo = new THREE.BoxGeometry(w, h, d);
             var losaMat = new THREE.MeshStandardMaterial({ color: 0x9ca3af, metalness: 0.05, roughness: 0.85 });
             var losa = new THREE.Mesh(losaGeo, losaMat);
@@ -286,7 +278,6 @@ const SmartFlowRender = (function() {
                 });
             }
         } else {
-            // ═══ PLATAFORMA METÁLICA ═══
             var pisoGeo = new THREE.BoxGeometry(w, h * 0.2, d);
             var pisoMat = new THREE.MeshStandardMaterial({ color: 0x6b7280, metalness: 0.85, roughness: 0.3 });
             var piso = new THREE.Mesh(pisoGeo, pisoMat);
@@ -378,7 +369,6 @@ const SmartFlowRender = (function() {
         return createBoxEquip(eq);
     }
     
-    // ============ TUBERÍAS ============
     function createPipeMesh(line) {
         var pts = _core.getLinePoints(line) || line._cachedPoints || line.points3D || [];
         if (pts.length < 2) return null;
@@ -406,7 +396,6 @@ const SmartFlowRender = (function() {
         return pipe;
     }
     
-    // ============ COMPONENTES (FITTINGS) ============
     function createFitting(comp, pos3D, dirVec, size, compType, spec) {
         var type = (compType || comp.type || '').toUpperCase(), s = size;
         var color = getPipeColor(spec);
@@ -577,7 +566,6 @@ const SmartFlowRender = (function() {
         return group;
     }
     
-    // ============ VÁLVULAS E INSTRUMENTOS ============
     function createValve(comp, pos3D, dirVec, size, compType, spec) {
         var type = (compType || comp.type || '').toUpperCase(), s = size;
         var color = getPipeColor(spec);
@@ -706,7 +694,6 @@ const SmartFlowRender = (function() {
                t.includes('PIPE_CLAMP')||t.includes('ABRAZADERA');
     }
     
-    // ============ REFRESCO ============
     function refreshAllSymbols() {
         if (!_core) return;
         deepDisposeGroup(_symbolGroup);
@@ -777,7 +764,6 @@ const SmartFlowRender = (function() {
         });
     }
     
-    // ═══ CÁMARA AJUSTADA ═══
     function fitCameraToEquipments() {
         if (!_engine) return;
         var scene=_engine.getScene(), camera=_engine.getCamera(), controls=_engine.getControls();
@@ -808,7 +794,6 @@ const SmartFlowRender = (function() {
         if (_labelRenderer&&_sceneRef&&_cameraRef) _labelRenderer.render(_sceneRef,_cameraRef);
     }
     
-    // ═══ INICIALIZACIÓN CON RENDER ORDER ═══
     function init(coreInstance, engineInstance) {
         _core=coreInstance; _engine=engineInstance;
         if (!_engine){ console.error('SmartFlowRender: engineInstance requerido'); return; }
@@ -828,7 +813,7 @@ const SmartFlowRender = (function() {
         if (typeof _core.on==='function') _core.on('modelChanged',function(){ scheduleRefresh(); });
         window.set3DView=function(type){ _engine.setView(type); };
         scheduleRefresh();
-        console.log("✔ SmartFlowRender v9.2.3 - FINAL (Plataforma + Capas + Escala)");
+        console.log("✔ SmartFlowRender v9.2.3 - FINAL (Plataforma + Capas + Escala) migrado a r160");
     }
     
     return {
