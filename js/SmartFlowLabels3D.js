@@ -558,3 +558,5 @@ const SmartFlowLabels3D = (function() {
         dispose: dispose
     };
 })();
+
+window.SmartFlowLabels3D = SmartFlowLabels3D;
