@@ -1,8 +1,10 @@
 
 // ============================================================
-// SMARTFLOW CORE v5.5 - Motor de Datos de Ingeniería
+// SMARTFLOW CORE v5.6 - Motor de Datos de Ingeniería
 // Archivo: js/core.js
 // Soporte: Modo dual 2D/3D, API unificada, índices mejorados
+// Correcciones v5.6: Métodos removeEquipment/removeLine expuestos,
+//                    rebuildIndexes público, _saveState público
 // ============================================================
 
 const SmartFlowCore = (function() {
@@ -37,6 +39,19 @@ const SmartFlowCore = (function() {
                 schedule: "SCH 80",
                 connectionType: "BUTT_WELD",
                 fittingNorm: "ASME B16.9"
+            },
+            "HDPE_PN10": {
+                mat: "HDPE",
+                norma: "ISO 4427",
+                presion: "PN 10",
+                connectionType: "BUTT_WELD",
+                fittingNorm: "ISO 8085"
+            },
+            "PVC_SCH80": {
+                mat: "PVC",
+                schedule: "SCH 80",
+                connectionType: "SOLVENT_CEMENT",
+                fittingNorm: "ASTM D2467"
             }
         }
     };
@@ -44,7 +59,7 @@ const SmartFlowCore = (function() {
     // Índices unificados para búsqueda rápida
     let _equiposMap = new Map();
     let _linesMap = new Map();
-    let _allObjectsMap = new Map(); // Búsqueda unificada tag → objeto
+    let _allObjectsMap = new Map();
 
     function rebuildIndexes() {
         _equiposMap.clear();
@@ -63,10 +78,8 @@ const SmartFlowCore = (function() {
     let _datumElevation = 0;
     let _datumNorth = 0;
     let _datumEast = 0;
-
     let _selectedElement = null;
     let _history = { past: [], future: [], maxSize: 50 };
-
     let _voiceEnabled = true;
     let _currentElevation = 0;
 
@@ -90,7 +103,6 @@ const SmartFlowCore = (function() {
 
     function emit(eventName, data) {
         if (_listeners[eventName]) {
-            // Usar setTimeout para no bloquear el hilo principal
             _listeners[eventName].forEach(function(cb) {
                 setTimeout(function() {
                     try { cb(data); } catch (e) { console.error('Error en listener ' + eventName + ':', e); }
@@ -106,10 +118,6 @@ const SmartFlowCore = (function() {
     let _renderUI = function() {};
     let _onSelectionChanged = function(obj) {};
 
-    const _exists = function(tag, type) {
-        return _db[type].some(function(item) { return item.tag === tag; });
-    };
-    
     const _deepClone = function(obj) {
         try { return structuredClone(obj); }
         catch (e) { return JSON.parse(JSON.stringify(obj)); }
@@ -452,12 +460,14 @@ const SmartFlowCore = (function() {
         _notifyUI("Datum actualizado: EL=" + _datumElevation + "m, N=" + _datumNorth + ", E=" + _datumEast, false);
     }
 
-    // ============ NUEVO: Calcular punto paramétrico en línea ============
     function calcularPuntoParametrico(lineTag, param) {
         const result = _splitLineSegment(lineTag, param);
         return result ? result.punto : null;
     }
 
+    // ================================================================
+    // API PÚBLICA
+    // ================================================================
     return {
         init: function(notifyFn, renderFn, propertyPanelFn) {
             _notifyUI = notifyFn || _notifyUI;
@@ -470,6 +480,16 @@ const SmartFlowCore = (function() {
         on: on,
         off: off,
         emit: emit,
+
+        // ✅ MÉTODOS DE GUARDADO/REESTABLECIMIENTO (PÚBLICOS)
+        _saveState: function() {
+            const state = _deepClone({ equipos: _db.equipos, lines: _db.lines });
+            _history.past.push(state);
+            if (_history.past.length > _history.maxSize) _history.past.shift();
+            _history.future = [];
+        },
+        
+        rebuildIndexes: rebuildIndexes,
 
         addEquipment: function(equipo) {
             if (!equipo.tag) return _notifyUI("Error: Tag requerido.", true);
@@ -495,7 +515,7 @@ const SmartFlowCore = (function() {
             if (_allObjectsMap.has(linea.tag)) return _notifyUI("Error: La línea " + linea.tag + " ya existe.", true);
             if (linea.spec && _db.specs[linea.spec]) { 
                 const s = _db.specs[linea.spec]; 
-                linea.material = s.mat; 
+                linea.material = linea.material || s.mat; 
                 linea.rating = s.rating; 
                 linea.schedule = s.sch; 
             }
@@ -612,13 +632,122 @@ const SmartFlowCore = (function() {
             return JSON.stringify({ equipos: _db.equipos, lines: _db.lines });
         },
 
-        _saveState: function() {
-            const state = _deepClone({ equipos: _db.equipos, lines: _db.lines });
-            _history.past.push(state);
-            if (_history.past.length > _history.maxSize) _history.past.shift();
-            _history.future = [];
+        // ✅ NUEVOS MÉTODOS DE ELIMINACIÓN SEGURA
+        removeEquipment: function(tag) {
+            const eq = _equiposMap.get(tag);
+            if (!eq) {
+                _notifyUI("Equipo " + tag + " no encontrado.", true);
+                return false;
+            }
+            
+            // Guardar estado para undo
+            this._saveState();
+            
+            // Encontrar líneas conectadas
+            const lineasConectadas = _db.lines.filter(function(line) {
+                return (line.origin && line.origin.equipTag === tag) ||
+                       (line.destination && line.destination.equipTag === tag) ||
+                       (line.origin && line.origin.objTag === tag) ||
+                       (line.destination && line.destination.objTag === tag);
+            });
+            
+            // Liberar puertos en los otros extremos
+            lineasConectadas.forEach(function(linea) {
+                const otroExtremo = (linea.origin && (linea.origin.equipTag === tag || linea.origin.objTag === tag)) ? 
+                    linea.destination : linea.origin;
+                if (otroExtremo && (otroExtremo.equipTag || otroExtremo.objTag)) {
+                    const otroTag = otroExtremo.equipTag || otroExtremo.objTag;
+                    const otroObj = findObjectByTag(otroTag);
+                    if (otroObj && otroObj.puertos) {
+                        const puerto = otroObj.puertos.find(function(p) { return p.id === otroExtremo.portId; });
+                        if (puerto) {
+                            puerto.status = 'open';
+                            puerto.flow = 'bi';
+                            delete puerto.connectedTo;
+                            delete puerto.connectedLine;
+                        }
+                    }
+                }
+            });
+            
+            // Eliminar líneas conectadas
+            _db.lines = _db.lines.filter(function(line) {
+                return !lineasConectadas.includes(line);
+            });
+            
+            // Eliminar equipo
+            _db.equipos = _db.equipos.filter(function(e) { return e.tag !== tag; });
+            
+            // Reconstruir índices
+            rebuildIndexes();
+            
+            // Sincronizar
+            syncPhysicalData();
+            _renderUI();
+            
+            var count = lineasConectadas.length;
+            _notifyUI("Equipo " + tag + " eliminado" + (count > 0 ? " + " + count + " línea(s) conectada(s)" : "") + ".", false);
+            emit('modelChanged', { type: 'removeEquipment', tag: tag });
+            scheduleAudit();
+            return true;
         },
         
+        removeLine: function(tag) {
+            const line = _linesMap.get(tag);
+            if (!line) {
+                _notifyUI("Línea " + tag + " no encontrada.", true);
+                return false;
+            }
+            
+            // Guardar estado para undo
+            this._saveState();
+            
+            // Liberar puerto origen
+            if (line.origin && (line.origin.equipTag || line.origin.objTag)) {
+                const origenTag = line.origin.equipTag || line.origin.objTag;
+                const objOrigen = findObjectByTag(origenTag);
+                if (objOrigen && objOrigen.puertos) {
+                    const puerto = objOrigen.puertos.find(function(p) { return p.id === line.origin.portId; });
+                    if (puerto) {
+                        puerto.status = 'open';
+                        puerto.flow = 'bi';
+                        delete puerto.connectedTo;
+                        delete puerto.connectedLine;
+                    }
+                }
+            }
+            
+            // Liberar puerto destino
+            if (line.destination && (line.destination.equipTag || line.destination.objTag)) {
+                const destinoTag = line.destination.equipTag || line.destination.objTag;
+                const objDestino = findObjectByTag(destinoTag);
+                if (objDestino && objDestino.puertos) {
+                    const puerto = objDestino.puertos.find(function(p) { return p.id === line.destination.portId; });
+                    if (puerto) {
+                        puerto.status = 'open';
+                        puerto.flow = 'bi';
+                        delete puerto.connectedTo;
+                        delete puerto.connectedLine;
+                    }
+                }
+            }
+            
+            // Eliminar línea
+            _db.lines = _db.lines.filter(function(l) { return l.tag !== tag; });
+            
+            // Reconstruir índices
+            rebuildIndexes();
+            
+            // Sincronizar
+            syncPhysicalData();
+            _renderUI();
+            
+            _notifyUI("Línea " + tag + " eliminada. Puertos liberados.", false);
+            emit('modelChanged', { type: 'removeLine', tag: tag });
+            scheduleAudit();
+            return true;
+        },
+
         undo: function() {
             if (_history.past.length <= 1) return _notifyUI("Nada que deshacer.", true);
             const current = _deepClone({ equipos: _db.equipos, lines: _db.lines });
