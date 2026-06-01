@@ -768,7 +768,7 @@ const SmartFlowCommands = (function() {
     }
 
     // ================================================================
-    //  COMANDO CONNECT (CORREGIDO v3.0)
+    //  COMANDO CONNECT (CORREGIDO v3.1 - Soporta posición decimal)
     // ================================================================
 
     function parseConnect(cmd) {
@@ -779,7 +779,7 @@ const SmartFlowCommands = (function() {
         if (parts[3] !== 'to' && parts[3] !== 'a') return false;
         const toEquip = parts[4];
         
-        // ✅ v3.0: Detectar puerto destino correctamente
+        // ✅ v3.1: Detectar puerto destino correctamente
         let toNozzleRaw = parts[5];
         let paramsStartIndex = 6;
         
@@ -789,7 +789,7 @@ const SmartFlowCommands = (function() {
             paramsStartIndex = 5;
         }
         
-        // ✅ v3.0: Extraer parámetros desde el índice correcto
+        // ✅ v3.1: Extraer parámetros desde el índice correcto
         const namedParams = extractNamedParams(parts, paramsStartIndex);
         
         if (!_core) { notifyWithVoice("Core no inicializado", true); return true; }
@@ -798,7 +798,7 @@ const SmartFlowCommands = (function() {
         const toObj = _core.findObjectByTag(toEquip);
         if (!fromObj || !toObj) { notifyWithVoice("Objeto no encontrado", true); return true; }
         
-        // ✅ v3.0: Resolver material con herencia de objetos conectados
+        // ✅ v3.1: Resolver material con herencia de objetos conectados
         const resolved = resolveMaterialAndSpec(namedParams, [fromObj, toObj], { material: 'PPR', spec: 'PPR_PN12_5' });
         let diameter = namedParams.diameter || 4;
         let material = resolved.material;
@@ -811,8 +811,64 @@ const SmartFlowCommands = (function() {
             else if (parts[i] === 'spec') spec = parts[++i];
         }
 
+        // ✅ v3.1: NUEVO - Detectar si fromNozzle es una posición decimal (0.0 a 1.0)
+        const numPosFrom = parseFloat(fromNozzle);
+        const isNumericFrom = !isNaN(numPosFrom) && isFinite(numPosFrom) && numPosFrom >= 0 && numPosFrom <= 1;
+        const isFromLine = _core.getLinePoints(fromObj) ? true : false;
+        const isToLine = _core.getLinePoints(toObj) ? true : false;
+        const db = _core.getDb();
+        
         let startPos = null, fromDiameter = 4;
-        if (_core.getLinePoints(fromObj) && (fromNozzle === '0' || fromNozzle === '1')) {
+        let effectiveFromNozzle = fromNozzle;
+        
+        // ✅ v3.1: Si es posición decimal en una línea, insertar TEE automáticamente
+        if (isFromLine && isNumericFrom && numPosFrom > 0.01 && numPosFrom < 0.99) {
+            const pts = _core.getLinePoints(fromObj);
+            if (!pts || pts.length < 2) { 
+                notifyWithVoice("La línea origen no tiene geometría válida", true); 
+                return true; 
+            }
+            
+            // Calcular punto en la posición paramétrica
+            let totalLen = 0, lengths = [];
+            for (let i = 0; i < pts.length - 1; i++) {
+                const d = Math.hypot(pts[i+1].x - pts[i].x, pts[i+1].y - pts[i].y, pts[i+1].z - pts[i].z);
+                lengths.push(d);
+                totalLen += d;
+            }
+            const targetLen = totalLen * numPosFrom;
+            let accum = 0, segIdx = 0, t = 0;
+            for (let i = 0; i < lengths.length; i++) {
+                if (accum + lengths[i] >= targetLen || i === lengths.length - 1) {
+                    segIdx = i;
+                    t = (targetLen - accum) / (lengths[i] || 1);
+                    break;
+                }
+                accum += lengths[i];
+            }
+            const pA = pts[segIdx], pB = pts[segIdx + 1];
+            const puntoConexion = {
+                x: pA.x + (pB.x - pA.x) * t,
+                y: pA.y + (pB.y - pA.y) * t,
+                z: pA.z + (pB.z - pA.z) * t
+            };
+            
+            // Insertar TEE en la línea origen
+            if (typeof SmartFlowRouter !== 'undefined' && typeof SmartFlowRouter.insertarAccesorioEnLinea === 'function') {
+                const nuevoPuertoId = SmartFlowRouter.insertarAccesorioEnLinea(fromEquip, puntoConexion, diameter, true);
+                if (nuevoPuertoId) {
+                    effectiveFromNozzle = nuevoPuertoId;
+                    startPos = puntoConexion;
+                    fromDiameter = fromObj.diameter || 4;
+                } else {
+                    notifyWithVoice("No se pudo insertar TEE en la línea origen", true);
+                    return true;
+                }
+            } else {
+                notifyWithVoice("Router no disponible para inserción", true);
+                return true;
+            }
+        } else if (_core.getLinePoints(fromObj) && (fromNozzle === '0' || fromNozzle === '1')) {
             const pts = _core.getLinePoints(fromObj);
             if (pts && pts.length >= 2) {
                 startPos = fromNozzle === '0' ? { x: pts[0].x, y: pts[0].y, z: pts[0].z } : { x: pts[pts.length - 1].x, y: pts[pts.length - 1].y, z: pts[pts.length - 1].z };
@@ -820,7 +876,7 @@ const SmartFlowCommands = (function() {
             } else { notifyWithVoice("La línea origen no tiene geometría válida", true); return true; }
         } else {
             const nzFrom = fromObj.puertos && fromObj.puertos.find(function(n) { return n.id === fromNozzle; });
-            if (!nzFrom) { notifyWithVoice("Puerto origen no encontrado", true); return true; }
+            if (!nzFrom) { notifyWithVoice("Puerto origen '" + fromNozzle + "' no encontrado", true); return true; }
             fromDiameter = nzFrom.diametro || 4;
             if (typeof SmartFlowRouter !== 'undefined' && SmartFlowRouter.getPortPosition) {
                 startPos = SmartFlowRouter.getPortPosition(fromObj, fromNozzle);
@@ -830,12 +886,8 @@ const SmartFlowCommands = (function() {
             }
         }
         if (!startPos) { notifyWithVoice("No se pudo obtener la posición del puerto origen", true); return true; }
-
-        const isFromLine = _core.getLinePoints(fromObj) ? true : false;
-        const isToLine = _core.getLinePoints(toObj) ? true : false;
-        const db = _core.getDb();
         
-        // ✅ v3.0: Generar tag único garantizado
+        // ✅ v3.1: Generar tag único garantizado
         let newTag;
         let counter = 1;
         const existingTags = new Set(db.lines.map(function(l) { return l.tag; }));
@@ -856,8 +908,8 @@ const SmartFlowCommands = (function() {
                 const ab = { x: b.x - a.x, y: b.y - a.y, z: b.z - a.z };
                 const ap = { x: startPos.x - a.x, y: startPos.y - a.y, z: startPos.z - a.z };
                 const len2 = ab.x*ab.x + ab.y*ab.y + ab.z*ab.z;
-                let t = len2 !== 0 ? Math.max(0, Math.min(1, (ap.x*ab.x + ap.y*ab.y + ap.z*ab.z) / len2)) : 0;
-                const proj = { x: a.x + ab.x * t, y: a.y + ab.y * t, z: a.z + ab.z * t };
+                let t2 = len2 !== 0 ? Math.max(0, Math.min(1, (ap.x*ab.x + ap.y*ab.y + ap.z*ab.z) / len2)) : 0;
+                const proj = { x: a.x + ab.x * t2, y: a.y + ab.y * t2, z: a.z + ab.z * t2 };
                 const dist = Math.hypot(startPos.x - proj.x, startPos.y - proj.y, startPos.z - proj.z);
                 if (dist < minDist) { minDist = dist; bestPoint = proj; }
             }
@@ -911,7 +963,7 @@ const SmartFlowCommands = (function() {
                 } else {
                     if (!toObj.puertos) toObj.puertos = [];
                     nzTo = toObj.puertos && toObj.puertos.find(function(n) { return n.id === toNozzleRaw; });
-                    if (!nzTo) { notifyWithVoice("Puerto destino no encontrado", true); return true; }
+                    if (!nzTo) { notifyWithVoice("Puerto destino '" + toNozzleRaw + "' no encontrado", true); return true; }
                     if (typeof SmartFlowRouter !== 'undefined' && SmartFlowRouter.getPortPosition) {
                         endPos = SmartFlowRouter.getPortPosition(toObj, toNozzleRaw);
                     } else {
@@ -926,24 +978,27 @@ const SmartFlowCommands = (function() {
 
         const nuevaLinea = {
             tag: newTag, diameter: diameter, material: material, spec: spec,
-            origin: { objType: isFromLine ? 'line' : 'equipment', equipTag: fromEquip, portId: fromNozzle },
+            origin: { objType: isFromLine ? 'line' : 'equipment', equipTag: fromEquip, portId: effectiveFromNozzle },
             destination: { objType: isToLine ? 'line' : 'equipment', equipTag: toEquip, portId: nuevoPuertoId },
             waypoints: [], _cachedPoints: [startPos, endPos], components: []
         };
 
         _core.addLine(nuevaLinea);
         const lineaRegistrada = _core.getDb().lines.find(function(l) { return l.tag === newTag; }) || nuevaLinea;
-        const fittingInfo = runFittingInjection(lineaRegistrada, fromObj, fromNozzle, toObj, nuevoPuertoId, diameter, material);
+        const fittingInfo = runFittingInjection(lineaRegistrada, fromObj, effectiveFromNozzle, toObj, nuevoPuertoId, diameter, material);
         if (_core.updateLine) { _core.updateLine(newTag, lineaRegistrada); }
         if (_core.setSelected) _core.setSelected({ type: 'line', obj: lineaRegistrada });
         
-        const nzFrom = fromObj.puertos && fromObj.puertos.find(function(n) { return n.id === fromNozzle; });
+        const nzFrom = fromObj.puertos && fromObj.puertos.find(function(n) { return n.id === effectiveFromNozzle; });
         if (nzFrom) nzFrom.connectedLine = newTag;
         if (nzTo) nzTo.connectedLine = newTag;
         
-        notifyWithVoice("✅ Conectado " + fromEquip + "." + fromNozzle + " a " + toEquip + "." + nuevoPuertoId + " | " + material + " " + diameter + "\" " + spec + (fittingInfo.message || ''), false);
+        notifyWithVoice("✅ Conectado " + fromEquip + "." + effectiveFromNozzle + " a " + toEquip + "." + nuevoPuertoId + " | " + material + " " + diameter + "\" " + spec + (fittingInfo.message || ''), false);
         return true;
     }
+
+   
+
     // ================================================================
     //  COMANDO ROUTE (CORREGIDO v3.0)
     // ================================================================
