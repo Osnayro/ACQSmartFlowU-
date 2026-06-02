@@ -1,11 +1,8 @@
 
 // ============================================================
-// SMARTFLOW LABELS 3D v4.1 - Etiquetas y Cotas 3D
-// Archivo: js/labels3d.js
-// Novedades v4.1: Indicador de ejes isométrico (X/Este, Y/Elev, Z/Norte),
-//                 flecha Norte destacada, etiquetas de orientación,
-//                 cota total, ángulos, elevaciones, FROM/TO,
-//                 integración con DimensionGenerator
+// SMARTFLOW LABELS 3D v3.5 - Etiquetado y Acotamiento Inteligente
+// Archivo: js/smartlabel.js
+// Novedades v3.5: DPR-aware + Anti-colisión + LOD + Tooltips hover
 // ============================================================
 
 import * as THREE from 'three';
@@ -20,34 +17,67 @@ const SmartFlowLabels3D = (function() {
     
     const _labelGroup = new THREE.Group();
     const _dimensionGroup3D = new THREE.Group();
-    const _annotationGroup = new THREE.Group();
-    const _axisGroup = new THREE.Group();
     
     const _equipmentLabels = new Map();
     const _lineLabels = new Map();
     const _componentLabels = new Map();
     const _dimensionLines = new Map();
-    const _angleAnnotations = new Map();
-    const _elevationLabels = new Map();
     
     let _sharedDimLineMat = null;
     let _sharedDimExtMat = null;
     let _sharedDimTickMat = null;
     let _sharedAnchorMat = null;
     let _sharedAnchorGeo = null;
-    let _sharedAngleArcMat = null;
     
     let _raycaster = null;
-    let _dimensionCounter = 0;
-    let _axisIndicatorElements = [];
     
     const EQUIPMENT_LABEL_OFFSET = 0.5;
     const LINE_LABEL_OFFSET = 0.15;
     const DIMENSION_OFFSET = 0.3;
-    const ANGLE_OFFSET = 0.25;
-    const ELEVATION_OFFSET = 0.4;
     const MIN_SEGMENT_LENGTH = 0.1;
-    const MIN_ANGLE_DISPLAY = 3;
+    
+    // Sistema de Colisiones
+    const COLLISION = {
+        GRID_CELL_SIZE: 0.6,
+        REPULSION_STRENGTH: 0.4,
+        REPULSION_RADIUS: 1.2,
+        GEOMETRY_MARGIN: 0.3,
+        MAX_REPULSION_ITERATIONS: 5
+    };
+    
+    let _spatialGrid = new Map();
+    let _allLabelPositions = [];
+    
+    const LOD = {
+        EQUIPMENT_NEAR: 8,
+        EQUIPMENT_MEDIUM: 25,
+        EQUIPMENT_FAR: 60,
+        EQUIPMENT_HIDE: 100,
+        LINE_NEAR: 6,
+        LINE_MEDIUM: 20,
+        LINE_FAR: 50,
+        LINE_HIDE: 80,
+        COMPONENT_NEAR: 4,
+        COMPONENT_MEDIUM: 10,
+        COMPONENT_HIDE: 20,
+        DIMENSION_NEAR: 8,
+        DIMENSION_MEDIUM: 20,
+        DIMENSION_HIDE: 40,
+        FADE_RANGE: 3
+    };
+    
+    // DPR y responsive
+    let _currentDPR = 1;
+    let _baseFontSize = 10;
+    let _resizeObserver = null;
+    let _containerElement = null;
+    
+    // Tooltip
+    let _tooltipDiv = null;
+    let _tooltipTimeout = null;
+    let _activeTooltipTag = null;
+    
+    let _visibleStats = { equipment: 0, lines: 0, components: 0, dimensions: 0 };
     
     const COLORS = {
         equipment: '#f59e0b',
@@ -63,328 +93,672 @@ const SmartFlowLabels3D = (function() {
         dimensionBg: 'rgba(15, 23, 42, 0.85)',
         dimensionBorder: '#facc15',
         dimensionText: '#ffffff',
-        angle: '#4ade80',
-        angleBg: 'rgba(15, 23, 42, 0.85)',
-        angleBorder: '#4ade80',
-        elevation: '#38bdf8',
-        elevationBg: 'rgba(15, 23, 42, 0.85)',
-        elevationBorder: '#38bdf8',
-        endpoint: '#fb923c',
-        endpointBg: 'rgba(15, 23, 42, 0.90)',
-        endpointBorder: '#fb923c',
-        total: '#ef4444',
-        totalBg: 'rgba(15, 23, 42, 0.92)',
-        totalBorder: '#ef4444',
-        axisX: '#ff4444',
-        axisY: '#44ff44',
-        axisZ: '#4488ff',
-        north: '#ffffff',
-        originDot: '#ffffff'
+        tooltipBg: 'rgba(15, 23, 42, 0.96)',
+        tooltipBorder: '#f59e0b',
+        tooltipText: '#e2e8f0',
+        tooltipTitle: '#f59e0b',
+        tooltipLabel: '#94a3b8'
     };
     
     function toMeters(mmValue) {
         return (mmValue || 0) / 1000;
     }
     
-    function formatLengthMM(mm) {
-        if (mm >= 1000) return (mm / 1000).toFixed(2) + ' m';
-        return Math.round(mm) + ' mm';
-    }
-    
-    function formatElevation(mmValue) {
-        var meters = mmValue / 1000;
-        return 'EL ' + (meters >= 0 ? '+' : '') + meters.toFixed(3) + ' m';
+    function diameterToRadiusMeters(diameterPulgadas) {
+        return ((diameterPulgadas || 4) * 25.4) / 2000;
     }
     
     // ═══════════════════════════════════════════
-    // VERIFICACIÓN DE OCLUSIÓN DE ETIQUETAS
+    // DPR-AWARE SCALING
     // ═══════════════════════════════════════════
-    function updateLabelVisibility() {
-        if (!_camera || !_engine || !_scene) return;
+    
+    function updateDPR() {
+        _currentDPR = window.devicePixelRatio || 1;
+        var dprFactor = Math.min(_currentDPR, 3);
+        _baseFontSize = Math.round(10 / Math.sqrt(dprFactor));
         
-        if (!_raycaster) _raycaster = new THREE.Raycaster();
-        var camPos = _camera.position.clone();
+        if (_labelRenderer) {
+            _labelRenderer.setSize(window.innerWidth, window.innerHeight);
+        }
         
-        _equipmentLabels.forEach(function(item, tag) {
-            if (!item.anchor) return;
-            var worldPos = new THREE.Vector3();
-            item.anchor.getWorldPosition(worldPos);
-            
-            var dir = worldPos.clone().sub(camPos).normalize();
-            _raycaster.set(camPos, dir);
-            
-            var allObjects = [];
-            _scene.traverse(function(child) {
-                if (child.isMesh && child.visible && child.geometry && 
-                    !child.userData.isAxisIndicator) {
-                    allObjects.push(child);
-                }
-            });
-            
-            var intersects = _raycaster.intersectObjects(allObjects, false);
-            
-            var isOccluded = false;
-            if (intersects.length > 0) {
-                var firstHit = intersects[0].object;
-                var distToAnchor = camPos.distanceTo(worldPos);
-                var distToFirstHit = intersects[0].distance;
-                
-                var isOwnerMesh = false;
-                var current = firstHit;
-                while (current) {
-                    if (current.userData && current.userData.tag === tag) {
-                        isOwnerMesh = true;
-                        break;
-                    }
-                    current = current.parent;
-                }
-                
-                if (!isOwnerMesh && distToFirstHit < distToAnchor - 0.05) {
-                    isOccluded = true;
-                }
-            }
-            
-            if (item.label && item.label.element) {
-                item.label.element.style.display = isOccluded ? 'none' : '';
-            }
-        });
+        updateAllLabelFontSizes();
         
-        _lineLabels.forEach(function(item, tag) {
-            if (!item.label) return;
-            var worldPos = new THREE.Vector3();
-            item.label.getWorldPosition(worldPos);
-            item.label.element.style.display = '';
-        });
-        
-        _componentLabels.forEach(function(item) {
-            if (!item.label || !item.label.element) return;
-            item.label.element.style.display = '';
-        });
-        
-        _dimensionLines.forEach(function(item) {
-            if (!item.textLabel || !item.textLabel.element) return;
-            item.textLabel.element.style.display = '';
-        });
-        
-        _angleAnnotations.forEach(function(item) {
-            if (!item.label || !item.label.element) return;
-            item.label.element.style.display = '';
-        });
-        
-        _elevationLabels.forEach(function(item) {
-            if (!item.label || !item.label.element) return;
-            item.label.element.style.display = '';
-        });
+        COLLISION.GRID_CELL_SIZE = 0.6 / Math.sqrt(dprFactor);
+        COLLISION.REPULSION_RADIUS = 1.2 / Math.sqrt(dprFactor);
     }
     
-    // ═══════════════════════════════════════════
-    // ESCALADO DE ETIQUETAS SEGÚN ZOOM
-    // ═══════════════════════════════════════════
-    function updateLabelScale() {
-        if (!_camera) return;
-        var zoom = _camera.zoom;
-        
-        var scale = Math.min(Math.max(zoom * 1.5, 0.35), 2.5);
-        var opacity = Math.min(Math.max((zoom - 0.2) * 2.5, 0.2), 1.0);
-        
+    function updateAllLabelFontSizes() {
         _equipmentLabels.forEach(function(item) {
-            if (item.label && item.label.element) {
-                item.label.element.style.transform = 'scale(' + scale.toFixed(2) + ')';
-                item.label.element.style.opacity = opacity.toFixed(2);
+            if (item.element) {
+                item.element.style.fontSize = (_baseFontSize + 1) + 'px';
             }
         });
         
         _lineLabels.forEach(function(item) {
-            if (item.label && item.label.element) {
-                item.label.element.style.transform = 'scale(' + scale.toFixed(2) + ')';
-                item.label.element.style.opacity = opacity.toFixed(2);
+            if (item.element) {
+                item.element.style.fontSize = (_baseFontSize - 1) + 'px';
             }
         });
         
         _componentLabels.forEach(function(item) {
-            if (item.label && item.label.element) {
-                item.label.element.style.transform = 'scale(' + scale.toFixed(2) + ')';
-                item.label.element.style.opacity = opacity.toFixed(2);
+            if (item.element) {
+                item.element.style.fontSize = (_baseFontSize - 2) + 'px';
             }
         });
         
         _dimensionLines.forEach(function(item) {
             if (item.textLabel && item.textLabel.element) {
-                item.textLabel.element.style.transform = 'scale(' + scale.toFixed(2) + ')';
-                item.textLabel.element.style.opacity = opacity.toFixed(2);
-            }
-        });
-        
-        _angleAnnotations.forEach(function(item) {
-            if (item.label && item.label.element) {
-                item.label.element.style.transform = 'scale(' + scale.toFixed(2) + ')';
-                item.label.element.style.opacity = opacity.toFixed(2);
-            }
-        });
-        
-        _elevationLabels.forEach(function(item) {
-            if (item.label && item.label.element) {
-                item.label.element.style.transform = 'scale(' + scale.toFixed(2) + ')';
-                item.label.element.style.opacity = opacity.toFixed(2);
+                var span = item.textLabel.element.querySelector('span');
+                if (span) {
+                    span.style.fontSize = (_baseFontSize - 2) + 'px';
+                }
             }
         });
     }
     
     // ═══════════════════════════════════════════
-    // INDICADOR DE EJES ISOMÉTRICO (NUEVO v4.1)
+    // SISTEMA DE COLISIONES - GRILLA ESPACIAL
     // ═══════════════════════════════════════════
-    function createAxisIndicator() {
-        var axisLength = 1.5;
-        var origin = new THREE.Vector3(-6, 0.05, -6);
-        
-        // ─── EJE X: ESTE (+) ───
-        var xEnd = new THREE.Vector3(origin.x + axisLength, origin.y, origin.z);
-        var xGeo = new THREE.BufferGeometry().setFromPoints([origin, xEnd]);
-        var xLine = new THREE.Line(xGeo, new THREE.LineBasicMaterial({ 
-            color: 0xff4444, linewidth: 2, transparent: true, opacity: 0.9 
-        }));
-        xLine.userData = { isAxisIndicator: true, axis: 'X' };
-        
-        var xArrowGeo = new THREE.BufferGeometry().setFromPoints([
-            xEnd,
-            new THREE.Vector3(xEnd.x - 0.1, xEnd.y, xEnd.z - 0.05),
-            xEnd,
-            new THREE.Vector3(xEnd.x - 0.1, xEnd.y, xEnd.z + 0.05)
-        ]);
-        var xArrow = new THREE.Line(xArrowGeo, new THREE.LineBasicMaterial({ color: 0xff4444 }));
-        
-        var xDiv = document.createElement('div');
-        xDiv.innerHTML = '<span style="color:#ff6666;font-family:Courier New;font-size:9px;font-weight:bold;">E (X+)</span>';
-        var xLabel = new CSS2DObject(xDiv);
-        xLabel.position.set(xEnd.x + 0.2, xEnd.y, xEnd.z);
-        
-        // ─── EJE Y: ELEVACIÓN (+) ───
-        var yEnd = new THREE.Vector3(origin.x, origin.y + axisLength, origin.z);
-        var yGeo = new THREE.BufferGeometry().setFromPoints([origin, yEnd]);
-        var yLine = new THREE.Line(yGeo, new THREE.LineBasicMaterial({ 
-            color: 0x44ff44, linewidth: 2, transparent: true, opacity: 0.9 
-        }));
-        yLine.userData = { isAxisIndicator: true, axis: 'Y' };
-        
-        var yArrowGeo = new THREE.BufferGeometry().setFromPoints([
-            yEnd,
-            new THREE.Vector3(yEnd.x - 0.05, yEnd.y - 0.1, yEnd.z),
-            yEnd,
-            new THREE.Vector3(yEnd.x + 0.05, yEnd.y - 0.1, yEnd.z)
-        ]);
-        var yArrow = new THREE.Line(yArrowGeo, new THREE.LineBasicMaterial({ color: 0x44ff44 }));
-        
-        var yDiv = document.createElement('div');
-        yDiv.innerHTML = '<span style="color:#66ff66;font-family:Courier New;font-size:9px;font-weight:bold;">EL (Y+)</span>';
-        var yLabel = new CSS2DObject(yDiv);
-        yLabel.position.set(yEnd.x, yEnd.y + 0.2, yEnd.z);
-        
-        // ─── EJE Z: NORTE (+) ───
-        var zEnd = new THREE.Vector3(origin.x, origin.y, origin.z + axisLength);
-        var zGeo = new THREE.BufferGeometry().setFromPoints([origin, zEnd]);
-        var zLine = new THREE.Line(zGeo, new THREE.LineBasicMaterial({ 
-            color: 0x4488ff, linewidth: 2, transparent: true, opacity: 0.9 
-        }));
-        zLine.userData = { isAxisIndicator: true, axis: 'Z' };
-        
-        var zArrowGeo = new THREE.BufferGeometry().setFromPoints([
-            zEnd,
-            new THREE.Vector3(zEnd.x - 0.08, zEnd.y, zEnd.z - 0.12),
-            zEnd,
-            new THREE.Vector3(zEnd.x + 0.08, zEnd.y, zEnd.z - 0.12)
-        ]);
-        var zArrow = new THREE.Line(zArrowGeo, new THREE.LineBasicMaterial({ color: 0x4488ff }));
-        
-        var zDiv = document.createElement('div');
-        zDiv.innerHTML = '<span style="color:#88aaff;font-family:Courier New;font-size:10px;font-weight:bold;">N (Z+)</span>';
-        var zLabel = new CSS2DObject(zDiv);
-        zLabel.position.set(zEnd.x, zEnd.y, zEnd.z + 0.25);
-        
-        // ─── INDICADOR DE NORTE (FLECHA GRUESA) ───
-        var northOrigin = new THREE.Vector3(origin.x, origin.y + 0.3, origin.z);
-        var northEnd = new THREE.Vector3(origin.x, origin.y + 0.3, origin.z + axisLength);
-        var northGeo = new THREE.BufferGeometry().setFromPoints([northOrigin, northEnd]);
-        var northLine = new THREE.Line(northGeo, new THREE.LineBasicMaterial({ 
-            color: 0x4488ff, linewidth: 3, transparent: true, opacity: 1.0 
-        }));
-        
-        var northTipGeo = new THREE.BufferGeometry().setFromPoints([
-            northEnd,
-            new THREE.Vector3(northEnd.x - 0.2, northEnd.y, northEnd.z - 0.3),
-            northEnd,
-            new THREE.Vector3(northEnd.x + 0.2, northEnd.y, northEnd.z - 0.3)
-        ]);
-        var northTip = new THREE.Line(northTipGeo, new THREE.LineBasicMaterial({ color: 0x4488ff }));
-        
-        var nDiv = document.createElement('div');
-        nDiv.innerHTML = '<span style="color:#ffffff;font-family:Courier New;font-size:14px;font-weight:bold;text-shadow:0 0 8px #4488ff;">N</span>';
-        var nLabel = new CSS2DObject(nDiv);
-        nLabel.position.set(northEnd.x, northEnd.y + 0.15, northEnd.z + 0.2);
-        
-        // ─── SUR (opuesto al Norte) ───
-        var sDiv = document.createElement('div');
-        sDiv.innerHTML = '<span style="color:#666688;font-family:Courier New;font-size:8px;">S</span>';
-        var sLabel = new CSS2DObject(sDiv);
-        sLabel.position.set(origin.x, origin.y + 0.3, origin.z - 0.2);
-        
-        // ─── ESTE y OESTE en flecha Norte ───
-        var eDiv = document.createElement('div');
-        eDiv.innerHTML = '<span style="color:#666688;font-family:Courier New;font-size:8px;">E</span>';
-        var eLabel = new CSS2DObject(eDiv);
-        eLabel.position.set(northEnd.x + 0.25, northEnd.y, northEnd.z - 0.15);
-        
-        var wDiv = document.createElement('div');
-        wDiv.innerHTML = '<span style="color:#666688;font-family:Courier New;font-size:8px;">W</span>';
-        var wLabel = new CSS2DObject(wDiv);
-        wLabel.position.set(northEnd.x - 0.25, northEnd.y, northEnd.z - 0.15);
-        
-        // ─── ORIGEN (PUNTO) ───
-        var dotGeo = new THREE.SphereGeometry(0.04, 8, 8);
-        var dotMat = new THREE.MeshBasicMaterial({ color: 0xffffff });
-        var dot = new THREE.Mesh(dotGeo, dotMat);
-        dot.position.copy(origin);
-        dot.userData = { isAxisIndicator: true };
-        
-        // ─── ETIQUETA DE ORIENTACIÓN ───
-        var orientDiv = document.createElement('div');
-        orientDiv.innerHTML = '<span style="color:#94a3b8;font-family:Courier New;font-size:7px;">VISTA ISOMÉTRICA</span>';
-        var orientLabel = new CSS2DObject(orientDiv);
-        orientLabel.position.set(origin.x + axisLength/2, origin.y - 0.25, origin.z + axisLength/2);
-        
-        // ─── DATUM ───
-        var datumDiv = document.createElement('div');
-        datumDiv.innerHTML = '<span style="color:#64748b;font-family:Courier New;font-size:6px;">DATUM: EL±0.000 | N:0 | E:0</span>';
-        var datumLabel = new CSS2DObject(datumDiv);
-        datumLabel.position.set(origin.x + axisLength/2, origin.y - 0.4, origin.z + axisLength/2);
-        
-        // Agregar todo al grupo de ejes
-        _axisGroup.add(xLine, xArrow, xLabel);
-        _axisGroup.add(yLine, yArrow, yLabel);
-        _axisGroup.add(zLine, zArrow, zLabel);
-        _axisGroup.add(northLine, northTip, nLabel, sLabel, eLabel, wLabel);
-        _axisGroup.add(dot);
-        _axisGroup.add(orientLabel, datumLabel);
-        
-        _axisIndicatorElements = [
-            xLine, xArrow, xLabel, yLine, yArrow, yLabel,
-            zLine, zArrow, zLabel, northLine, northTip, 
-            nLabel, sLabel, eLabel, wLabel, dot, orientLabel, datumLabel
-        ];
+    
+    function getGridKey(x, y, z) {
+        var gs = COLLISION.GRID_CELL_SIZE;
+        return Math.round(x / gs) + ',' + Math.round(y / gs) + ',' + Math.round(z / gs);
     }
     
-    function clearAxisIndicator() {
-        while (_axisGroup.children.length > 0) {
-            var child = _axisGroup.children[0];
-            if (child.geometry) child.geometry.dispose();
-            if (child.element) child.element.remove();
-            _axisGroup.remove(child);
+    function getGridNeighbors(x, y, z) {
+        var keys = [];
+        var gs = COLLISION.GRID_CELL_SIZE;
+        var cx = Math.round(x / gs);
+        var cy = Math.round(y / gs);
+        var cz = Math.round(z / gs);
+        
+        for (var dx = -1; dx <= 1; dx++) {
+            for (var dy = -1; dy <= 1; dy++) {
+                for (var dz = -1; dz <= 1; dz++) {
+                    keys.push((cx + dx) + ',' + (cy + dy) + ',' + (cz + dz));
+                }
+            }
         }
-        _axisIndicatorElements = [];
+        return keys;
+    }
+    
+    function isPositionOccupied(x, y, z, excludeTag) {
+        var neighborKeys = getGridNeighbors(x, y, z);
+        
+        for (var i = 0; i < neighborKeys.length; i++) {
+            var occupants = _spatialGrid.get(neighborKeys[i]);
+            if (occupants) {
+                for (var j = 0; j < occupants.length; j++) {
+                    if (occupants[j].tag !== excludeTag) {
+                        var dist = Math.hypot(
+                            x - occupants[j].x,
+                            y - occupants[j].y,
+                            z - occupants[j].z
+                        );
+                        if (dist < COLLISION.REPULSION_RADIUS) {
+                            return true;
+                        }
+                    }
+                }
+            }
+        }
+        return false;
+    }
+    
+    function registerPosition(tag, x, y, z, type) {
+        var key = getGridKey(x, y, z);
+        if (!_spatialGrid.has(key)) {
+            _spatialGrid.set(key, []);
+        }
+        _spatialGrid.get(key).push({ tag: tag, x: x, y: y, z: z, type: type });
+    }
+    
+    function clearSpatialGrid() {
+        _spatialGrid.clear();
+    }
+    
+    // ═══════════════════════════════════════════
+    // REPULSIÓN ENTRE ETIQUETAS
+    // ═══════════════════════════════════════════
+    
+    function applyRepulsion(positions) {
+        var displacements = positions.map(function() {
+            return { dx: 0, dy: 0, dz: 0 };
+        });
+        
+        for (var i = 0; i < positions.length; i++) {
+            for (var j = i + 1; j < positions.length; j++) {
+                var dx = positions[i].x - positions[j].x;
+                var dy = positions[i].y - positions[j].y;
+                var dz = positions[i].z - positions[j].z;
+                var dist = Math.hypot(dx, dy, dz);
+                
+                if (dist < COLLISION.REPULSION_RADIUS && dist > 0.001) {
+                    var force = (COLLISION.REPULSION_RADIUS - dist) / COLLISION.REPULSION_RADIUS;
+                    force = force * force * COLLISION.REPULSION_STRENGTH;
+                    
+                    var nx = dx / dist;
+                    var ny = dy / dist;
+                    var nz = dz / dist;
+                    
+                    displacements[i].dx += nx * force;
+                    displacements[i].dy += ny * force;
+                    displacements[i].dz += nz * force;
+                    displacements[j].dx -= nx * force;
+                    displacements[j].dy -= ny * force;
+                    displacements[j].dz -= nz * force;
+                }
+            }
+        }
+        
+        for (var k = 0; k < positions.length; k++) {
+            var maxDisplacement = COLLISION.REPULSION_RADIUS * 0.5;
+            var d = Math.hypot(displacements[k].dx, displacements[k].dy, displacements[k].dz);
+            if (d > maxDisplacement) {
+                var scale = maxDisplacement / d;
+                displacements[k].dx *= scale;
+                displacements[k].dy *= scale;
+                displacements[k].dz *= scale;
+            }
+            
+            positions[k].x += displacements[k].dx;
+            positions[k].y += displacements[k].dy;
+            positions[k].z += displacements[k].dz;
+        }
+        
+        return positions;
+    }
+    
+    // ═══════════════════════════════════════════
+    // MARGEN DE SEGURIDAD SOBRE GEOMETRÍA
+    // ═══════════════════════════════════════════
+    
+    function getGeometryBoundingBoxes() {
+        var boxes = [];
+        if (!_scene) return boxes;
+        
+        _scene.traverse(function(child) {
+            if (child.isMesh && child.visible && child.geometry && !child.userData.isLabelAnchor) {
+                if (child.userData && (child.userData.tag || child.userData.tipo)) {
+                    var bbox = new THREE.Box3().setFromObject(child);
+                    bbox.expandByScalar(COLLISION.GEOMETRY_MARGIN);
+                    boxes.push(bbox);
+                }
+            }
+        });
+        
+        return boxes;
+    }
+    
+    function isInsideGeometry(x, y, z) {
+        var point = new THREE.Vector3(x, y, z);
+        var boxes = getGeometryBoundingBoxes();
+        
+        for (var i = 0; i < boxes.length; i++) {
+            if (boxes[i].containsPoint(point)) {
+                return true;
+            }
+        }
+        return false;
+    }
+    
+    function pushOutOfGeometry(position, anchorPoint) {
+        var pos = new THREE.Vector3(position.x, position.y, position.z);
+        var anchor = new THREE.Vector3(anchorPoint.x, anchorPoint.y, anchorPoint.z);
+        
+        var boxes = getGeometryBoundingBoxes();
+        var maxIterations = 10;
+        var iteration = 0;
+        
+        while (isInsideGeometry(pos.x, pos.y, pos.z) && iteration < maxIterations) {
+            var dir = pos.clone().sub(anchor).normalize();
+            if (dir.length() < 0.01) dir.set(0, 1, 0);
+            pos.add(dir.multiplyScalar(COLLISION.GEOMETRY_MARGIN * 0.5));
+            iteration++;
+        }
+        
+        if (isInsideGeometry(pos.x, pos.y, pos.z)) {
+            pos.y += COLLISION.GEOMETRY_MARGIN * 2;
+        }
+        
+        return { x: pos.x, y: pos.y, z: pos.z };
+    }
+    
+    // ═══════════════════════════════════════════
+    // RESOLUCIÓN GLOBAL DE COLISIONES
+    // ═══════════════════════════════════════════
+    
+    function resolveAllCollisions() {
+        var allPositions = [];
+        var labelRefs = [];
+        
+        _equipmentLabels.forEach(function(item, tag) {
+            if (item.label && item.label.element && item.label.element.style.display !== 'none') {
+                var worldPos = new THREE.Vector3();
+                item.label.getWorldPosition(worldPos);
+                allPositions.push({ x: worldPos.x, y: worldPos.y, z: worldPos.z, tag: tag, type: 'equipment' });
+                labelRefs.push({ item: item, originalPos: worldPos.clone() });
+            }
+        });
+        
+        _lineLabels.forEach(function(item, tag) {
+            if (item.label && item.label.element && item.label.element.style.display !== 'none') {
+                var worldPos = new THREE.Vector3();
+                item.label.getWorldPosition(worldPos);
+                allPositions.push({ x: worldPos.x, y: worldPos.y, z: worldPos.z, tag: tag, type: 'line' });
+                labelRefs.push({ item: item, originalPos: worldPos.clone() });
+            }
+        });
+        
+        _componentLabels.forEach(function(item, tag) {
+            if (item.label && item.label.element && item.label.element.style.display !== 'none') {
+                var worldPos = new THREE.Vector3();
+                item.label.getWorldPosition(worldPos);
+                allPositions.push({ x: worldPos.x, y: worldPos.y, z: worldPos.z, tag: tag, type: 'component' });
+                labelRefs.push({ item: item, originalPos: worldPos.clone() });
+            }
+        });
+        
+        if (allPositions.length < 2) return;
+        
+        var positions = allPositions.map(function(p) {
+            return { x: p.x, y: p.y, z: p.z, tag: p.tag, type: p.type };
+        });
+        
+        for (var iter = 0; iter < COLLISION.MAX_REPULSION_ITERATIONS; iter++) {
+            positions = applyRepulsion(positions);
+        }
+        
+        for (var i = 0; i < labelRefs.length; i++) {
+            var orig = labelRefs[i].originalPos;
+            var disp = {
+                x: positions[i].x - orig.x,
+                y: positions[i].y - orig.y,
+                z: positions[i].z - orig.z
+            };
+            var dist = Math.hypot(disp.x, disp.y, disp.z);
+            var maxDist = COLLISION.REPULSION_RADIUS;
+            
+            if (dist > maxDist) {
+                var scale = maxDist / dist;
+                positions[i].x = orig.x + disp.x * scale;
+                positions[i].y = orig.y + disp.y * scale;
+                positions[i].z = orig.z + disp.z * scale;
+            }
+            
+            positions[i] = pushOutOfGeometry(positions[i], orig);
+            
+            if (labelRefs[i].item.label) {
+                labelRefs[i].item.label.position.set(
+                    positions[i].x,
+                    positions[i].y,
+                    positions[i].z
+                );
+            }
+        }
+    }
+    
+    // ═══════════════════════════════════════════
+    // TOOLTIP
+    // ═══════════════════════════════════════════
+    
+    function createTooltipElement() {
+        if (_tooltipDiv) return;
+        
+        _tooltipDiv = document.createElement('div');
+        _tooltipDiv.id = 'smartflow-label-tooltip';
+        _tooltipDiv.style.cssText = [
+            'position: fixed;',
+            'background: ' + COLORS.tooltipBg + ';',
+            'border: 1px solid ' + COLORS.tooltipBorder + ';',
+            'border-radius: 8px;',
+            'padding: 10px 14px;',
+            'font-family: "Courier New", monospace;',
+            'font-size: 11px;',
+            'color: ' + COLORS.tooltipText + ';',
+            'pointer-events: none;',
+            'z-index: 10000;',
+            'opacity: 0;',
+            'transition: opacity 0.2s ease;',
+            'box-shadow: 0 4px 16px rgba(0,0,0,0.6);',
+            'backdrop-filter: blur(8px);',
+            'max-width: 280px;',
+            'display: none;'
+        ].join(' ');
+        
+        document.body.appendChild(_tooltipDiv);
+    }
+    
+    function buildTooltipContent(equipo) {
+        if (!equipo) return '';
+        
+        var tipo = equipo.tipo || 'Equipo';
+        var tipoNombre = tipo;
+        
+        if (typeof SmartFlowCatalog !== 'undefined') {
+            var catEquip = SmartFlowCatalog.getEquipment(tipo);
+            if (catEquip && catEquip.nombre) tipoNombre = catEquip.nombre;
+        }
+        
+        var lines = [];
+        lines.push('<div style="font-weight:bold;font-size:13px;color:' + COLORS.tooltipTitle + ';margin-bottom:6px;">' + equipo.tag + '</div>');
+        lines.push('<div style="margin-bottom:4px;"><span style="color:' + COLORS.tooltipLabel + ';">Tipo:</span> ' + tipoNombre + '</div>');
+        
+        if (equipo.material) {
+            lines.push('<div style="margin-bottom:4px;"><span style="color:' + COLORS.tooltipLabel + ';">Material:</span> ' + equipo.material + '</div>');
+        }
+        if (equipo.spec) {
+            lines.push('<div style="margin-bottom:4px;"><span style="color:' + COLORS.tooltipLabel + ';">Spec:</span> ' + equipo.spec + '</div>');
+        }
+        
+        var dims = [];
+        if (equipo.diametro) dims.push('⌀' + (equipo.diametro / 1000).toFixed(1) + 'm');
+        if (equipo.altura) dims.push('H:' + (equipo.altura / 1000).toFixed(1) + 'm');
+        if (equipo.largo) dims.push('L:' + (equipo.largo / 1000).toFixed(1) + 'm');
+        if (equipo.ancho) dims.push('W:' + (equipo.ancho / 1000).toFixed(1) + 'm');
+        if (dims.length > 0) {
+            lines.push('<div style="margin-bottom:4px;"><span style="color:' + COLORS.tooltipLabel + ';">Dimensiones:</span> ' + dims.join(' × ') + '</div>');
+        }
+        
+        var posX = (equipo.posX / 1000).toFixed(2);
+        var posY = (equipo.posY / 1000).toFixed(2);
+        var posZ = (equipo.posZ / 1000).toFixed(2);
+        lines.push('<div style="margin-bottom:4px;"><span style="color:' + COLORS.tooltipLabel + ';">Posición (m):</span> ' + posX + ', ' + posY + ', ' + posZ + '</div>');
+        
+        if (equipo.puertos && equipo.puertos.length > 0) {
+            lines.push('<div style="margin-top:6px;border-top:1px solid rgba(255,255,255,0.1);padding-top:6px;">');
+            lines.push('<span style="color:' + COLORS.tooltipLabel + ';">Puertos:</span>');
+            lines.push('<div style="margin-top:2px;font-size:10px;">');
+            equipo.puertos.forEach(function(p) {
+                var statusIcon = p.status === 'connected' ? '🔗' : '🔓';
+                var diam = p.diametro ? p.diametro + '"' : '?';
+                var label = p.label || p.id || '?';
+                lines.push('<div style="margin-left:6px;">' + statusIcon + ' <b>' + p.id + '</b>: ' + label + ' (⌀' + diam + ')</div>');
+            });
+            lines.push('</div></div>');
+        }
+        
+        if (typeof _core !== 'undefined' && _core.getAbsolutePosition) {
+            var absPos = _core.getAbsolutePosition(equipo);
+            if (absPos) {
+                lines.push('<div style="margin-top:4px;border-top:1px solid rgba(255,255,255,0.1);padding-top:4px;font-size:10px;">');
+                lines.push('<span style="color:' + COLORS.tooltipLabel + ';">Elevación:</span> ' + absPos.elevation.toFixed(2) + 'm');
+                lines.push('</div>');
+            }
+        }
+        
+        return lines.join('');
+    }
+    
+    function showTooltip(event, equipo) {
+        if (!_tooltipDiv) createTooltipElement();
+        if (!_tooltipDiv || !equipo) return;
+        
+        if (_tooltipTimeout) clearTimeout(_tooltipTimeout);
+        
+        _tooltipDiv.innerHTML = buildTooltipContent(equipo);
+        _tooltipDiv.style.display = 'block';
+        
+        var offsetX = 15;
+        var offsetY = 15;
+        var left = event.clientX + offsetX;
+        var top = event.clientY + offsetY;
+        
+        var tooltipWidth = _tooltipDiv.offsetWidth || 280;
+        if (left + tooltipWidth > window.innerWidth - 10) {
+            left = event.clientX - tooltipWidth - offsetX;
+        }
+        var tooltipHeight = _tooltipDiv.offsetHeight || 200;
+        if (top + tooltipHeight > window.innerHeight - 10) {
+            top = event.clientY - tooltipHeight - offsetY;
+        }
+        
+        _tooltipDiv.style.left = left + 'px';
+        _tooltipDiv.style.top = top + 'px';
+        _tooltipDiv.style.opacity = '1';
+        
+        _activeTooltipTag = equipo.tag;
+    }
+    
+    function hideTooltip() {
+        if (!_tooltipDiv) return;
+        
+        _tooltipTimeout = setTimeout(function() {
+            if (_tooltipDiv) {
+                _tooltipDiv.style.opacity = '0';
+                _tooltipDiv.style.display = 'none';
+            }
+            _activeTooltipTag = null;
+        }, 150);
+    }
+    
+    function moveTooltip(event) {
+        if (!_tooltipDiv || !_activeTooltipTag) return;
+        
+        var offsetX = 15;
+        var offsetY = 15;
+        var left = event.clientX + offsetX;
+        var top = event.clientY + offsetY;
+        
+        var tooltipWidth = _tooltipDiv.offsetWidth || 280;
+        if (left + tooltipWidth > window.innerWidth - 10) {
+            left = event.clientX - tooltipWidth - offsetX;
+        }
+        var tooltipHeight = _tooltipDiv.offsetHeight || 200;
+        if (top + tooltipHeight > window.innerHeight - 10) {
+            top = event.clientY - tooltipHeight - offsetY;
+        }
+        
+        _tooltipDiv.style.left = left + 'px';
+        _tooltipDiv.style.top = top + 'px';
+    }
+    
+    // ═══════════════════════════════════════════
+    // LOD SEMÁNTICO + ZOOM INTELIGENTE
+    // ═══════════════════════════════════════════
+    
+    function smoothstep(edge0, edge1, x) {
+        var t = Math.max(0, Math.min(1, (x - edge0) / (edge1 - edge0)));
+        return t * t * (3 - 2 * t);
+    }
+    
+    function applyLODToElement(element, distance, nearDist, mediumDist, farDist, hideDist) {
+        if (!element) return;
+        
+        var opacity, display;
+        
+        if (distance > hideDist) {
+            opacity = 0;
+            display = 'none';
+        } else if (distance > farDist) {
+            opacity = 1 - smoothstep(farDist - LOD.FADE_RANGE, farDist + LOD.FADE_RANGE, distance);
+            display = opacity > 0.02 ? '' : 'none';
+        } else if (distance > mediumDist) {
+            opacity = 0.5 + 0.5 * (1 - smoothstep(mediumDist, farDist, distance));
+            display = '';
+        } else if (distance > nearDist) {
+            opacity = 0.8 + 0.2 * (1 - smoothstep(nearDist, mediumDist, distance));
+            display = '';
+        } else {
+            opacity = 1;
+            display = '';
+        }
+        
+        element.style.display = display;
+        element.style.opacity = opacity.toFixed(2);
+    }
+    
+    function updateAllLabelsLOD() {
+        if (!_camera) return;
+        
+        _visibleStats = { equipment: 0, lines: 0, components: 0, dimensions: 0 };
+        var camPos = _camera.position.clone();
+        
+        clearSpatialGrid();
+        
+        _equipmentLabels.forEach(function(item, tag) {
+            if (!item.label || !item.label.element) return;
+            
+            var worldPos = new THREE.Vector3();
+            item.label.getWorldPosition(worldPos);
+            var distance = camPos.distanceTo(worldPos);
+            
+            var isOccluded = checkOcclusion(worldPos, camPos, tag);
+            
+            if (isOccluded) {
+                item.label.element.style.display = 'none';
+                return;
+            }
+            
+            applyLODToElement(
+                item.label.element, distance,
+                LOD.EQUIPMENT_NEAR, LOD.EQUIPMENT_MEDIUM,
+                LOD.EQUIPMENT_FAR, LOD.EQUIPMENT_HIDE
+            );
+            
+            var scale = distance < LOD.EQUIPMENT_NEAR ? 1.0 :
+                        distance < LOD.EQUIPMENT_MEDIUM ? 0.9 :
+                        distance < LOD.EQUIPMENT_FAR ? 0.75 : 0.6;
+            
+            item.label.element.style.transform = 'scale(' + scale.toFixed(2) + ')';
+            
+            if (item.label.element.style.display !== 'none') {
+                _visibleStats.equipment++;
+                registerPosition(tag, worldPos.x, worldPos.y, worldPos.z, 'equipment');
+            }
+        });
+        
+        _lineLabels.forEach(function(item, tag) {
+            if (!item.label || !item.label.element) return;
+            
+            var worldPos = new THREE.Vector3();
+            item.label.getWorldPosition(worldPos);
+            var distance = camPos.distanceTo(worldPos);
+            
+            var isOccluded = checkOcclusionSimple(worldPos, camPos);
+            
+            if (isOccluded && distance > LOD.LINE_NEAR) {
+                item.label.element.style.display = 'none';
+                return;
+            }
+            
+            applyLODToElement(
+                item.label.element, distance,
+                LOD.LINE_NEAR, LOD.LINE_MEDIUM,
+                LOD.LINE_FAR, LOD.LINE_HIDE
+            );
+            
+            if (item.label.element.style.display !== 'none') {
+                _visibleStats.lines++;
+                registerPosition(tag, worldPos.x, worldPos.y, worldPos.z, 'line');
+            }
+        });
+        
+        _componentLabels.forEach(function(item, tag) {
+            if (!item.label || !item.label.element) return;
+            
+            var worldPos = new THREE.Vector3();
+            item.label.getWorldPosition(worldPos);
+            var distance = camPos.distanceTo(worldPos);
+            
+            applyLODToElement(
+                item.label.element, distance,
+                LOD.COMPONENT_NEAR, LOD.COMPONENT_MEDIUM,
+                LOD.COMPONENT_HIDE, LOD.COMPONENT_HIDE + 5
+            );
+            
+            if (item.label.element.style.display !== 'none') {
+                _visibleStats.components++;
+                registerPosition(tag, worldPos.x, worldPos.y, worldPos.z, 'component');
+            }
+        });
+        
+        _dimensionLines.forEach(function(item) {
+            if (!item.textLabel || !item.textLabel.element) return;
+            
+            var worldPos = new THREE.Vector3();
+            item.textLabel.getWorldPosition(worldPos);
+            var distance = camPos.distanceTo(worldPos);
+            
+            applyLODToElement(
+                item.textLabel.element, distance,
+                LOD.DIMENSION_NEAR, LOD.DIMENSION_MEDIUM,
+                LOD.DIMENSION_HIDE, LOD.DIMENSION_HIDE + 10
+            );
+            
+            if (item.textLabel.element.style.display !== 'none') {
+                _visibleStats.dimensions++;
+            }
+        });
+        
+        resolveAllCollisions();
+    }
+    
+    function checkOcclusion(worldPos, camPos, ownerTag) {
+        if (!_raycaster || !_scene) return false;
+        
+        var dir = worldPos.clone().sub(camPos).normalize();
+        _raycaster.set(camPos, dir);
+        
+        var allObjects = [];
+        _scene.traverse(function(child) {
+            if (child.isMesh && child.visible && child.geometry && !child.userData.isLabelAnchor) {
+                allObjects.push(child);
+            }
+        });
+        
+        var intersects = _raycaster.intersectObjects(allObjects, false);
+        
+        if (intersects.length > 0) {
+            var firstHit = intersects[0].object;
+            var distToTarget = camPos.distanceTo(worldPos);
+            var distToFirstHit = intersects[0].distance;
+            
+            var isOwnerMesh = false;
+            var current = firstHit;
+            while (current) {
+                if (current.userData && current.userData.tag === ownerTag) {
+                    isOwnerMesh = true;
+                    break;
+                }
+                current = current.parent;
+            }
+            
+            if (!isOwnerMesh && distToFirstHit < distToTarget - 0.05) {
+                return true;
+            }
+        }
+        return false;
+    }
+    
+    function checkOcclusionSimple(worldPos, camPos) {
+        if (!_raycaster || !_scene) return false;
+        
+        var dir = worldPos.clone().sub(camPos).normalize();
+        _raycaster.set(camPos, dir);
+        
+        var allObjects = [];
+        _scene.traverse(function(child) {
+            if (child.isMesh && child.visible && child.geometry && !child.userData.isLabelAnchor) {
+                allObjects.push(child);
+            }
+        });
+        
+        var intersects = _raycaster.intersectObjects(allObjects, false);
+        
+        if (intersects.length > 0) {
+            var distToTarget = camPos.distanceTo(worldPos);
+            if (intersects[0].distance < distToTarget - 0.05) {
+                return true;
+            }
+        }
+        return false;
     }
     
     // ═══════════════════════════════════════════
     // INICIALIZACIÓN
     // ═══════════════════════════════════════════
+    
     function init(coreInstance, engineInstance) {
         _core = coreInstance;
         _engine = engineInstance;
@@ -395,6 +769,8 @@ const SmartFlowLabels3D = (function() {
             console.warn('SmartFlowLabels3D: Engine no disponible');
             return false;
         }
+        
+        updateDPR();
         
         _sharedDimLineMat = new THREE.LineBasicMaterial({ 
             color: 0xfacc15, linewidth: 1, transparent: true, opacity: 0.8, depthTest: true
@@ -407,9 +783,6 @@ const SmartFlowLabels3D = (function() {
         });
         _sharedAnchorMat = new THREE.MeshBasicMaterial({ visible: false });
         _sharedAnchorGeo = new THREE.SphereGeometry(0.02, 4, 4);
-        _sharedAngleArcMat = new THREE.LineBasicMaterial({ 
-            color: 0x4ade80, linewidth: 1, transparent: true, opacity: 0.6, depthTest: true
-        });
         
         try {
             _labelRenderer = new CSS2DRenderer();
@@ -423,6 +796,7 @@ const SmartFlowLabels3D = (function() {
             var container = _engine.getRenderer() ? _engine.getRenderer().domElement.parentElement : null;
             if (container) {
                 container.appendChild(_labelRenderer.domElement);
+                _containerElement = container;
             }
         } catch (e) {
             console.warn('SmartFlowLabels3D: CSS2DRenderer no disponible', e);
@@ -431,16 +805,10 @@ const SmartFlowLabels3D = (function() {
         
         _labelGroup.userData = { isLabelGroup: true };
         _dimensionGroup3D.userData = { isDimensionGroup3D: true };
-        _annotationGroup.userData = { isAnnotationGroup: true };
-        _axisGroup.userData = { isAxisGroup: true };
-        
         _scene.add(_labelGroup);
         _scene.add(_dimensionGroup3D);
-        _scene.add(_annotationGroup);
-        _scene.add(_axisGroup);
         
-        // ✅ Crear indicador de ejes
-        createAxisIndicator();
+        createTooltipElement();
         
         if (_core && typeof _core.on === 'function') {
             _core.on('modelChanged', function() {
@@ -453,7 +821,23 @@ const SmartFlowLabels3D = (function() {
         
         window.addEventListener('resize', onResize);
         
-        console.log('✔ SmartFlowLabels3D v4.1 (ejes isométricos + cotas totales + ángulos + elevaciones)');
+        window.matchMedia('(resolution: ' + _currentDPR + 'dppx)').addEventListener('change', function(e) {
+            if (e.matches === false) {
+                updateDPR();
+                refreshAllLabels();
+                refreshAllDimensions();
+            }
+        });
+        
+        if (_containerElement && typeof ResizeObserver !== 'undefined') {
+            _resizeObserver = new ResizeObserver(function() {
+                onResize();
+                updateDPR();
+            });
+            _resizeObserver.observe(_containerElement);
+        }
+        
+        console.log('✔ SmartFlowLabels3D v3.5 (DPR-aware + anti-colisión + LOD + tooltips)');
         return true;
     }
     
@@ -461,11 +845,19 @@ const SmartFlowLabels3D = (function() {
         if (_labelRenderer) {
             _labelRenderer.setSize(window.innerWidth, window.innerHeight);
         }
+        
+        var newDPR = window.devicePixelRatio || 1;
+        if (Math.abs(newDPR - _currentDPR) > 0.1) {
+            updateDPR();
+            refreshAllLabels();
+            refreshAllDimensions();
+        }
     }
     
     // ═══════════════════════════════════════════
-    // ETIQUETAS DE EQUIPO
+    // CREACIÓN DE ETIQUETAS
     // ═══════════════════════════════════════════
+    
     function createEquipmentLabel(eq) {
         if (!eq || !eq.tag) return null;
         
@@ -485,32 +877,39 @@ const SmartFlowLabels3D = (function() {
         anchor.userData = { tag: eq.tag, isLabelAnchor: true };
         _labelGroup.add(anchor);
         
-        var tipoStr = eq.tipo || 'EQUIPO';
-        var matStr = (eq.material || 'N/D').substring(0, 15);
-        var diamStr = eq.diametro ? ' ⌀' + (eq.diametro / 1000).toFixed(1) + 'm' : '';
-        
         var div = document.createElement('div');
-        div.className = 'label-3d';
+        div.className = 'label-3d equipment-label';
         div.style.cssText = [
             'background: ' + COLORS.equipmentBg + ';',
             'border: 1px solid ' + COLORS.equipmentBorder + ';',
-            'border-radius: 6px; padding: 6px 10px;',
-            'font-family: "Courier New", monospace; font-size: 10px;',
+            'border-radius: 6px; padding: 5px 10px;',
+            'font-family: "Courier New", monospace;',
+            'font-size: ' + (_baseFontSize + 1) + 'px;',
             'color: ' + COLORS.equipment + '; text-align: center;',
             'white-space: nowrap; backdrop-filter: blur(4px);',
             'box-shadow: 0 2px 8px rgba(0,0,0,0.5);',
             'pointer-events: auto; cursor: pointer; user-select: none;',
-            'transition: opacity 0.3s ease, transform 0.2s ease;',
-            'transform-origin: center center;'
+            'transform-origin: center center;',
+            'font-weight: bold;',
+            'transition: opacity 0.3s ease;'
         ].join(' ');
         
-        div.innerHTML = '<div style="font-weight:bold;font-size:11px;">🏭 ' + eq.tag + '</div>' +
-            '<div style="font-size:8px;color:#94a3b8;">' + tipoStr + diamStr + ' | ' + matStr + '</div>';
+        div.innerHTML = '🏭 ' + eq.tag;
         
         var label = new CSS2DObject(div);
         label.position.copy(anchor.position);
         label.userData = { tag: eq.tag, isEquipmentLabel: true };
         _labelGroup.add(label);
+        
+        div.addEventListener('mouseenter', function(e) {
+            showTooltip(e, eq);
+        });
+        div.addEventListener('mouseleave', function() {
+            hideTooltip();
+        });
+        div.addEventListener('mousemove', function(e) {
+            moveTooltip(e);
+        });
         
         var clickHandler = function(e) {
             e.stopPropagation();
@@ -519,14 +918,12 @@ const SmartFlowLabels3D = (function() {
         div.addEventListener('click', clickHandler);
         
         _equipmentLabels.set(eq.tag, { 
-            anchor: anchor, label: label, element: div, handler: clickHandler 
+            anchor: anchor, label: label, element: div, 
+            handler: clickHandler, equipo: eq
         });
         return { anchor: anchor, label: label };
     }
     
-    // ═══════════════════════════════════════════
-    // ETIQUETAS DE LÍNEA
-    // ═══════════════════════════════════════════
     function createLineLabel(line) {
         if (!line || !line.tag) return null;
         
@@ -553,10 +950,7 @@ const SmartFlowLabels3D = (function() {
         
         var p1 = pts[segIdx], p2 = pts[segIdx + 1];
         
-        var dx = Math.abs(p2.x - p1.x);
-        var dy = Math.abs(p2.y - p1.y);
-        var dz = Math.abs(p2.z - p1.z);
-        var isVertical = dy > dx && dy > dz;
+        var isVertical = Math.abs(p2.x - p1.x) < 10 && Math.abs(p2.z - p1.z) < 10;
         
         var midX = toMeters(p1.x + (p2.x - p1.x) * t) + (isVertical ? 0.2 : 0);
         var midY = toMeters(p1.y + (p2.y - p1.y) * t) + (isVertical ? 0 : LINE_LABEL_OFFSET);
@@ -572,13 +966,14 @@ const SmartFlowLabels3D = (function() {
             'background: ' + COLORS.lineBg + ';',
             'border: 1px solid ' + COLORS.lineBorder + ';',
             'border-radius: 4px; padding: 3px 7px;',
-            'font-family: "Courier New", monospace; font-size: 9px;',
+            'font-family: "Courier New", monospace;',
+            'font-size: ' + (_baseFontSize - 1) + 'px;',
             'color: ' + COLORS.line + '; text-align: center;',
             'white-space: nowrap; backdrop-filter: blur(4px);',
             'box-shadow: 0 1px 6px rgba(0,0,0,0.4);',
             'pointer-events: auto; cursor: pointer; user-select: none;',
-            'transition: opacity 0.3s ease, transform 0.2s ease;',
-            'transform-origin: center center;'
+            'transform-origin: center center;',
+            'transition: opacity 0.3s ease;'
         ].join(' ');
         
         div.textContent = diam + '" ' + matShort + (service ? ' ' + service : '');
@@ -598,9 +993,6 @@ const SmartFlowLabels3D = (function() {
         return { label: label };
     }
     
-    // ═══════════════════════════════════════════
-    // ETIQUETAS DE COMPONENTES
-    // ═══════════════════════════════════════════
     function createComponentLabels(line) {
         if (!line.components || !line.components.length) return;
         
@@ -637,12 +1029,13 @@ const SmartFlowLabels3D = (function() {
                 'background: ' + COLORS.componentBg + ';',
                 'border: 1px solid ' + COLORS.componentBorder + ';',
                 'border-radius: 3px; padding: 2px 5px;',
-                'font-family: "Courier New", monospace; font-size: 8px;',
+                'font-family: "Courier New", monospace;',
+                'font-size: ' + (_baseFontSize - 2) + 'px;',
                 'color: ' + COLORS.component + '; text-align: center;',
                 'white-space: nowrap; backdrop-filter: blur(4px);',
                 'pointer-events: auto; cursor: pointer; user-select: none;',
-                'transition: opacity 0.3s ease, transform 0.2s ease;',
-                'transform-origin: center center;'
+                'transform-origin: center center;',
+                'transition: opacity 0.3s ease;'
             ].join(' ');
             
             div.textContent = abbr;
@@ -691,17 +1084,18 @@ const SmartFlowLabels3D = (function() {
     }
     
     // ═══════════════════════════════════════════
-    // COTAS 3D
+    // DIMENSIONES
     // ═══════════════════════════════════════════
-    function createDimensionLine3D(p1, p2, labelText, lineTag) {
+    
+    function createDimensionLine3D(p1, p2, labelText) {
         var pos1 = new THREE.Vector3(toMeters(p1.x), toMeters(p1.y), toMeters(p1.z));
         var pos2 = new THREE.Vector3(toMeters(p2.x), toMeters(p2.y), toMeters(p2.z));
         
         var distance = pos1.distanceTo(pos2);
         if (distance < MIN_SEGMENT_LENGTH) return null;
         
-        _dimensionCounter++;
-        var key = (lineTag || 'dim') + '_' + _dimensionCounter;
+        var key = Math.round(p1.x) + ',' + Math.round(p1.y) + ',' + Math.round(p1.z) + '-' +
+                  Math.round(p2.x) + ',' + Math.round(p2.y) + ',' + Math.round(p2.z);
         if (_dimensionLines.has(key)) return null;
         
         var dir = new THREE.Vector3().subVectors(pos2, pos1).normalize();
@@ -716,39 +1110,39 @@ const SmartFlowLabels3D = (function() {
         
         var extGeo1 = new THREE.BufferGeometry().setFromPoints([pos1, cota1]);
         var extGeo2 = new THREE.BufferGeometry().setFromPoints([pos2, cota2]);
-        _dimensionGroup3D.add(new THREE.Line(extGeo1, _sharedDimExtMat));
-        _dimensionGroup3D.add(new THREE.Line(extGeo2, _sharedDimExtMat));
         
-        var lineGeo = new THREE.BufferGeometry().setFromPoints([cota1, cota2]);
-        _dimensionGroup3D.add(new THREE.Line(lineGeo, _sharedDimLineMat));
+        var lineGroup = new THREE.Group();
+        lineGroup.add(new THREE.Line(extGeo1, _sharedDimExtMat));
+        lineGroup.add(new THREE.Line(extGeo2, _sharedDimExtMat));
+        lineGroup.add(new THREE.Line(
+            new THREE.BufferGeometry().setFromPoints([cota1, cota2]), 
+            _sharedDimLineMat
+        ));
         
         var tickDir = dir.clone().multiplyScalar(0.1);
-        var tickGeo1 = new THREE.BufferGeometry().setFromPoints([
-            cota1.clone().add(tickDir), cota1.clone().sub(tickDir)
-        ]);
-        var tickGeo2 = new THREE.BufferGeometry().setFromPoints([
-            cota2.clone().add(tickDir), cota2.clone().sub(tickDir)
-        ]);
-        _dimensionGroup3D.add(new THREE.Line(tickGeo1, _sharedDimTickMat));
-        _dimensionGroup3D.add(new THREE.Line(tickGeo2, _sharedDimTickMat));
+        lineGroup.add(new THREE.Line(
+            new THREE.BufferGeometry().setFromPoints([cota1.clone().add(tickDir), cota1.clone().sub(tickDir)]),
+            _sharedDimTickMat
+        ));
+        lineGroup.add(new THREE.Line(
+            new THREE.BufferGeometry().setFromPoints([cota2.clone().add(tickDir), cota2.clone().sub(tickDir)]),
+            _sharedDimTickMat
+        ));
+        
+        _dimensionGroup3D.add(lineGroup);
         
         var dimText = labelText || formatDistance(distance);
         var textDiv = document.createElement('div');
         textDiv.className = 'label-3d';
-        
-        var isTotal = (labelText || '').toUpperCase().includes('TOTAL');
-        var bgColor = isTotal ? COLORS.totalBg : COLORS.dimensionBg;
-        var borderColor = isTotal ? COLORS.totalBorder : COLORS.dimensionBorder;
-        
         textDiv.innerHTML = '<span style="' + [
-            'background: ' + bgColor + ';',
+            'background: ' + COLORS.dimensionBg + ';',
             'color: ' + COLORS.dimensionText + ';',
             'padding: 2px 6px; border-radius: 3px;',
-            'font-family: "Courier New", monospace; font-size: ' + (isTotal ? '9px' : '8px') + ';',
+            'font-family: "Courier New", monospace;',
+            'font-size: ' + (_baseFontSize - 2) + 'px;',
             'white-space: nowrap;',
-            'border: 1px solid ' + borderColor + ';',
-            'font-weight: ' + (isTotal ? 'bold' : 'normal') + ';',
-            'transition: opacity 0.3s ease, transform 0.2s ease;',
+            'border: 1px solid ' + COLORS.dimensionBorder + ';',
+            'transition: opacity 0.3s ease;',
             'transform-origin: center center;'
         ].join(' ') + '">' + dimText + '</span>';
         
@@ -758,7 +1152,7 @@ const SmartFlowLabels3D = (function() {
         textLabel.userData = { isDimensionText: true, key: key };
         _dimensionGroup3D.add(textLabel);
         
-        _dimensionLines.set(key, { textLabel: textLabel, isTotal: isTotal });
+        _dimensionLines.set(key, { textLabel: textLabel, lineGroup: lineGroup });
         return { cota1: cota1, cota2: cota2, textLabel: textLabel };
     }
     
@@ -767,175 +1161,20 @@ const SmartFlowLabels3D = (function() {
         return (meters * 1000).toFixed(0) + ' mm';
     }
     
-    // ═══════════════════════════════════════════
-    // ANOTACIÓN DE ÁNGULO 3D
-    // ═══════════════════════════════════════════
-    function createAngleAnnotation3D(point, angleDeg, lineTag) {
-        var pos = new THREE.Vector3(toMeters(point.x), toMeters(point.y), toMeters(point.z));
-        
-        _dimensionCounter++;
-        var key = (lineTag || 'angle') + '_angle_' + _dimensionCounter;
-        
-        var arcRadius = ANGLE_OFFSET;
-        var arcPoints = [];
-        var segments = Math.max(8, Math.floor(angleDeg / 5));
-        
-        for (var i = 0; i <= segments; i++) {
-            var a = (angleDeg * Math.PI / 180) * (i / segments);
-            arcPoints.push(new THREE.Vector3(
-                pos.x + Math.cos(a) * arcRadius,
-                pos.y + 0.05,
-                pos.z + Math.sin(a) * arcRadius
-            ));
-        }
-        
-        var arcGeo = new THREE.BufferGeometry().setFromPoints(arcPoints);
-        var arcLine = new THREE.Line(arcGeo, _sharedAngleArcMat);
-        arcLine.userData = { isAngleArc: true, key: key };
-        _annotationGroup.add(arcLine);
-        
-        var textDiv = document.createElement('div');
-        textDiv.className = 'label-3d';
-        textDiv.innerHTML = '<span style="' + [
-            'background: ' + COLORS.angleBg + ';',
-            'color: ' + COLORS.angle + ';',
-            'padding: 2px 5px; border-radius: 3px;',
-            'font-family: "Courier New", monospace; font-size: 8px;',
-            'white-space: nowrap;',
-            'border: 1px solid ' + COLORS.angleBorder + ';',
-            'transition: opacity 0.3s ease, transform 0.2s ease;',
-            'transform-origin: center center;'
-        ].join(' ') + '">' + angleDeg.toFixed(1) + '°</span>';
-        
-        var label = new CSS2DObject(textDiv);
-        label.position.set(
-            pos.x + Math.cos(angleDeg * Math.PI / 360) * (arcRadius + 0.15),
-            pos.y + 0.1,
-            pos.z + Math.sin(angleDeg * Math.PI / 360) * (arcRadius + 0.15)
-        );
-        label.userData = { isAngleLabel: true, key: key };
-        _annotationGroup.add(label);
-        
-        _angleAnnotations.set(key, { label: label, arc: arcLine });
-    }
-    
-    // ═══════════════════════════════════════════
-    // ETIQUETA DE ELEVACIÓN
-    // ═══════════════════════════════════════════
-    function createElevationLabel3D(point, elevationMM, lineTag) {
-        var pos = new THREE.Vector3(toMeters(point.x), toMeters(point.y), toMeters(point.z));
-        
-        _dimensionCounter++;
-        var key = (lineTag || 'elev') + '_elev_' + _dimensionCounter;
-        
-        var elevText = formatElevation(elevationMM);
-        
-        var textDiv = document.createElement('div');
-        textDiv.className = 'label-3d';
-        textDiv.innerHTML = '<span style="' + [
-            'background: ' + COLORS.elevationBg + ';',
-            'color: ' + COLORS.elevation + ';',
-            'padding: 2px 6px; border-radius: 3px;',
-            'font-family: "Courier New", monospace; font-size: 8px;',
-            'white-space: nowrap;',
-            'border: 1px solid ' + COLORS.elevationBorder + ';',
-            'transition: opacity 0.3s ease, transform 0.2s ease;',
-            'transform-origin: center center;'
-        ].join(' ') + '">⌂ ' + elevText + '</span>';
-        
-        var label = new CSS2DObject(textDiv);
-        label.position.set(pos.x - ELEVATION_OFFSET, pos.y, pos.z);
-        label.userData = { isElevationLabel: true, key: key };
-        _annotationGroup.add(label);
-        
-        _elevationLabels.set(key, { label: label });
-    }
-    
-    // ═══════════════════════════════════════════
-    // ETIQUETA FROM/TO
-    // ═══════════════════════════════════════════
-    function createEndpointLabel3D(point, labelText, isStart) {
-        var pos = new THREE.Vector3(toMeters(point.x), toMeters(point.y), toMeters(point.z));
-        
-        _dimensionCounter++;
-        var key = 'endpoint_' + (isStart ? 'start_' : 'end_') + _dimensionCounter;
-        
-        var textDiv = document.createElement('div');
-        textDiv.className = 'label-3d';
-        textDiv.innerHTML = '<span style="' + [
-            'background: ' + COLORS.endpointBg + ';',
-            'color: ' + COLORS.endpoint + ';',
-            'padding: 2px 6px; border-radius: 3px;',
-            'font-family: "Courier New", monospace; font-size: 8px;',
-            'white-space: nowrap;',
-            'border: 1px solid ' + COLORS.endpointBorder + ';',
-            'transition: opacity 0.3s ease, transform 0.2s ease;',
-            'transform-origin: center center;'
-        ].join(' ') + '">' + (isStart ? '▶ ' : '◀ ') + labelText + '</span>';
-        
-        var label = new CSS2DObject(textDiv);
-        label.position.set(pos.x, pos.y + 0.2, pos.z);
-        label.userData = { isEndpointLabel: true, key: key };
-        _annotationGroup.add(label);
-    }
-    
-    // ═══════════════════════════════════════════
-    // CREACIÓN DE COTAS POR LÍNEA
-    // ═══════════════════════════════════════════
     function createDimensionsForLine(line) {
         var pts = _core.getLinePoints(line) || line._cachedPoints || line.points3D || [];
         if (pts.length < 2) return;
         
-        // Cotas por segmento
         for (var i = 0; i < pts.length - 1; i++) {
             if (pts[i].isControlPoint || pts[i+1].isControlPoint) continue;
-            var dist = Math.hypot(pts[i+1].x - pts[i].x, pts[i+1].y - pts[i].y, pts[i+1].z - pts[i].z);
+            var dist = Math.hypot(
+                pts[i+1].x - pts[i].x,
+                pts[i+1].y - pts[i].y,
+                pts[i+1].z - pts[i].z
+            );
             if (dist >= 100) {
-                createDimensionLine3D(pts[i], pts[i+1], formatLengthMM(dist), line.tag);
+                createDimensionLine3D(pts[i], pts[i+1]);
             }
-        }
-        
-        // Cota total
-        if (pts.length >= 2) {
-            var totalDist = 0;
-            for (var j = 0; j < pts.length - 1; j++) {
-                totalDist += Math.hypot(pts[j+1].x - pts[j].x, pts[j+1].y - pts[j].y, pts[j+1].z - pts[j].z);
-            }
-            if (totalDist >= 100) {
-                createDimensionLine3D(pts[0], pts[pts.length - 1], 'TOTAL ' + formatLengthMM(totalDist), line.tag);
-            }
-        }
-        
-        // Ángulos en giros
-        for (var k = 1; k < pts.length - 1; k++) {
-            var v1 = { x: pts[k].x - pts[k-1].x, y: pts[k].y - pts[k-1].y, z: pts[k].z - pts[k-1].z };
-            var v2 = { x: pts[k+1].x - pts[k].x, y: pts[k+1].y - pts[k].y, z: pts[k+1].z - pts[k].z };
-            var len1 = Math.hypot(v1.x, v1.y, v1.z) || 1;
-            var len2 = Math.hypot(v2.x, v2.y, v2.z) || 1;
-            var dot = (v1.x*v2.x + v1.y*v2.y + v1.z*v2.z) / (len1 * len2);
-            var angle = Math.acos(Math.max(-1, Math.min(1, dot))) * 180 / Math.PI;
-            
-            if (angle > MIN_ANGLE_DISPLAY) {
-                createAngleAnnotation3D(pts[k], angle, line.tag);
-            }
-        }
-        
-        // Elevaciones únicas
-        var seenElevations = new Set();
-        for (var m = 0; m < pts.length; m++) {
-            var elevKey = Math.round(pts[m].y / 500) * 500;
-            if (!seenElevations.has(elevKey)) {
-                seenElevations.add(elevKey);
-                createElevationLabel3D(pts[m], pts[m].y, line.tag);
-            }
-        }
-        
-        // Etiquetas FROM/TO
-        if (line.origin) {
-            createEndpointLabel3D(pts[0], 'FROM ' + line.origin.equipTag + ':' + line.origin.portId, true);
-        }
-        if (line.destination) {
-            createEndpointLabel3D(pts[pts.length - 1], 'TO ' + line.destination.equipTag + ':' + line.destination.portId, false);
         }
     }
     
@@ -955,51 +1194,15 @@ const SmartFlowLabels3D = (function() {
                     y: (eq.posY || 0) + (pB.relY || 0),
                     z: (eq.posZ || 0) + (pB.relZ || 0)
                 };
-                createDimensionLine3D(posA, posB, pA.id + ' ↔ ' + pB.id, eq.tag);
+                createDimensionLine3D(posA, posB, pA.id + ' ↔ ' + pB.id);
             }
         }
-    }
-    
-    // ═══════════════════════════════════════════
-    // INTEGRACIÓN CON DIMENSION GENERATOR
-    // ═══════════════════════════════════════════
-    function refreshAllDimensionsFromGenerator() {
-        if (!_core || typeof SmartFlowDimensionGenerator === 'undefined') return false;
-        
-        var db = _core.getDb();
-        if (!db) return false;
-        
-        var lines = db.lines || [];
-        for (var i = 0; i < lines.length; i++) {
-            var dimData = SmartFlowDimensionGenerator.generateDimensions(lines[i].tag);
-            if (dimData && dimData.dimensions) {
-                dimData.dimensions.forEach(function(d) {
-                    switch(d.type) {
-                        case 'segment':
-                            createDimensionLine3D(d.from, d.to, d.lengthDisplay, lines[i].tag);
-                            break;
-                        case 'overall':
-                            createDimensionLine3D(d.from, d.to, 'TOTAL ' + d.lengthDisplay, lines[i].tag);
-                            break;
-                        case 'angle':
-                            createAngleAnnotation3D(d.atPoint, d.angle, lines[i].tag);
-                            break;
-                        case 'elevation':
-                            createElevationLabel3D(d.atPoint, d.elevation, lines[i].tag);
-                            break;
-                        case 'end_label':
-                            createEndpointLabel3D(d.atPoint, d.label, d.position === 'start');
-                            break;
-                    }
-                });
-            }
-        }
-        return true;
     }
     
     // ═══════════════════════════════════════════
     // LIMPIEZA
     // ═══════════════════════════════════════════
+    
     function clearAllLabels() {
         _equipmentLabels.forEach(function(item) {
             if (item.element && item.handler) {
@@ -1033,6 +1236,8 @@ const SmartFlowLabels3D = (function() {
             }
         });
         _componentLabels.clear();
+        
+        clearSpatialGrid();
     }
     
     function clearAllDimensions() {
@@ -1041,28 +1246,11 @@ const SmartFlowLabels3D = (function() {
                 if (item.textLabel.parent) item.textLabel.parent.remove(item.textLabel);
                 if (item.textLabel.element) item.textLabel.element.remove();
             }
+            if (item.lineGroup && item.lineGroup.parent) {
+                item.lineGroup.parent.remove(item.lineGroup);
+            }
         });
         _dimensionLines.clear();
-        
-        _angleAnnotations.forEach(function(item) {
-            if (item.label) {
-                if (item.label.parent) item.label.parent.remove(item.label);
-                if (item.label.element) item.label.element.remove();
-            }
-            if (item.arc && item.arc.parent) {
-                item.arc.parent.remove(item.arc);
-                if (item.arc.geometry) item.arc.geometry.dispose();
-            }
-        });
-        _angleAnnotations.clear();
-        
-        _elevationLabels.forEach(function(item) {
-            if (item.label) {
-                if (item.label.parent) item.label.parent.remove(item.label);
-                if (item.label.element) item.label.element.remove();
-            }
-        });
-        _elevationLabels.clear();
         
         while (_dimensionGroup3D.children.length > 0) {
             var child = _dimensionGroup3D.children[0];
@@ -1070,15 +1258,6 @@ const SmartFlowLabels3D = (function() {
             if (child.element) child.element.remove();
             _dimensionGroup3D.remove(child);
         }
-        
-        while (_annotationGroup.children.length > 0) {
-            var child2 = _annotationGroup.children[0];
-            if (child2.geometry) child2.geometry.dispose();
-            if (child2.element) child2.element.remove();
-            _annotationGroup.remove(child2);
-        }
-        
-        _dimensionCounter = 0;
     }
     
     function refreshAllLabels() {
@@ -1106,64 +1285,36 @@ const SmartFlowLabels3D = (function() {
         if (!_core) return;
         clearAllDimensions();
         
-        if (!refreshAllDimensionsFromGenerator()) {
-            var db = _core.getDb();
-            if (!db) return;
-            
-            var lines = db.lines || [];
-            for (var i = 0; i < lines.length; i++) {
-                createDimensionsForLine(lines[i]);
-            }
-            
-            var equipos = db.equipos || [];
-            for (var j = 0; j < equipos.length; j++) {
-                createDimensionsForEquipment(equipos[j]);
-            }
+        var db = _core.getDb();
+        if (!db) return;
+        
+        var lines = db.lines || [];
+        for (var i = 0; i < lines.length; i++) {
+            createDimensionsForLine(lines[i]);
+        }
+        
+        var equipos = db.equipos || [];
+        for (var j = 0; j < equipos.length; j++) {
+            createDimensionsForEquipment(equipos[j]);
         }
     }
     
     function render() {
         if (_labelRenderer && _scene && _camera) {
-            updateLabelVisibility();
-            updateLabelScale();
+            updateAllLabelsLOD();
             _labelRenderer.render(_scene, _camera);
         }
-    }
-    
-    function exportDimensionsCSV() {
-        if (typeof SmartFlowDimensionGenerator !== 'undefined') {
-            var db = _core.getDb();
-            var allCSV = '';
-            var lines = db.lines || [];
-            
-            for (var i = 0; i < lines.length; i++) {
-                var dimData = SmartFlowDimensionGenerator.generateDimensions(lines[i].tag);
-                if (dimData) {
-                    allCSV += SmartFlowDimensionGenerator.exportDimensionsToCSV(dimData) + '\n';
-                }
-            }
-            
-            var blob = new Blob([allCSV], { type: 'text/csv;charset=utf-8;' });
-            var a = document.createElement('a');
-            a.href = URL.createObjectURL(blob);
-            a.download = 'Dimensiones_' + new Date().toISOString().slice(0,10) + '.csv';
-            a.click();
-            return true;
-        }
-        return false;
     }
     
     function dispose() {
         clearAllLabels();
         clearAllDimensions();
-        clearAxisIndicator();
         
         if (_sharedDimLineMat) _sharedDimLineMat.dispose();
         if (_sharedDimExtMat) _sharedDimExtMat.dispose();
         if (_sharedDimTickMat) _sharedDimTickMat.dispose();
         if (_sharedAnchorMat) _sharedAnchorMat.dispose();
         if (_sharedAnchorGeo) _sharedAnchorGeo.dispose();
-        if (_sharedAngleArcMat) _sharedAngleArcMat.dispose();
         
         if (_labelRenderer && _labelRenderer.domElement) {
             _labelRenderer.domElement.remove();
@@ -1171,10 +1322,19 @@ const SmartFlowLabels3D = (function() {
         
         if (_labelGroup.parent) _labelGroup.parent.remove(_labelGroup);
         if (_dimensionGroup3D.parent) _dimensionGroup3D.parent.remove(_dimensionGroup3D);
-        if (_annotationGroup.parent) _annotationGroup.parent.remove(_annotationGroup);
-        if (_axisGroup.parent) _axisGroup.parent.remove(_axisGroup);
         
         window.removeEventListener('resize', onResize);
+        
+        if (_resizeObserver && _containerElement) {
+            _resizeObserver.unobserve(_containerElement);
+            _resizeObserver.disconnect();
+            _resizeObserver = null;
+        }
+        
+        if (_tooltipDiv) {
+            _tooltipDiv.remove();
+            _tooltipDiv = null;
+        }
         
         _core = null;
         _engine = null;
@@ -1182,21 +1342,27 @@ const SmartFlowLabels3D = (function() {
         _camera = null;
         _scene = null;
         _raycaster = null;
+        _containerElement = null;
+    }
+    
+    function getVisibleStats() {
+        return _visibleStats;
     }
     
     // ═══════════════════════════════════════════
     // API PÚBLICA
     // ═══════════════════════════════════════════
+    
     return {
         init: init,
         refreshAllLabels: refreshAllLabels,
         refreshAllDimensions: refreshAllDimensions,
         clearAllLabels: clearAllLabels,
         clearAllDimensions: clearAllDimensions,
-        exportDimensionsCSV: exportDimensionsCSV,
         render: render,
         getLabelRenderer: function() { return _labelRenderer; },
-        dispose: dispose
+        dispose: dispose,
+        getVisibleStats: getVisibleStats
     };
 })();
 
