@@ -1,4 +1,13 @@
 
+// ============================================================
+// SMARTFLOW LABELS 3D v4.0 - Etiquetas y Cotas 3D
+// Archivo: js/labels3d.js
+// Novedades v4.0: Cota total, ángulos, elevaciones, FROM/TO,
+//                 integración con DimensionGenerator,
+//                 corrección líneas verticales, keys únicas,
+//                 exportación CSV, anotaciones de ángulo 3D
+// ============================================================
+
 import * as THREE from 'three';
 import { CSS2DRenderer, CSS2DObject } from 'three/addons/renderers/CSS2DRenderer.js';
 
@@ -11,24 +20,32 @@ const SmartFlowLabels3D = (function() {
     
     const _labelGroup = new THREE.Group();
     const _dimensionGroup3D = new THREE.Group();
+    const _annotationGroup = new THREE.Group();
     
     const _equipmentLabels = new Map();
     const _lineLabels = new Map();
     const _componentLabels = new Map();
     const _dimensionLines = new Map();
+    const _angleAnnotations = new Map();
+    const _elevationLabels = new Map();
     
     let _sharedDimLineMat = null;
     let _sharedDimExtMat = null;
     let _sharedDimTickMat = null;
     let _sharedAnchorMat = null;
     let _sharedAnchorGeo = null;
+    let _sharedAngleArcMat = null;
     
     let _raycaster = null;
+    let _dimensionCounter = 0;
     
     const EQUIPMENT_LABEL_OFFSET = 0.5;
     const LINE_LABEL_OFFSET = 0.15;
     const DIMENSION_OFFSET = 0.3;
+    const ANGLE_OFFSET = 0.25;
+    const ELEVATION_OFFSET = 0.4;
     const MIN_SEGMENT_LENGTH = 0.1;
+    const MIN_ANGLE_DISPLAY = 3;
     
     const COLORS = {
         equipment: '#f59e0b',
@@ -43,7 +60,19 @@ const SmartFlowLabels3D = (function() {
         dimension: '#facc15',
         dimensionBg: 'rgba(15, 23, 42, 0.85)',
         dimensionBorder: '#facc15',
-        dimensionText: '#ffffff'
+        dimensionText: '#ffffff',
+        angle: '#4ade80',
+        angleBg: 'rgba(15, 23, 42, 0.85)',
+        angleBorder: '#4ade80',
+        elevation: '#38bdf8',
+        elevationBg: 'rgba(15, 23, 42, 0.85)',
+        elevationBorder: '#38bdf8',
+        endpoint: '#fb923c',
+        endpointBg: 'rgba(15, 23, 42, 0.90)',
+        endpointBorder: '#fb923c',
+        total: '#ef4444',
+        totalBg: 'rgba(15, 23, 42, 0.92)',
+        totalBorder: '#ef4444'
     };
     
     function toMeters(mmValue) {
@@ -52,6 +81,16 @@ const SmartFlowLabels3D = (function() {
     
     function diameterToRadiusMeters(diameterPulgadas) {
         return ((diameterPulgadas || 4) * 25.4) / 2000;
+    }
+    
+    function formatLengthMM(mm) {
+        if (mm >= 1000) return (mm / 1000).toFixed(2) + ' m';
+        return Math.round(mm) + ' mm';
+    }
+    
+    function formatElevation(mmValue) {
+        var meters = mmValue / 1000;
+        return 'EL ' + (meters >= 0 ? '+' : '') + meters.toFixed(3) + ' m';
     }
     
     // ═══════════════════════════════════════════
@@ -87,7 +126,6 @@ const SmartFlowLabels3D = (function() {
                 var distToAnchor = camPos.distanceTo(worldPos);
                 var distToFirstHit = intersects[0].distance;
                 
-                // Verificar si el primer hit no es el equipo dueño del label
                 var isOwnerMesh = false;
                 var current = firstHit;
                 while (current) {
@@ -196,6 +234,20 @@ const SmartFlowLabels3D = (function() {
             
             item.textLabel.element.style.display = isOccluded ? 'none' : '';
         });
+        
+        // Verificar anotaciones de ángulo
+        _angleAnnotations.forEach(function(item) {
+            if (!item.label || !item.label.element) return;
+            var worldPos = new THREE.Vector3();
+            item.label.getWorldPosition(worldPos);
+            item.label.element.style.display = '';
+        });
+        
+        // Verificar elevaciones
+        _elevationLabels.forEach(function(item) {
+            if (!item.label || !item.label.element) return;
+            item.label.element.style.display = '';
+        });
     }
     
     // ═══════════════════════════════════════════
@@ -205,7 +257,6 @@ const SmartFlowLabels3D = (function() {
         if (!_camera) return;
         var zoom = _camera.zoom;
         
-        // Factor de escala: las etiquetas se reducen cuando el zoom es bajo
         var scale = Math.min(Math.max(zoom * 1.5, 0.35), 2.5);
         var opacity = Math.min(Math.max((zoom - 0.2) * 2.5, 0.2), 1.0);
         
@@ -236,8 +287,25 @@ const SmartFlowLabels3D = (function() {
                 item.textLabel.element.style.opacity = opacity.toFixed(2);
             }
         });
+        
+        _angleAnnotations.forEach(function(item) {
+            if (item.label && item.label.element) {
+                item.label.element.style.transform = 'scale(' + scale.toFixed(2) + ')';
+                item.label.element.style.opacity = opacity.toFixed(2);
+            }
+        });
+        
+        _elevationLabels.forEach(function(item) {
+            if (item.label && item.label.element) {
+                item.label.element.style.transform = 'scale(' + scale.toFixed(2) + ')';
+                item.label.element.style.opacity = opacity.toFixed(2);
+            }
+        });
     }
     
+    // ═══════════════════════════════════════════
+    // INICIALIZACIÓN
+    // ═══════════════════════════════════════════
     function init(coreInstance, engineInstance) {
         _core = coreInstance;
         _engine = engineInstance;
@@ -260,6 +328,9 @@ const SmartFlowLabels3D = (function() {
         });
         _sharedAnchorMat = new THREE.MeshBasicMaterial({ visible: false });
         _sharedAnchorGeo = new THREE.SphereGeometry(0.02, 4, 4);
+        _sharedAngleArcMat = new THREE.LineBasicMaterial({ 
+            color: 0x4ade80, linewidth: 1, transparent: true, opacity: 0.6, depthTest: true
+        });
         
         try {
             _labelRenderer = new CSS2DRenderer();
@@ -281,8 +352,10 @@ const SmartFlowLabels3D = (function() {
         
         _labelGroup.userData = { isLabelGroup: true };
         _dimensionGroup3D.userData = { isDimensionGroup3D: true };
+        _annotationGroup.userData = { isAnnotationGroup: true };
         _scene.add(_labelGroup);
         _scene.add(_dimensionGroup3D);
+        _scene.add(_annotationGroup);
         
         if (_core && typeof _core.on === 'function') {
             _core.on('modelChanged', function() {
@@ -295,7 +368,7 @@ const SmartFlowLabels3D = (function() {
         
         window.addEventListener('resize', onResize);
         
-        console.log('✔ SmartFlowLabels3D v3.1 r160 (oclusión + zoom)');
+        console.log('✔ SmartFlowLabels3D v4.0 (cotas totales + ángulos + elevaciones + FROM/TO)');
         return true;
     }
     
@@ -305,6 +378,9 @@ const SmartFlowLabels3D = (function() {
         }
     }
     
+    // ═══════════════════════════════════════════
+    // ETIQUETAS DE EQUIPO
+    // ═══════════════════════════════════════════
     function createEquipmentLabel(eq) {
         if (!eq || !eq.tag) return null;
         
@@ -363,6 +439,9 @@ const SmartFlowLabels3D = (function() {
         return { anchor: anchor, label: label };
     }
     
+    // ═══════════════════════════════════════════
+    // ETIQUETAS DE LÍNEA
+    // ═══════════════════════════════════════════
     function createLineLabel(line) {
         if (!line || !line.tag) return null;
         
@@ -389,7 +468,11 @@ const SmartFlowLabels3D = (function() {
         
         var p1 = pts[segIdx], p2 = pts[segIdx + 1];
         
-        var isVertical = Math.abs(p2.x - p1.x) < 10 && Math.abs(p2.z - p1.z) < 10;
+        // ✅ CORREGIDO: Mejor detección de segmento vertical
+        var dx = Math.abs(p2.x - p1.x);
+        var dy = Math.abs(p2.y - p1.y);
+        var dz = Math.abs(p2.z - p1.z);
+        var isVertical = dy > dx && dy > dz;
         
         var midX = toMeters(p1.x + (p2.x - p1.x) * t) + (isVertical ? 0.2 : 0);
         var midY = toMeters(p1.y + (p2.y - p1.y) * t) + (isVertical ? 0 : LINE_LABEL_OFFSET);
@@ -431,6 +514,9 @@ const SmartFlowLabels3D = (function() {
         return { label: label };
     }
     
+    // ═══════════════════════════════════════════
+    // ETIQUETAS DE COMPONENTES
+    // ═══════════════════════════════════════════
     function createComponentLabels(line) {
         if (!line.components || !line.components.length) return;
         
@@ -520,15 +606,19 @@ const SmartFlowLabels3D = (function() {
         return '??';
     }
     
-    function createDimensionLine3D(p1, p2, labelText) {
+    // ═══════════════════════════════════════════
+    // COTAS 3D
+    // ═══════════════════════════════════════════
+    function createDimensionLine3D(p1, p2, labelText, lineTag) {
         var pos1 = new THREE.Vector3(toMeters(p1.x), toMeters(p1.y), toMeters(p1.z));
         var pos2 = new THREE.Vector3(toMeters(p2.x), toMeters(p2.y), toMeters(p2.z));
         
         var distance = pos1.distanceTo(pos2);
         if (distance < MIN_SEGMENT_LENGTH) return null;
         
-        var key = Math.round(p1.x) + ',' + Math.round(p1.y) + ',' + Math.round(p1.z) + '-' +
-                  Math.round(p2.x) + ',' + Math.round(p2.y) + ',' + Math.round(p2.z);
+        // ✅ CORREGIDO: Key única con contador
+        _dimensionCounter++;
+        var key = (lineTag || 'dim') + '_' + _dimensionCounter;
         if (_dimensionLines.has(key)) return null;
         
         var dir = new THREE.Vector3().subVectors(pos2, pos1).normalize();
@@ -562,13 +652,20 @@ const SmartFlowLabels3D = (function() {
         var dimText = labelText || formatDistance(distance);
         var textDiv = document.createElement('div');
         textDiv.className = 'label-3d';
+        
+        // Detectar si es cota total para cambiar color
+        var isTotal = (labelText || '').toUpperCase().includes('TOTAL');
+        var bgColor = isTotal ? COLORS.totalBg : COLORS.dimensionBg;
+        var borderColor = isTotal ? COLORS.totalBorder : COLORS.dimensionBorder;
+        
         textDiv.innerHTML = '<span style="' + [
-            'background: ' + COLORS.dimensionBg + ';',
+            'background: ' + bgColor + ';',
             'color: ' + COLORS.dimensionText + ';',
             'padding: 2px 6px; border-radius: 3px;',
-            'font-family: "Courier New", monospace; font-size: 8px;',
+            'font-family: "Courier New", monospace; font-size: ' + (isTotal ? '9px' : '8px') + ';',
             'white-space: nowrap;',
-            'border: 1px solid ' + COLORS.dimensionBorder + ';',
+            'border: 1px solid ' + borderColor + ';',
+            'font-weight: ' + (isTotal ? 'bold' : 'normal') + ';',
             'transition: opacity 0.3s ease, transform 0.2s ease;',
             'transform-origin: center center;'
         ].join(' ') + '">' + dimText + '</span>';
@@ -579,7 +676,7 @@ const SmartFlowLabels3D = (function() {
         textLabel.userData = { isDimensionText: true, key: key };
         _dimensionGroup3D.add(textLabel);
         
-        _dimensionLines.set(key, { textLabel: textLabel });
+        _dimensionLines.set(key, { textLabel: textLabel, isTotal: isTotal });
         return { cota1: cota1, cota2: cota2, textLabel: textLabel };
     }
     
@@ -588,16 +685,179 @@ const SmartFlowLabels3D = (function() {
         return (meters * 1000).toFixed(0) + ' mm';
     }
     
+    // ═══════════════════════════════════════════
+    // ANOTACIÓN DE ÁNGULO 3D (NUEVO v4.0)
+    // ═══════════════════════════════════════════
+    function createAngleAnnotation3D(point, angleDeg, lineTag) {
+        var pos = new THREE.Vector3(toMeters(point.x), toMeters(point.y), toMeters(point.z));
+        
+        _dimensionCounter++;
+        var key = (lineTag || 'angle') + '_angle_' + _dimensionCounter;
+        
+        // Crear arco pequeño para indicar el ángulo
+        var arcRadius = ANGLE_OFFSET;
+        var arcPoints = [];
+        var startAngle = 0;
+        var endAngle = angleDeg * Math.PI / 180;
+        var segments = Math.max(8, Math.floor(angleDeg / 5));
+        
+        for (var i = 0; i <= segments; i++) {
+            var a = startAngle + (endAngle - startAngle) * (i / segments);
+            arcPoints.push(new THREE.Vector3(
+                pos.x + Math.cos(a) * arcRadius,
+                pos.y + 0.05,
+                pos.z + Math.sin(a) * arcRadius
+            ));
+        }
+        
+        var arcGeo = new THREE.BufferGeometry().setFromPoints(arcPoints);
+        var arcLine = new THREE.Line(arcGeo, _sharedAngleArcMat);
+        arcLine.userData = { isAngleArc: true, key: key };
+        _annotationGroup.add(arcLine);
+        
+        // Etiqueta de texto
+        var textDiv = document.createElement('div');
+        textDiv.className = 'label-3d';
+        textDiv.innerHTML = '<span style="' + [
+            'background: ' + COLORS.angleBg + ';',
+            'color: ' + COLORS.angle + ';',
+            'padding: 2px 5px; border-radius: 3px;',
+            'font-family: "Courier New", monospace; font-size: 8px;',
+            'white-space: nowrap;',
+            'border: 1px solid ' + COLORS.angleBorder + ';',
+            'transition: opacity 0.3s ease, transform 0.2s ease;',
+            'transform-origin: center center;'
+        ].join(' ') + '">' + angleDeg.toFixed(1) + '°</span>';
+        
+        var label = new CSS2DObject(textDiv);
+        label.position.set(
+            pos.x + Math.cos(endAngle / 2) * (arcRadius + 0.15),
+            pos.y + 0.1,
+            pos.z + Math.sin(endAngle / 2) * (arcRadius + 0.15)
+        );
+        label.userData = { isAngleLabel: true, key: key };
+        _annotationGroup.add(label);
+        
+        _angleAnnotations.set(key, { label: label, arc: arcLine });
+    }
+    
+    // ═══════════════════════════════════════════
+    // ETIQUETA DE ELEVACIÓN (NUEVO v4.0)
+    // ═══════════════════════════════════════════
+    function createElevationLabel3D(point, elevationMM, lineTag) {
+        var pos = new THREE.Vector3(toMeters(point.x), toMeters(point.y), toMeters(point.z));
+        
+        _dimensionCounter++;
+        var key = (lineTag || 'elev') + '_elev_' + _dimensionCounter;
+        
+        var elevText = formatElevation(elevationMM);
+        
+        var textDiv = document.createElement('div');
+        textDiv.className = 'label-3d';
+        textDiv.innerHTML = '<span style="' + [
+            'background: ' + COLORS.elevationBg + ';',
+            'color: ' + COLORS.elevation + ';',
+            'padding: 2px 6px; border-radius: 3px;',
+            'font-family: "Courier New", monospace; font-size: 8px;',
+            'white-space: nowrap;',
+            'border: 1px solid ' + COLORS.elevationBorder + ';',
+            'transition: opacity 0.3s ease, transform 0.2s ease;',
+            'transform-origin: center center;'
+        ].join(' ') + '">⌂ ' + elevText + '</span>';
+        
+        var label = new CSS2DObject(textDiv);
+        label.position.set(pos.x - ELEVATION_OFFSET, pos.y, pos.z);
+        label.userData = { isElevationLabel: true, key: key };
+        _annotationGroup.add(label);
+        
+        _elevationLabels.set(key, { label: label });
+    }
+    
+    // ═══════════════════════════════════════════
+    // ETIQUETA FROM/TO (NUEVO v4.0)
+    // ═══════════════════════════════════════════
+    function createEndpointLabel3D(point, labelText, isStart) {
+        var pos = new THREE.Vector3(toMeters(point.x), toMeters(point.y), toMeters(point.z));
+        
+        _dimensionCounter++;
+        var key = 'endpoint_' + (isStart ? 'start_' : 'end_') + _dimensionCounter;
+        
+        var textDiv = document.createElement('div');
+        textDiv.className = 'label-3d';
+        textDiv.innerHTML = '<span style="' + [
+            'background: ' + COLORS.endpointBg + ';',
+            'color: ' + COLORS.endpoint + ';',
+            'padding: 2px 6px; border-radius: 3px;',
+            'font-family: "Courier New", monospace; font-size: 8px;',
+            'white-space: nowrap;',
+            'border: 1px solid ' + COLORS.endpointBorder + ';',
+            'transition: opacity 0.3s ease, transform 0.2s ease;',
+            'transform-origin: center center;'
+        ].join(' ') + '">' + (isStart ? '▶ ' : '◀ ') + labelText + '</span>';
+        
+        var label = new CSS2DObject(textDiv);
+        label.position.set(pos.x, pos.y + 0.2, pos.z);
+        label.userData = { isEndpointLabel: true, key: key };
+        _annotationGroup.add(label);
+    }
+    
+    // ═══════════════════════════════════════════
+    // CREACIÓN DE COTAS POR LÍNEA (MEJORADO v4.0)
+    // ═══════════════════════════════════════════
     function createDimensionsForLine(line) {
         var pts = _core.getLinePoints(line) || line._cachedPoints || line.points3D || [];
         if (pts.length < 2) return;
         
+        // ✅ Cotas por segmento
         for (var i = 0; i < pts.length - 1; i++) {
             if (pts[i].isControlPoint || pts[i+1].isControlPoint) continue;
             var dist = Math.hypot(pts[i+1].x - pts[i].x, pts[i+1].y - pts[i].y, pts[i+1].z - pts[i].z);
             if (dist >= 100) {
-                createDimensionLine3D(pts[i], pts[i+1]);
+                createDimensionLine3D(pts[i], pts[i+1], formatLengthMM(dist), line.tag);
             }
+        }
+        
+        // ✅ Cota total (NUEVO v4.0)
+        if (pts.length >= 2) {
+            var totalDist = 0;
+            for (var j = 0; j < pts.length - 1; j++) {
+                totalDist += Math.hypot(pts[j+1].x - pts[j].x, pts[j+1].y - pts[j].y, pts[j+1].z - pts[j].z);
+            }
+            if (totalDist >= 100) {
+                createDimensionLine3D(pts[0], pts[pts.length - 1], 'TOTAL ' + formatLengthMM(totalDist), line.tag);
+            }
+        }
+        
+        // ✅ Ángulos en giros (NUEVO v4.0)
+        for (var k = 1; k < pts.length - 1; k++) {
+            var v1 = { x: pts[k].x - pts[k-1].x, y: pts[k].y - pts[k-1].y, z: pts[k].z - pts[k-1].z };
+            var v2 = { x: pts[k+1].x - pts[k].x, y: pts[k+1].y - pts[k].y, z: pts[k+1].z - pts[k].z };
+            var len1 = Math.hypot(v1.x, v1.y, v1.z) || 1;
+            var len2 = Math.hypot(v2.x, v2.y, v2.z) || 1;
+            var dot = (v1.x*v2.x + v1.y*v2.y + v1.z*v2.z) / (len1 * len2);
+            var angle = Math.acos(Math.max(-1, Math.min(1, dot))) * 180 / Math.PI;
+            
+            if (angle > MIN_ANGLE_DISPLAY) {
+                createAngleAnnotation3D(pts[k], angle, line.tag);
+            }
+        }
+        
+        // ✅ Elevaciones únicas (NUEVO v4.0)
+        var seenElevations = new Set();
+        for (var m = 0; m < pts.length; m++) {
+            var elevKey = Math.round(pts[m].y / 500) * 500;
+            if (!seenElevations.has(elevKey)) {
+                seenElevations.add(elevKey);
+                createElevationLabel3D(pts[m], pts[m].y, line.tag);
+            }
+        }
+        
+        // ✅ Etiquetas FROM/TO (NUEVO v4.0)
+        if (line.origin) {
+            createEndpointLabel3D(pts[0], 'FROM ' + line.origin.equipTag + ':' + line.origin.portId, true);
+        }
+        if (line.destination) {
+            createEndpointLabel3D(pts[pts.length - 1], 'TO ' + line.destination.equipTag + ':' + line.destination.portId, false);
         }
     }
     
@@ -617,11 +877,51 @@ const SmartFlowLabels3D = (function() {
                     y: (eq.posY || 0) + (pB.relY || 0),
                     z: (eq.posZ || 0) + (pB.relZ || 0)
                 };
-                createDimensionLine3D(posA, posB, pA.id + ' ↔ ' + pB.id);
+                createDimensionLine3D(posA, posB, pA.id + ' ↔ ' + pB.id, eq.tag);
             }
         }
     }
     
+    // ═══════════════════════════════════════════
+    // INTEGRACIÓN CON DIMENSION GENERATOR (NUEVO v4.0)
+    // ═══════════════════════════════════════════
+    function refreshAllDimensionsFromGenerator() {
+        if (!_core || typeof SmartFlowDimensionGenerator === 'undefined') return false;
+        
+        var db = _core.getDb();
+        if (!db) return false;
+        
+        var lines = db.lines || [];
+        for (var i = 0; i < lines.length; i++) {
+            var dimData = SmartFlowDimensionGenerator.generateDimensions(lines[i].tag);
+            if (dimData && dimData.dimensions) {
+                dimData.dimensions.forEach(function(d) {
+                    switch(d.type) {
+                        case 'segment':
+                            createDimensionLine3D(d.from, d.to, d.lengthDisplay, lines[i].tag);
+                            break;
+                        case 'overall':
+                            createDimensionLine3D(d.from, d.to, 'TOTAL ' + d.lengthDisplay, lines[i].tag);
+                            break;
+                        case 'angle':
+                            createAngleAnnotation3D(d.atPoint, d.angle, lines[i].tag);
+                            break;
+                        case 'elevation':
+                            createElevationLabel3D(d.atPoint, d.elevation, lines[i].tag);
+                            break;
+                        case 'end_label':
+                            createEndpointLabel3D(d.atPoint, d.label, d.position === 'start');
+                            break;
+                    }
+                });
+            }
+        }
+        return true;
+    }
+    
+    // ═══════════════════════════════════════════
+    // LIMPIEZA
+    // ═══════════════════════════════════════════
     function clearAllLabels() {
         _equipmentLabels.forEach(function(item) {
             if (item.element && item.handler) {
@@ -666,12 +966,41 @@ const SmartFlowLabels3D = (function() {
         });
         _dimensionLines.clear();
         
+        _angleAnnotations.forEach(function(item) {
+            if (item.label) {
+                if (item.label.parent) item.label.parent.remove(item.label);
+                if (item.label.element) item.label.element.remove();
+            }
+            if (item.arc && item.arc.parent) {
+                item.arc.parent.remove(item.arc);
+                if (item.arc.geometry) item.arc.geometry.dispose();
+            }
+        });
+        _angleAnnotations.clear();
+        
+        _elevationLabels.forEach(function(item) {
+            if (item.label) {
+                if (item.label.parent) item.label.parent.remove(item.label);
+                if (item.label.element) item.label.element.remove();
+            }
+        });
+        _elevationLabels.clear();
+        
         while (_dimensionGroup3D.children.length > 0) {
             var child = _dimensionGroup3D.children[0];
             if (child.geometry) child.geometry.dispose();
             if (child.element) child.element.remove();
             _dimensionGroup3D.remove(child);
         }
+        
+        while (_annotationGroup.children.length > 0) {
+            var child2 = _annotationGroup.children[0];
+            if (child2.geometry) child2.geometry.dispose();
+            if (child2.element) child2.element.remove();
+            _annotationGroup.remove(child2);
+        }
+        
+        _dimensionCounter = 0;
     }
     
     function refreshAllLabels() {
@@ -699,17 +1028,21 @@ const SmartFlowLabels3D = (function() {
         if (!_core) return;
         clearAllDimensions();
         
-        var db = _core.getDb();
-        if (!db) return;
-        
-        var lines = db.lines || [];
-        for (var i = 0; i < lines.length; i++) {
-            createDimensionsForLine(lines[i]);
-        }
-        
-        var equipos = db.equipos || [];
-        for (var j = 0; j < equipos.length; j++) {
-            createDimensionsForEquipment(equipos[j]);
+        // Intentar usar DimensionGenerator primero
+        if (!refreshAllDimensionsFromGenerator()) {
+            // Fallback al método tradicional
+            var db = _core.getDb();
+            if (!db) return;
+            
+            var lines = db.lines || [];
+            for (var i = 0; i < lines.length; i++) {
+                createDimensionsForLine(lines[i]);
+            }
+            
+            var equipos = db.equipos || [];
+            for (var j = 0; j < equipos.length; j++) {
+                createDimensionsForEquipment(equipos[j]);
+            }
         }
     }
     
@@ -721,6 +1054,32 @@ const SmartFlowLabels3D = (function() {
         }
     }
     
+    // ═══════════════════════════════════════════
+    // EXPORTACIÓN (NUEVO v4.0)
+    // ═══════════════════════════════════════════
+    function exportDimensionsCSV() {
+        if (typeof SmartFlowDimensionGenerator !== 'undefined') {
+            var db = _core.getDb();
+            var allCSV = '';
+            var lines = db.lines || [];
+            
+            for (var i = 0; i < lines.length; i++) {
+                var dimData = SmartFlowDimensionGenerator.generateDimensions(lines[i].tag);
+                if (dimData) {
+                    allCSV += SmartFlowDimensionGenerator.exportDimensionsToCSV(dimData) + '\n';
+                }
+            }
+            
+            var blob = new Blob([allCSV], { type: 'text/csv;charset=utf-8;' });
+            var a = document.createElement('a');
+            a.href = URL.createObjectURL(blob);
+            a.download = 'Dimensiones_' + new Date().toISOString().slice(0,10) + '.csv';
+            a.click();
+            return true;
+        }
+        return false;
+    }
+    
     function dispose() {
         clearAllLabels();
         clearAllDimensions();
@@ -730,6 +1089,7 @@ const SmartFlowLabels3D = (function() {
         if (_sharedDimTickMat) _sharedDimTickMat.dispose();
         if (_sharedAnchorMat) _sharedAnchorMat.dispose();
         if (_sharedAnchorGeo) _sharedAnchorGeo.dispose();
+        if (_sharedAngleArcMat) _sharedAngleArcMat.dispose();
         
         if (_labelRenderer && _labelRenderer.domElement) {
             _labelRenderer.domElement.remove();
@@ -737,6 +1097,7 @@ const SmartFlowLabels3D = (function() {
         
         if (_labelGroup.parent) _labelGroup.parent.remove(_labelGroup);
         if (_dimensionGroup3D.parent) _dimensionGroup3D.parent.remove(_dimensionGroup3D);
+        if (_annotationGroup.parent) _annotationGroup.parent.remove(_annotationGroup);
         
         window.removeEventListener('resize', onResize);
         
@@ -748,12 +1109,16 @@ const SmartFlowLabels3D = (function() {
         _raycaster = null;
     }
     
+    // ═══════════════════════════════════════════
+    // API PÚBLICA
+    // ═══════════════════════════════════════════
     return {
         init: init,
         refreshAllLabels: refreshAllLabels,
         refreshAllDimensions: refreshAllDimensions,
         clearAllLabels: clearAllLabels,
         clearAllDimensions: clearAllDimensions,
+        exportDimensionsCSV: exportDimensionsCSV,
         render: render,
         getLabelRenderer: function() { return _labelRenderer; },
         dispose: dispose
