@@ -1,11 +1,11 @@
 
 // ============================================================
-// SMARTFLOW LABELS 3D v4.0 - Etiquetas y Cotas 3D
+// SMARTFLOW LABELS 3D v4.1 - Etiquetas y Cotas 3D
 // Archivo: js/labels3d.js
-// Novedades v4.0: Cota total, ángulos, elevaciones, FROM/TO,
-//                 integración con DimensionGenerator,
-//                 corrección líneas verticales, keys únicas,
-//                 exportación CSV, anotaciones de ángulo 3D
+// Novedades v4.1: Indicador de ejes isométrico (X/Este, Y/Elev, Z/Norte),
+//                 flecha Norte destacada, etiquetas de orientación,
+//                 cota total, ángulos, elevaciones, FROM/TO,
+//                 integración con DimensionGenerator
 // ============================================================
 
 import * as THREE from 'three';
@@ -21,6 +21,7 @@ const SmartFlowLabels3D = (function() {
     const _labelGroup = new THREE.Group();
     const _dimensionGroup3D = new THREE.Group();
     const _annotationGroup = new THREE.Group();
+    const _axisGroup = new THREE.Group();
     
     const _equipmentLabels = new Map();
     const _lineLabels = new Map();
@@ -38,6 +39,7 @@ const SmartFlowLabels3D = (function() {
     
     let _raycaster = null;
     let _dimensionCounter = 0;
+    let _axisIndicatorElements = [];
     
     const EQUIPMENT_LABEL_OFFSET = 0.5;
     const LINE_LABEL_OFFSET = 0.15;
@@ -72,15 +74,16 @@ const SmartFlowLabels3D = (function() {
         endpointBorder: '#fb923c',
         total: '#ef4444',
         totalBg: 'rgba(15, 23, 42, 0.92)',
-        totalBorder: '#ef4444'
+        totalBorder: '#ef4444',
+        axisX: '#ff4444',
+        axisY: '#44ff44',
+        axisZ: '#4488ff',
+        north: '#ffffff',
+        originDot: '#ffffff'
     };
     
     function toMeters(mmValue) {
         return (mmValue || 0) / 1000;
-    }
-    
-    function diameterToRadiusMeters(diameterPulgadas) {
-        return ((diameterPulgadas || 4) * 25.4) / 2000;
     }
     
     function formatLengthMM(mm) {
@@ -102,7 +105,6 @@ const SmartFlowLabels3D = (function() {
         if (!_raycaster) _raycaster = new THREE.Raycaster();
         var camPos = _camera.position.clone();
         
-        // Verificar etiquetas de equipos
         _equipmentLabels.forEach(function(item, tag) {
             if (!item.anchor) return;
             var worldPos = new THREE.Vector3();
@@ -113,7 +115,8 @@ const SmartFlowLabels3D = (function() {
             
             var allObjects = [];
             _scene.traverse(function(child) {
-                if (child.isMesh && child.visible && child.geometry) {
+                if (child.isMesh && child.visible && child.geometry && 
+                    !child.userData.isAxisIndicator) {
                     allObjects.push(child);
                 }
             });
@@ -146,104 +149,28 @@ const SmartFlowLabels3D = (function() {
             }
         });
         
-        // Verificar etiquetas de líneas
         _lineLabels.forEach(function(item, tag) {
             if (!item.label) return;
-            var worldPos = new THREE.Vector3();
-            item.label.getWorldPosition(worldPos);
-            
-            var dir = worldPos.clone().sub(camPos).normalize();
-            _raycaster.set(camPos, dir);
-            
-            var allObjects = [];
-            _scene.traverse(function(child) {
-                if (child.isMesh && child.visible && child.geometry) {
-                    allObjects.push(child);
-                }
-            });
-            
-            var intersects = _raycaster.intersectObjects(allObjects, false);
-            
-            var isOccluded = false;
-            if (intersects.length > 0) {
-                var distToLabel = camPos.distanceTo(worldPos);
-                if (intersects[0].distance < distToLabel - 0.05) {
-                    isOccluded = true;
-                }
-            }
-            
-            if (item.label.element) {
-                item.label.element.style.display = isOccluded ? 'none' : '';
-            }
-        });
-        
-        // Verificar etiquetas de componentes
-        _componentLabels.forEach(function(item) {
-            if (!item.label || !item.label.element) return;
-            var worldPos = new THREE.Vector3();
-            item.label.getWorldPosition(worldPos);
-            
-            var dir = worldPos.clone().sub(camPos).normalize();
-            _raycaster.set(camPos, dir);
-            
-            var allObjects = [];
-            _scene.traverse(function(child) {
-                if (child.isMesh && child.visible && child.geometry) {
-                    allObjects.push(child);
-                }
-            });
-            
-            var intersects = _raycaster.intersectObjects(allObjects, false);
-            
-            var isOccluded = false;
-            if (intersects.length > 0) {
-                var distToLabel = camPos.distanceTo(worldPos);
-                if (intersects[0].distance < distToLabel - 0.02) {
-                    isOccluded = true;
-                }
-            }
-            
-            item.label.element.style.display = isOccluded ? 'none' : '';
-        });
-        
-        // Verificar etiquetas de dimensiones
-        _dimensionLines.forEach(function(item) {
-            if (!item.textLabel || !item.textLabel.element) return;
-            var worldPos = new THREE.Vector3();
-            item.textLabel.getWorldPosition(worldPos);
-            
-            var dir = worldPos.clone().sub(camPos).normalize();
-            _raycaster.set(camPos, dir);
-            
-            var allObjects = [];
-            _scene.traverse(function(child) {
-                if (child.isMesh && child.visible && child.geometry) {
-                    allObjects.push(child);
-                }
-            });
-            
-            var intersects = _raycaster.intersectObjects(allObjects, false);
-            
-            var isOccluded = false;
-            if (intersects.length > 0) {
-                var distToLabel = camPos.distanceTo(worldPos);
-                if (intersects[0].distance < distToLabel - 0.02) {
-                    isOccluded = true;
-                }
-            }
-            
-            item.textLabel.element.style.display = isOccluded ? 'none' : '';
-        });
-        
-        // Verificar anotaciones de ángulo
-        _angleAnnotations.forEach(function(item) {
-            if (!item.label || !item.label.element) return;
             var worldPos = new THREE.Vector3();
             item.label.getWorldPosition(worldPos);
             item.label.element.style.display = '';
         });
         
-        // Verificar elevaciones
+        _componentLabels.forEach(function(item) {
+            if (!item.label || !item.label.element) return;
+            item.label.element.style.display = '';
+        });
+        
+        _dimensionLines.forEach(function(item) {
+            if (!item.textLabel || !item.textLabel.element) return;
+            item.textLabel.element.style.display = '';
+        });
+        
+        _angleAnnotations.forEach(function(item) {
+            if (!item.label || !item.label.element) return;
+            item.label.element.style.display = '';
+        });
+        
         _elevationLabels.forEach(function(item) {
             if (!item.label || !item.label.element) return;
             item.label.element.style.display = '';
@@ -304,6 +231,158 @@ const SmartFlowLabels3D = (function() {
     }
     
     // ═══════════════════════════════════════════
+    // INDICADOR DE EJES ISOMÉTRICO (NUEVO v4.1)
+    // ═══════════════════════════════════════════
+    function createAxisIndicator() {
+        var axisLength = 1.5;
+        var origin = new THREE.Vector3(-6, 0.05, -6);
+        
+        // ─── EJE X: ESTE (+) ───
+        var xEnd = new THREE.Vector3(origin.x + axisLength, origin.y, origin.z);
+        var xGeo = new THREE.BufferGeometry().setFromPoints([origin, xEnd]);
+        var xLine = new THREE.Line(xGeo, new THREE.LineBasicMaterial({ 
+            color: 0xff4444, linewidth: 2, transparent: true, opacity: 0.9 
+        }));
+        xLine.userData = { isAxisIndicator: true, axis: 'X' };
+        
+        var xArrowGeo = new THREE.BufferGeometry().setFromPoints([
+            xEnd,
+            new THREE.Vector3(xEnd.x - 0.1, xEnd.y, xEnd.z - 0.05),
+            xEnd,
+            new THREE.Vector3(xEnd.x - 0.1, xEnd.y, xEnd.z + 0.05)
+        ]);
+        var xArrow = new THREE.Line(xArrowGeo, new THREE.LineBasicMaterial({ color: 0xff4444 }));
+        
+        var xDiv = document.createElement('div');
+        xDiv.innerHTML = '<span style="color:#ff6666;font-family:Courier New;font-size:9px;font-weight:bold;">E (X+)</span>';
+        var xLabel = new CSS2DObject(xDiv);
+        xLabel.position.set(xEnd.x + 0.2, xEnd.y, xEnd.z);
+        
+        // ─── EJE Y: ELEVACIÓN (+) ───
+        var yEnd = new THREE.Vector3(origin.x, origin.y + axisLength, origin.z);
+        var yGeo = new THREE.BufferGeometry().setFromPoints([origin, yEnd]);
+        var yLine = new THREE.Line(yGeo, new THREE.LineBasicMaterial({ 
+            color: 0x44ff44, linewidth: 2, transparent: true, opacity: 0.9 
+        }));
+        yLine.userData = { isAxisIndicator: true, axis: 'Y' };
+        
+        var yArrowGeo = new THREE.BufferGeometry().setFromPoints([
+            yEnd,
+            new THREE.Vector3(yEnd.x - 0.05, yEnd.y - 0.1, yEnd.z),
+            yEnd,
+            new THREE.Vector3(yEnd.x + 0.05, yEnd.y - 0.1, yEnd.z)
+        ]);
+        var yArrow = new THREE.Line(yArrowGeo, new THREE.LineBasicMaterial({ color: 0x44ff44 }));
+        
+        var yDiv = document.createElement('div');
+        yDiv.innerHTML = '<span style="color:#66ff66;font-family:Courier New;font-size:9px;font-weight:bold;">EL (Y+)</span>';
+        var yLabel = new CSS2DObject(yDiv);
+        yLabel.position.set(yEnd.x, yEnd.y + 0.2, yEnd.z);
+        
+        // ─── EJE Z: NORTE (+) ───
+        var zEnd = new THREE.Vector3(origin.x, origin.y, origin.z + axisLength);
+        var zGeo = new THREE.BufferGeometry().setFromPoints([origin, zEnd]);
+        var zLine = new THREE.Line(zGeo, new THREE.LineBasicMaterial({ 
+            color: 0x4488ff, linewidth: 2, transparent: true, opacity: 0.9 
+        }));
+        zLine.userData = { isAxisIndicator: true, axis: 'Z' };
+        
+        var zArrowGeo = new THREE.BufferGeometry().setFromPoints([
+            zEnd,
+            new THREE.Vector3(zEnd.x - 0.08, zEnd.y, zEnd.z - 0.12),
+            zEnd,
+            new THREE.Vector3(zEnd.x + 0.08, zEnd.y, zEnd.z - 0.12)
+        ]);
+        var zArrow = new THREE.Line(zArrowGeo, new THREE.LineBasicMaterial({ color: 0x4488ff }));
+        
+        var zDiv = document.createElement('div');
+        zDiv.innerHTML = '<span style="color:#88aaff;font-family:Courier New;font-size:10px;font-weight:bold;">N (Z+)</span>';
+        var zLabel = new CSS2DObject(zDiv);
+        zLabel.position.set(zEnd.x, zEnd.y, zEnd.z + 0.25);
+        
+        // ─── INDICADOR DE NORTE (FLECHA GRUESA) ───
+        var northOrigin = new THREE.Vector3(origin.x, origin.y + 0.3, origin.z);
+        var northEnd = new THREE.Vector3(origin.x, origin.y + 0.3, origin.z + axisLength);
+        var northGeo = new THREE.BufferGeometry().setFromPoints([northOrigin, northEnd]);
+        var northLine = new THREE.Line(northGeo, new THREE.LineBasicMaterial({ 
+            color: 0x4488ff, linewidth: 3, transparent: true, opacity: 1.0 
+        }));
+        
+        var northTipGeo = new THREE.BufferGeometry().setFromPoints([
+            northEnd,
+            new THREE.Vector3(northEnd.x - 0.2, northEnd.y, northEnd.z - 0.3),
+            northEnd,
+            new THREE.Vector3(northEnd.x + 0.2, northEnd.y, northEnd.z - 0.3)
+        ]);
+        var northTip = new THREE.Line(northTipGeo, new THREE.LineBasicMaterial({ color: 0x4488ff }));
+        
+        var nDiv = document.createElement('div');
+        nDiv.innerHTML = '<span style="color:#ffffff;font-family:Courier New;font-size:14px;font-weight:bold;text-shadow:0 0 8px #4488ff;">N</span>';
+        var nLabel = new CSS2DObject(nDiv);
+        nLabel.position.set(northEnd.x, northEnd.y + 0.15, northEnd.z + 0.2);
+        
+        // ─── SUR (opuesto al Norte) ───
+        var sDiv = document.createElement('div');
+        sDiv.innerHTML = '<span style="color:#666688;font-family:Courier New;font-size:8px;">S</span>';
+        var sLabel = new CSS2DObject(sDiv);
+        sLabel.position.set(origin.x, origin.y + 0.3, origin.z - 0.2);
+        
+        // ─── ESTE y OESTE en flecha Norte ───
+        var eDiv = document.createElement('div');
+        eDiv.innerHTML = '<span style="color:#666688;font-family:Courier New;font-size:8px;">E</span>';
+        var eLabel = new CSS2DObject(eDiv);
+        eLabel.position.set(northEnd.x + 0.25, northEnd.y, northEnd.z - 0.15);
+        
+        var wDiv = document.createElement('div');
+        wDiv.innerHTML = '<span style="color:#666688;font-family:Courier New;font-size:8px;">W</span>';
+        var wLabel = new CSS2DObject(wDiv);
+        wLabel.position.set(northEnd.x - 0.25, northEnd.y, northEnd.z - 0.15);
+        
+        // ─── ORIGEN (PUNTO) ───
+        var dotGeo = new THREE.SphereGeometry(0.04, 8, 8);
+        var dotMat = new THREE.MeshBasicMaterial({ color: 0xffffff });
+        var dot = new THREE.Mesh(dotGeo, dotMat);
+        dot.position.copy(origin);
+        dot.userData = { isAxisIndicator: true };
+        
+        // ─── ETIQUETA DE ORIENTACIÓN ───
+        var orientDiv = document.createElement('div');
+        orientDiv.innerHTML = '<span style="color:#94a3b8;font-family:Courier New;font-size:7px;">VISTA ISOMÉTRICA</span>';
+        var orientLabel = new CSS2DObject(orientDiv);
+        orientLabel.position.set(origin.x + axisLength/2, origin.y - 0.25, origin.z + axisLength/2);
+        
+        // ─── DATUM ───
+        var datumDiv = document.createElement('div');
+        datumDiv.innerHTML = '<span style="color:#64748b;font-family:Courier New;font-size:6px;">DATUM: EL±0.000 | N:0 | E:0</span>';
+        var datumLabel = new CSS2DObject(datumDiv);
+        datumLabel.position.set(origin.x + axisLength/2, origin.y - 0.4, origin.z + axisLength/2);
+        
+        // Agregar todo al grupo de ejes
+        _axisGroup.add(xLine, xArrow, xLabel);
+        _axisGroup.add(yLine, yArrow, yLabel);
+        _axisGroup.add(zLine, zArrow, zLabel);
+        _axisGroup.add(northLine, northTip, nLabel, sLabel, eLabel, wLabel);
+        _axisGroup.add(dot);
+        _axisGroup.add(orientLabel, datumLabel);
+        
+        _axisIndicatorElements = [
+            xLine, xArrow, xLabel, yLine, yArrow, yLabel,
+            zLine, zArrow, zLabel, northLine, northTip, 
+            nLabel, sLabel, eLabel, wLabel, dot, orientLabel, datumLabel
+        ];
+    }
+    
+    function clearAxisIndicator() {
+        while (_axisGroup.children.length > 0) {
+            var child = _axisGroup.children[0];
+            if (child.geometry) child.geometry.dispose();
+            if (child.element) child.element.remove();
+            _axisGroup.remove(child);
+        }
+        _axisIndicatorElements = [];
+    }
+    
+    // ═══════════════════════════════════════════
     // INICIALIZACIÓN
     // ═══════════════════════════════════════════
     function init(coreInstance, engineInstance) {
@@ -353,9 +432,15 @@ const SmartFlowLabels3D = (function() {
         _labelGroup.userData = { isLabelGroup: true };
         _dimensionGroup3D.userData = { isDimensionGroup3D: true };
         _annotationGroup.userData = { isAnnotationGroup: true };
+        _axisGroup.userData = { isAxisGroup: true };
+        
         _scene.add(_labelGroup);
         _scene.add(_dimensionGroup3D);
         _scene.add(_annotationGroup);
+        _scene.add(_axisGroup);
+        
+        // ✅ Crear indicador de ejes
+        createAxisIndicator();
         
         if (_core && typeof _core.on === 'function') {
             _core.on('modelChanged', function() {
@@ -368,7 +453,7 @@ const SmartFlowLabels3D = (function() {
         
         window.addEventListener('resize', onResize);
         
-        console.log('✔ SmartFlowLabels3D v4.0 (cotas totales + ángulos + elevaciones + FROM/TO)');
+        console.log('✔ SmartFlowLabels3D v4.1 (ejes isométricos + cotas totales + ángulos + elevaciones)');
         return true;
     }
     
@@ -468,7 +553,6 @@ const SmartFlowLabels3D = (function() {
         
         var p1 = pts[segIdx], p2 = pts[segIdx + 1];
         
-        // ✅ CORREGIDO: Mejor detección de segmento vertical
         var dx = Math.abs(p2.x - p1.x);
         var dy = Math.abs(p2.y - p1.y);
         var dz = Math.abs(p2.z - p1.z);
@@ -616,7 +700,6 @@ const SmartFlowLabels3D = (function() {
         var distance = pos1.distanceTo(pos2);
         if (distance < MIN_SEGMENT_LENGTH) return null;
         
-        // ✅ CORREGIDO: Key única con contador
         _dimensionCounter++;
         var key = (lineTag || 'dim') + '_' + _dimensionCounter;
         if (_dimensionLines.has(key)) return null;
@@ -653,7 +736,6 @@ const SmartFlowLabels3D = (function() {
         var textDiv = document.createElement('div');
         textDiv.className = 'label-3d';
         
-        // Detectar si es cota total para cambiar color
         var isTotal = (labelText || '').toUpperCase().includes('TOTAL');
         var bgColor = isTotal ? COLORS.totalBg : COLORS.dimensionBg;
         var borderColor = isTotal ? COLORS.totalBorder : COLORS.dimensionBorder;
@@ -686,7 +768,7 @@ const SmartFlowLabels3D = (function() {
     }
     
     // ═══════════════════════════════════════════
-    // ANOTACIÓN DE ÁNGULO 3D (NUEVO v4.0)
+    // ANOTACIÓN DE ÁNGULO 3D
     // ═══════════════════════════════════════════
     function createAngleAnnotation3D(point, angleDeg, lineTag) {
         var pos = new THREE.Vector3(toMeters(point.x), toMeters(point.y), toMeters(point.z));
@@ -694,15 +776,12 @@ const SmartFlowLabels3D = (function() {
         _dimensionCounter++;
         var key = (lineTag || 'angle') + '_angle_' + _dimensionCounter;
         
-        // Crear arco pequeño para indicar el ángulo
         var arcRadius = ANGLE_OFFSET;
         var arcPoints = [];
-        var startAngle = 0;
-        var endAngle = angleDeg * Math.PI / 180;
         var segments = Math.max(8, Math.floor(angleDeg / 5));
         
         for (var i = 0; i <= segments; i++) {
-            var a = startAngle + (endAngle - startAngle) * (i / segments);
+            var a = (angleDeg * Math.PI / 180) * (i / segments);
             arcPoints.push(new THREE.Vector3(
                 pos.x + Math.cos(a) * arcRadius,
                 pos.y + 0.05,
@@ -715,7 +794,6 @@ const SmartFlowLabels3D = (function() {
         arcLine.userData = { isAngleArc: true, key: key };
         _annotationGroup.add(arcLine);
         
-        // Etiqueta de texto
         var textDiv = document.createElement('div');
         textDiv.className = 'label-3d';
         textDiv.innerHTML = '<span style="' + [
@@ -731,9 +809,9 @@ const SmartFlowLabels3D = (function() {
         
         var label = new CSS2DObject(textDiv);
         label.position.set(
-            pos.x + Math.cos(endAngle / 2) * (arcRadius + 0.15),
+            pos.x + Math.cos(angleDeg * Math.PI / 360) * (arcRadius + 0.15),
             pos.y + 0.1,
-            pos.z + Math.sin(endAngle / 2) * (arcRadius + 0.15)
+            pos.z + Math.sin(angleDeg * Math.PI / 360) * (arcRadius + 0.15)
         );
         label.userData = { isAngleLabel: true, key: key };
         _annotationGroup.add(label);
@@ -742,7 +820,7 @@ const SmartFlowLabels3D = (function() {
     }
     
     // ═══════════════════════════════════════════
-    // ETIQUETA DE ELEVACIÓN (NUEVO v4.0)
+    // ETIQUETA DE ELEVACIÓN
     // ═══════════════════════════════════════════
     function createElevationLabel3D(point, elevationMM, lineTag) {
         var pos = new THREE.Vector3(toMeters(point.x), toMeters(point.y), toMeters(point.z));
@@ -774,7 +852,7 @@ const SmartFlowLabels3D = (function() {
     }
     
     // ═══════════════════════════════════════════
-    // ETIQUETA FROM/TO (NUEVO v4.0)
+    // ETIQUETA FROM/TO
     // ═══════════════════════════════════════════
     function createEndpointLabel3D(point, labelText, isStart) {
         var pos = new THREE.Vector3(toMeters(point.x), toMeters(point.y), toMeters(point.z));
@@ -802,13 +880,13 @@ const SmartFlowLabels3D = (function() {
     }
     
     // ═══════════════════════════════════════════
-    // CREACIÓN DE COTAS POR LÍNEA (MEJORADO v4.0)
+    // CREACIÓN DE COTAS POR LÍNEA
     // ═══════════════════════════════════════════
     function createDimensionsForLine(line) {
         var pts = _core.getLinePoints(line) || line._cachedPoints || line.points3D || [];
         if (pts.length < 2) return;
         
-        // ✅ Cotas por segmento
+        // Cotas por segmento
         for (var i = 0; i < pts.length - 1; i++) {
             if (pts[i].isControlPoint || pts[i+1].isControlPoint) continue;
             var dist = Math.hypot(pts[i+1].x - pts[i].x, pts[i+1].y - pts[i].y, pts[i+1].z - pts[i].z);
@@ -817,7 +895,7 @@ const SmartFlowLabels3D = (function() {
             }
         }
         
-        // ✅ Cota total (NUEVO v4.0)
+        // Cota total
         if (pts.length >= 2) {
             var totalDist = 0;
             for (var j = 0; j < pts.length - 1; j++) {
@@ -828,7 +906,7 @@ const SmartFlowLabels3D = (function() {
             }
         }
         
-        // ✅ Ángulos en giros (NUEVO v4.0)
+        // Ángulos en giros
         for (var k = 1; k < pts.length - 1; k++) {
             var v1 = { x: pts[k].x - pts[k-1].x, y: pts[k].y - pts[k-1].y, z: pts[k].z - pts[k-1].z };
             var v2 = { x: pts[k+1].x - pts[k].x, y: pts[k+1].y - pts[k].y, z: pts[k+1].z - pts[k].z };
@@ -842,7 +920,7 @@ const SmartFlowLabels3D = (function() {
             }
         }
         
-        // ✅ Elevaciones únicas (NUEVO v4.0)
+        // Elevaciones únicas
         var seenElevations = new Set();
         for (var m = 0; m < pts.length; m++) {
             var elevKey = Math.round(pts[m].y / 500) * 500;
@@ -852,7 +930,7 @@ const SmartFlowLabels3D = (function() {
             }
         }
         
-        // ✅ Etiquetas FROM/TO (NUEVO v4.0)
+        // Etiquetas FROM/TO
         if (line.origin) {
             createEndpointLabel3D(pts[0], 'FROM ' + line.origin.equipTag + ':' + line.origin.portId, true);
         }
@@ -883,7 +961,7 @@ const SmartFlowLabels3D = (function() {
     }
     
     // ═══════════════════════════════════════════
-    // INTEGRACIÓN CON DIMENSION GENERATOR (NUEVO v4.0)
+    // INTEGRACIÓN CON DIMENSION GENERATOR
     // ═══════════════════════════════════════════
     function refreshAllDimensionsFromGenerator() {
         if (!_core || typeof SmartFlowDimensionGenerator === 'undefined') return false;
@@ -1028,9 +1106,7 @@ const SmartFlowLabels3D = (function() {
         if (!_core) return;
         clearAllDimensions();
         
-        // Intentar usar DimensionGenerator primero
         if (!refreshAllDimensionsFromGenerator()) {
-            // Fallback al método tradicional
             var db = _core.getDb();
             if (!db) return;
             
@@ -1054,9 +1130,6 @@ const SmartFlowLabels3D = (function() {
         }
     }
     
-    // ═══════════════════════════════════════════
-    // EXPORTACIÓN (NUEVO v4.0)
-    // ═══════════════════════════════════════════
     function exportDimensionsCSV() {
         if (typeof SmartFlowDimensionGenerator !== 'undefined') {
             var db = _core.getDb();
@@ -1083,6 +1156,7 @@ const SmartFlowLabels3D = (function() {
     function dispose() {
         clearAllLabels();
         clearAllDimensions();
+        clearAxisIndicator();
         
         if (_sharedDimLineMat) _sharedDimLineMat.dispose();
         if (_sharedDimExtMat) _sharedDimExtMat.dispose();
@@ -1098,6 +1172,7 @@ const SmartFlowLabels3D = (function() {
         if (_labelGroup.parent) _labelGroup.parent.remove(_labelGroup);
         if (_dimensionGroup3D.parent) _dimensionGroup3D.parent.remove(_dimensionGroup3D);
         if (_annotationGroup.parent) _annotationGroup.parent.remove(_annotationGroup);
+        if (_axisGroup.parent) _axisGroup.parent.remove(_axisGroup);
         
         window.removeEventListener('resize', onResize);
         
