@@ -29,46 +29,26 @@ const SmartFlowRenderer = (function() {
         occupiedBounds: [],
         minZoomForDetails: 0.3,
         minZoomForAll: 0.5,
-
-        reset() {
-            this.slots = [];
-            this.occupiedBounds = [];
-        },
-
+        reset() { this.slots = []; this.occupiedBounds = []; },
         checkCollision(box) {
             for (const other of this.occupiedBounds) {
                 if (!(box.x + box.w < other.x || box.x > other.x + other.w ||
-                      box.y + box.h < other.y || box.y > other.y + other.h)) {
-                    return true;
-                }
+                      box.y + box.h < other.y || box.y > other.y + other.h)) return true;
             }
             return false;
         },
-
         findBestPosition(preferredX, preferredY, w, h, priority, maxAttempts = 8) {
             const offsets = [
-                { dx: 0, dy: 0 },
-                { dx: 0, dy: -h - 5 },
-                { dx: 0, dy: h + 5 },
-                { dx: w + 10, dy: 0 },
-                { dx: -w - 10, dy: 0 },
-                { dx: w + 10, dy: -h - 5 },
-                { dx: -w - 10, dy: -h - 5 },
-                { dx: 0, dy: -2 * h - 10 }
+                { dx: 0, dy: 0 }, { dx: 0, dy: -h - 5 }, { dx: 0, dy: h + 5 },
+                { dx: w + 10, dy: 0 }, { dx: -w - 10, dy: 0 }, { dx: w + 10, dy: -h - 5 },
+                { dx: -w - 10, dy: -h - 5 }, { dx: 0, dy: -2 * h - 10 }
             ];
             for (let i = 0; i < Math.min(maxAttempts, offsets.length); i++) {
-                const candidate = {
-                    x: preferredX + offsets[i].dx,
-                    y: preferredY + offsets[i].dy,
-                    w, h
-                };
-                if (!this.checkCollision(candidate)) {
-                    return candidate;
-                }
+                const candidate = { x: preferredX + offsets[i].dx, y: preferredY + offsets[i].dy, w, h };
+                if (!this.checkCollision(candidate)) return candidate;
             }
             return { x: preferredX, y: preferredY, w, h };
         },
-
         register(box, priority) {
             const best = this.findBestPosition(box.x, box.y, box.w, box.h, priority);
             best.priority = priority;
@@ -76,7 +56,6 @@ const SmartFlowRenderer = (function() {
             this.slots.push(best);
             return best;
         },
-
         isVisible(priority) {
             if (priority <= 1) return true;
             if (_cam.scale < this.minZoomForDetails && priority > 1) return false;
@@ -102,9 +81,9 @@ const SmartFlowRenderer = (function() {
     }
 
     function adjustColor(color, percent) {
-        const num = parseInt(color.replace("#",""), 16),
-        amt = Math.round(2.55 * percent),
-        R = (num >> 16) + amt, G = (num >> 8 & 0x00FF) + amt, B = (num & 0x0000FF) + amt;
+        const num = parseInt(color.replace("#",""), 16);
+        const amt = Math.round(2.55 * percent);
+        const R = (num >> 16) + amt, G = (num >> 8 & 0x00FF) + amt, B = (num & 0x0000FF) + amt;
         return "#" + (0x1000000 + (R<255?R<0?0:R:255)*0x10000 + (G<255?G<0?0:G:255)*0x100 + (B<255?B<0?0:B:255)).toString(16).slice(1);
     }
 
@@ -118,15 +97,11 @@ const SmartFlowRenderer = (function() {
         );
         const baseColor = ISO_CONFIG.COLORS[material] || '#94a3b8';
         if (material === 'PP') {
-            grad.addColorStop(0, '#064e3b');
-            grad.addColorStop(0.25, '#6ee7b7');
-            grad.addColorStop(0.5, baseColor);
-            grad.addColorStop(1, '#065f46');
+            grad.addColorStop(0, '#064e3b'); grad.addColorStop(0.25, '#6ee7b7');
+            grad.addColorStop(0.5, baseColor); grad.addColorStop(1, '#065f46');
         } else {
-            grad.addColorStop(0, '#1a1a1a');
-            grad.addColorStop(0.4, baseColor);
-            grad.addColorStop(0.5, '#ffffffcc');
-            grad.addColorStop(0.6, baseColor);
+            grad.addColorStop(0, '#1a1a1a'); grad.addColorStop(0.4, baseColor);
+            grad.addColorStop(0.5, '#ffffffcc'); grad.addColorStop(0.6, baseColor);
             grad.addColorStop(1, '#000000');
         }
         return grad;
@@ -165,13 +140,44 @@ const SmartFlowRenderer = (function() {
         return fallback[compType] || compType?.substring(0,2) || '??';
     }
 
+    function isPointInCylinder(p, eq) {
+        const dx = p.x - eq.posX, dz = p.z - eq.posZ;
+        const radius = eq.diametro / 2;
+        if (dx*dx + dz*dz > radius*radius) return false;
+        const halfH = eq.altura / 2;
+        return p.y >= eq.posY - halfH && p.y <= eq.posY + halfH;
+    }
+
+    function isPointInHorizontalCylinder(p, eq) {
+        const dx = p.x - eq.posX;
+        const halfL = eq.largo / 2;
+        if (Math.abs(dx) > halfL) return false;
+        const dy = p.y - eq.posY, dz = p.z - eq.posZ;
+        const radius = eq.diametro / 2;
+        return dy*dy + dz*dz <= radius*radius;
+    }
+
+    function isPointInBox(p, eq) {
+        const halfL = (eq.largo || 1000) / 2, halfW = (eq.ancho || eq.diametro || 1000) / 2, halfH = (eq.altura || 1000) / 2;
+        return Math.abs(p.x - eq.posX) <= halfL && Math.abs(p.y - eq.posY) <= halfH && Math.abs(p.z - eq.posZ) <= halfW;
+    }
+
+    function pointToSegmentDistance(p, a, b) {
+        const ax = p.x - a.x, ay = p.y - a.y;
+        const bx = b.x - a.x, by = b.y - a.y;
+        const dot = ax * bx + ay * by;
+        const len2 = bx * bx + by * by;
+        if (len2 === 0) return Math.hypot(ax, ay);
+        let t = Math.max(0, Math.min(1, dot / len2));
+        const projX = a.x + t * bx, projY = a.y + t * by;
+        return Math.hypot(p.x - projX, p.y - projY);
+    }
+
     function drawGrid(elevation = 0) {
         const step = 1000;
         const minX = -10000, maxX = 20000, minZ = -10000, maxZ = 20000;
         _ctx.beginPath();
-        _ctx.strokeStyle = '#1e293b';
-        _ctx.lineWidth = 1;
-        _ctx.globalAlpha = 0.15;
+        _ctx.strokeStyle = '#1e293b'; _ctx.lineWidth = 1; _ctx.globalAlpha = 0.15;
         for (let x = minX; x <= maxX; x += step) {
             const p1 = project({ x, y: elevation, z: minZ });
             const p2 = project({ x, y: elevation, z: maxZ });
@@ -196,98 +202,257 @@ const SmartFlowRenderer = (function() {
         _ctx.fillText(`ORIGEN (0,${_currentElevation/1000}m,0)`, o.x + 15, o.y - 8);
     }
 
+    // ═══════════════════════════════════════════
+    // TANQUE VERTICAL MEJORADO
+    // ═══════════════════════════════════════════
     function drawTank(eq) {
         const p = project({ x: eq.posX, y: eq.posY, z: eq.posZ });
-        const w = (eq.diametro / 2) * _cam.scale;
+        const r = (eq.diametro / 2) * _cam.scale;
         const h = eq.altura * _cam.scale;
         const topY = p.y - h/2;
         const bottomY = p.y + h/2;
-
-        _ctx.beginPath(); _ctx.ellipse(p.x, bottomY, w, w*0.5, 0, 0, 2*Math.PI);
-        const grad = _ctx.createLinearGradient(p.x - w, 0, p.x + w, 0);
-        grad.addColorStop(0, '#1e40af');
-        grad.addColorStop(0.3, '#3b82f6');
-        grad.addColorStop(0.7, '#60a5fa');
-        grad.addColorStop(1, '#1e40af');
-        _ctx.fillStyle = grad; _ctx.fill(); _ctx.strokeStyle = '#fff'; _ctx.stroke();
-
-        _ctx.fillStyle = '#1e40af'; _ctx.fillRect(p.x - w, topY, w, h);
-        _ctx.fillStyle = '#3b82f6'; _ctx.fillRect(p.x, topY, w, h);
-
-        _ctx.beginPath(); _ctx.ellipse(p.x, topY, w, w*0.5, 0, 0, 2*Math.PI);
-        _ctx.fillStyle = '#60a5fa'; _ctx.fill(); _ctx.stroke();
-
-        drawIsoText(eq.tag, p.x, topY - 10, 'XY');
+        const material = (eq.material || '').toUpperCase();
+        const esPlastico = material.includes('PE') || material.includes('PPR') || material.includes('HDPE') || material.includes('POLIETILENO');
+        
+        // Sombra proyectada
+        _ctx.save();
+        _ctx.fillStyle = 'rgba(0,0,0,0.25)';
+        _ctx.beginPath();
+        _ctx.ellipse(p.x + 6, bottomY + 4, r + 6, (r + 6) * 0.5, 0, 0, 2 * Math.PI);
+        _ctx.fill();
+        _ctx.restore();
+        
+        if (esPlastico) {
+            const baseColor = material.includes('HDPE') || material.includes('PE100') ? '#1a1a1a' : 
+                             material.includes('PPR') ? '#10b981' : '#7c3aed';
+            
+            const bodyGrad = _ctx.createLinearGradient(p.x - r, 0, p.x + r, 0);
+            bodyGrad.addColorStop(0, adjustColor(baseColor, -20));
+            bodyGrad.addColorStop(0.3, baseColor);
+            bodyGrad.addColorStop(0.7, adjustColor(baseColor, 15));
+            bodyGrad.addColorStop(1, adjustColor(baseColor, -15));
+            _ctx.fillStyle = bodyGrad;
+            _ctx.fillRect(p.x - r, topY, r * 2, h);
+            
+            _ctx.fillStyle = 'rgba(255,255,255,0.06)';
+            _ctx.fillRect(p.x - r, topY, r * 2, h * 0.6);
+            
+            _ctx.strokeStyle = adjustColor(baseColor, -10);
+            _ctx.lineWidth = 1.5;
+            for (let ny = topY + h * 0.2; ny < bottomY; ny += h * 0.2) {
+                _ctx.beginPath();
+                _ctx.moveTo(p.x - r, ny);
+                _ctx.lineTo(p.x + r, ny);
+                _ctx.stroke();
+            }
+            
+            _ctx.beginPath();
+            _ctx.ellipse(p.x, topY, r, r * 0.4, 0, 0, 2 * Math.PI);
+            _ctx.fillStyle = adjustColor(baseColor, 20);
+            _ctx.fill();
+            _ctx.strokeStyle = adjustColor(baseColor, -10);
+            _ctx.stroke();
+            
+            _ctx.beginPath();
+            _ctx.ellipse(p.x, bottomY, r, r * 0.5, 0, 0, 2 * Math.PI);
+            _ctx.fillStyle = adjustColor(baseColor, -15);
+            _ctx.fill();
+            _ctx.stroke();
+        } else {
+            const bodyGrad = _ctx.createLinearGradient(p.x - r, 0, p.x + r, 0);
+            bodyGrad.addColorStop(0, '#1e3a5f');
+            bodyGrad.addColorStop(0.2, '#2563eb');
+            bodyGrad.addColorStop(0.5, '#3b82f6');
+            bodyGrad.addColorStop(0.8, '#2563eb');
+            bodyGrad.addColorStop(1, '#1e3a5f');
+            _ctx.fillStyle = bodyGrad;
+            _ctx.fillRect(p.x - r, topY, r * 2, h);
+            
+            _ctx.fillStyle = 'rgba(255,255,255,0.08)';
+            _ctx.fillRect(p.x - r * 0.3, topY, r * 0.2, h);
+            
+            _ctx.strokeStyle = '#94a3b8';
+            _ctx.lineWidth = 1;
+            _ctx.globalAlpha = 0.4;
+            for (let sy = topY + h * 0.25; sy < bottomY; sy += h * 0.25) {
+                _ctx.beginPath();
+                _ctx.moveTo(p.x - r, sy);
+                _ctx.lineTo(p.x + r, sy);
+                _ctx.stroke();
+            }
+            _ctx.globalAlpha = 1;
+            
+            _ctx.beginPath();
+            _ctx.ellipse(p.x, topY, r, r * 0.45, 0, 0, 2 * Math.PI);
+            _ctx.fillStyle = '#60a5fa';
+            _ctx.fill();
+            _ctx.strokeStyle = '#fff';
+            _ctx.lineWidth = 1.5;
+            _ctx.stroke();
+            
+            _ctx.fillStyle = '#475569';
+            _ctx.fillRect(p.x - 2, topY - 12 * _cam.scale, 4, 12 * _cam.scale);
+            
+            _ctx.beginPath();
+            _ctx.ellipse(p.x, bottomY, r + 6, (r + 6) * 0.5, 0, 0, 2 * Math.PI);
+            _ctx.fillStyle = '#1e3a5f';
+            _ctx.fill();
+            _ctx.strokeStyle = '#fff';
+            _ctx.lineWidth = 1;
+            _ctx.stroke();
+            
+            _ctx.strokeStyle = '#475569';
+            _ctx.lineWidth = 2;
+            for (let ay = topY + h * 0.3; ay < bottomY - h * 0.1; ay += h * 0.25) {
+                _ctx.beginPath();
+                _ctx.moveTo(p.x - r - 4, ay);
+                _ctx.lineTo(p.x + r + 4, ay);
+                _ctx.stroke();
+            }
+        }
+        
+        drawIsoText(eq.tag, p.x, topY - 15 * _cam.scale, 'XY');
         drawPuertos(eq);
         if (eq.accessories) eq.accessories.forEach(acc => drawAccessory(acc, eq));
     }
 
+    // ═══════════════════════════════════════════
+    // BOMBA MEJORADA
+    // ═══════════════════════════════════════════
     function drawBomba(eq) {
         const p = project({ x: eq.posX, y: eq.posY, z: eq.posZ });
-        const rad = 16 * _cam.scale;
-        const grad = _ctx.createRadialGradient(p.x-3, p.y-3, 2, p.x, p.y, rad);
-        grad.addColorStop(0, '#f39c12'); grad.addColorStop(1, '#b85c00');
-        _ctx.fillStyle = grad; _ctx.beginPath(); _ctx.arc(p.x, p.y, rad, 0, 2*Math.PI); _ctx.fill(); _ctx.strokeStyle = '#fff'; _ctx.stroke();
-        _ctx.beginPath(); _ctx.moveTo(p.x-rad, p.y); _ctx.lineTo(p.x+rad, p.y); _ctx.stroke();
-        drawIsoText(eq.tag, p.x + 20, p.y - 5, 'XY');
+        const s = 20 * _cam.scale;
+        const material = (eq.material || '').toUpperCase();
+        const esAcero = material.includes('ACERO') || material.includes('CS') || material.includes('STEEL');
+        
+        // Sombra
+        _ctx.save();
+        _ctx.fillStyle = 'rgba(0,0,0,0.25)';
+        _ctx.beginPath();
+        _ctx.ellipse(p.x + 4, p.y + s * 0.3 + 4, s * 1.2, s * 0.5, 0, 0, 2 * Math.PI);
+        _ctx.fill();
+        _ctx.restore();
+        
+        // Base
+        _ctx.fillStyle = esAcero ? '#4b5563' : '#374151';
+        _ctx.fillRect(p.x - s * 1.5, p.y + s * 0.1, s * 3, s * 0.25);
+        _ctx.strokeStyle = '#fff';
+        _ctx.lineWidth = 1;
+        _ctx.strokeRect(p.x - s * 1.5, p.y + s * 0.1, s * 3, s * 0.25);
+        
+        // Pernos de anclaje
+        _ctx.fillStyle = '#c0c0c0';
+        [[-1.2, -0.4], [1.2, -0.4], [1.2, 0.4], [-1.2, 0.4]].forEach(([dx, dz]) => {
+            const boltPos = project({ x: eq.posX + dx * 500, y: eq.posY - 200, z: eq.posZ + dz * 500 });
+            _ctx.beginPath();
+            _ctx.arc(boltPos.x, boltPos.y, 3, 0, 2 * Math.PI);
+            _ctx.fill();
+            _ctx.strokeStyle = '#888';
+            _ctx.stroke();
+        });
+        
+        // Carcasa (voluta)
+        const casingGrad = _ctx.createRadialGradient(p.x - 2, p.y - 2, 2, p.x, p.y, s * 0.8);
+        casingGrad.addColorStop(0, esAcero ? '#f59e0b' : '#fbbf24');
+        casingGrad.addColorStop(0.6, esAcero ? '#d97706' : '#f59e0b');
+        casingGrad.addColorStop(1, '#92400e');
+        _ctx.beginPath();
+        _ctx.arc(p.x, p.y, s * 0.8, 0, 2 * Math.PI);
+        _ctx.fillStyle = casingGrad;
+        _ctx.fill();
+        _ctx.strokeStyle = '#fff';
+        _ctx.lineWidth = 2;
+        _ctx.stroke();
+        
+        // Brida de succión (izquierda)
+        _ctx.fillStyle = '#64748b';
+        _ctx.fillRect(p.x - s * 1.2, p.y - s * 0.2, s * 0.5, s * 0.4);
+        _ctx.strokeStyle = '#fff';
+        _ctx.strokeRect(p.x - s * 1.2, p.y - s * 0.2, s * 0.5, s * 0.4);
+        
+        // Brida de descarga (superior)
+        _ctx.fillStyle = '#64748b';
+        _ctx.fillRect(p.x - s * 0.25, p.y - s * 1.1, s * 0.5, s * 0.35);
+        _ctx.strokeStyle = '#fff';
+        _ctx.strokeRect(p.x - s * 0.25, p.y - s * 1.1, s * 0.5, s * 0.35);
+        
+        // Motor
+        const motorGrad = _ctx.createLinearGradient(p.x + s * 0.8, 0, p.x + s * 1.8, 0);
+        motorGrad.addColorStop(0, '#4b5563');
+        motorGrad.addColorStop(0.5, '#6b7280');
+        motorGrad.addColorStop(1, '#374151');
+        _ctx.fillStyle = motorGrad;
+        _ctx.fillRect(p.x + s * 0.8, p.y - s * 0.5, s * 1.2, s * 1.0);
+        _ctx.strokeStyle = '#fff';
+        _ctx.lineWidth = 1.5;
+        _ctx.strokeRect(p.x + s * 0.8, p.y - s * 0.5, s * 1.2, s * 1.0);
+        
+        // Aletas de refrigeración
+        _ctx.strokeStyle = '#1f2937';
+        _ctx.lineWidth = 1;
+        for (let af = 0; af < 5; af++) {
+            const finY = p.y - s * 0.3 + af * s * 0.18;
+            _ctx.beginPath();
+            _ctx.moveTo(p.x + s * 0.8, finY);
+            _ctx.lineTo(p.x + s * 2.0, finY);
+            _ctx.stroke();
+        }
+        
+        // Eje
+        _ctx.strokeStyle = '#c0c0c0';
+        _ctx.lineWidth = 3;
+        _ctx.beginPath();
+        _ctx.moveTo(p.x + s * 0.3, p.y);
+        _ctx.lineTo(p.x + s * 0.8, p.y);
+        _ctx.stroke();
+        
+        // Acople
+        _ctx.fillStyle = '#374151';
+        _ctx.fillRect(p.x + s * 0.45, p.y - s * 0.15, s * 0.25, s * 0.3);
+        _ctx.strokeStyle = '#fff';
+        _ctx.lineWidth = 1;
+        _ctx.strokeRect(p.x + s * 0.45, p.y - s * 0.15, s * 0.25, s * 0.3);
+        
+        // Guarda del acople (amarillo)
+        _ctx.strokeStyle = '#f59e0b';
+        _ctx.lineWidth = 1.5;
+        _ctx.strokeRect(p.x + s * 0.4, p.y - s * 0.2, s * 0.35, s * 0.4);
+        
+        drawIsoText(eq.tag, p.x, p.y - s * 1.5, 'XY');
         drawPuertos(eq);
     }
 
-    function drawColector(eq) {
-        const pIzq = project({ x: eq.posX, y: eq.posY, z: eq.posZ });
-        const pDer = project({ x: eq.posX + eq.largo, y: eq.posY, z: eq.posZ });
-        _ctx.beginPath(); _ctx.moveTo(pIzq.x, pIzq.y); _ctx.lineTo(pDer.x, pDer.y);
-        _ctx.strokeStyle = '#facc15'; _ctx.lineWidth = Math.max(4, (eq.diametro || 4) * _cam.scale); _ctx.stroke();
-        drawIsoText(eq.tag, (pIzq.x + pDer.x)/2, pIzq.y - 15, 'ZY');
-        drawPuertos(eq);
-    }
-
-    function drawRectEquip(eq, color) {
-        const p = project({ x: eq.posX, y: eq.posY, z: eq.posZ });
-        const w = (eq.largo || eq.diametro || 1000) * _cam.scale / 2;
-        const h = (eq.altura || 1000) * _cam.scale / 2;
-        _ctx.fillStyle = color; _ctx.fillRect(p.x-w, p.y-h, w*2, h*2);
-        _ctx.strokeStyle = 'white'; _ctx.strokeRect(p.x-w, p.y-h, w*2, h*2);
-        drawIsoText(eq.tag, p.x, p.y - h - 5, 'XY');
-        drawPuertos(eq);
-    }
-
-    function drawCilindroHorizontal(eq, color) {
-        const p = project({ x: eq.posX, y: eq.posY, z: eq.posZ });
-        const w = (eq.largo || eq.diametro) * _cam.scale / 2;
-        const h = (eq.diametro / 2) * _cam.scale;
-        _ctx.fillStyle = color; _ctx.fillRect(p.x-w, p.y-h, w*2, h*2); _ctx.strokeStyle = 'white'; _ctx.strokeRect(p.x-w, p.y-h, w*2, h*2);
-        _ctx.beginPath(); _ctx.ellipse(p.x-w, p.y, h, h*0.5, 0, 0, 2*Math.PI); _ctx.fillStyle = color; _ctx.fill(); _ctx.stroke();
-        _ctx.beginPath(); _ctx.ellipse(p.x+w, p.y, h, h*0.5, 0, 0, 2*Math.PI); _ctx.fillStyle = color; _ctx.fill(); _ctx.stroke();
-        drawIsoText(eq.tag, p.x, p.y - h - 5, 'XY');
-        drawPuertos(eq);
-    }
-
+    // ═══════════════════════════════════════════
+    // PLATAFORMA MEJORADA
+    // ═══════════════════════════════════════════
     function drawPlataforma(eq) {
         const p = project({ x: eq.posX, y: eq.posY, z: eq.posZ });
         const w = (eq.largo || 6000) * _cam.scale / 2;
         const d = (eq.ancho || 3000) * _cam.scale / 2;
         const h = (eq.altura || 400) * _cam.scale;
         const material = (eq.material || '').toUpperCase();
-        const esConcreto = material.includes('CONCRETO') || material.includes('CEMENTO');
-        const esAcero = material.includes('ACERO') || material.includes('STEEL') || material.includes('METAL');
-        const colorBorde = esConcreto ? '#6b7280' : '#4b5563';
-        const colorBaranda = esConcreto ? '#d1d5db' : '#9ca3af';
+        const esConcreto = material.includes('CONCRETO') || material.includes('CEMENTO') || material.includes('HORMIGON');
+        const esAcero = material.includes('ACERO') || material.includes('STEEL') || material.includes('METAL') || material.includes('CS');
 
         const topY = p.y - h;
 
-        _ctx.fillStyle = 'rgba(0,0,0,0.15)';
+        // Sombra
+        _ctx.save();
+        _ctx.fillStyle = 'rgba(0,0,0,0.2)';
         _ctx.beginPath();
-        _ctx.moveTo(p.x - w + 2, topY + 2);
-        _ctx.lineTo(p.x - w + d * 0.5 + 2, topY - d * 0.25 + 2);
-        _ctx.lineTo(p.x + d * 0.5 + 2, topY - d * 0.25 + 2);
-        _ctx.lineTo(p.x + w + 2, topY + 2);
-        _ctx.lineTo(p.x + d * 0.5 + 2, topY + d * 0.25 + 2);
-        _ctx.lineTo(p.x - w + d * 0.5 + 2, topY + d * 0.25 + 2);
+        _ctx.moveTo(p.x - w + 4, topY + h + 6);
+        _ctx.lineTo(p.x - w + d * 0.5 + 4, topY + h - d * 0.25 + 6);
+        _ctx.lineTo(p.x + d * 0.5 + 4, topY + h - d * 0.25 + 6);
+        _ctx.lineTo(p.x + w + 4, topY + h + 6);
+        _ctx.lineTo(p.x + d * 0.5 + 4, topY + h + d * 0.25 + 6);
+        _ctx.lineTo(p.x - w + d * 0.5 + 4, topY + h + d * 0.25 + 6);
         _ctx.closePath();
         _ctx.fill();
+        _ctx.restore();
 
+        // Losa
         if (esAcero) {
+            // Grating metálico
             const grad = _ctx.createLinearGradient(p.x - w, topY, p.x + w, topY);
             grad.addColorStop(0, '#4b5563');
             grad.addColorStop(0.3, '#9ca3af');
@@ -295,10 +460,13 @@ const SmartFlowRenderer = (function() {
             grad.addColorStop(0.7, '#9ca3af');
             grad.addColorStop(1, '#4b5563');
             _ctx.fillStyle = grad;
+        } else if (esConcreto) {
+            _ctx.fillStyle = '#9ca3af';
         } else {
-            _ctx.fillStyle = esConcreto ? '#9ca3af' : '#6b7280';
+            _ctx.fillStyle = '#6b7280';
         }
-        _ctx.strokeStyle = colorBorde;
+
+        _ctx.strokeStyle = esConcreto ? '#6b7280' : '#4b5563';
         _ctx.lineWidth = 1.5;
         _ctx.beginPath();
         _ctx.moveTo(p.x - w, topY);
@@ -311,6 +479,7 @@ const SmartFlowRenderer = (function() {
         _ctx.fill();
         _ctx.stroke();
 
+        // Líneas de grating para plataforma metálica
         if (esAcero && _cam.scale > 0.15) {
             _ctx.strokeStyle = '#374151';
             _ctx.lineWidth = 0.5;
@@ -328,9 +497,33 @@ const SmartFlowRenderer = (function() {
                 _ctx.lineTo(proj2.x, proj2.y);
                 _ctx.stroke();
             }
+            // Barras transversales (en Z)
+            const panelesZ = Math.floor(d * 2 / panelSize);
+            for (let j = 1; j < panelesZ; j++) {
+                const offsetZ = -d + j * panelSize;
+                _ctx.beginPath();
+                const startProj = project({ x: eq.posX - (eq.largo || 6000) / 2, y: eq.posY - (eq.altura || 400), z: eq.posZ + offsetZ * (1000 / _cam.scale) });
+                const endProj = project({ x: eq.posX + (eq.largo || 6000) / 2, y: eq.posY - (eq.altura || 400), z: eq.posZ + offsetZ * (1000 / _cam.scale) });
+                _ctx.moveTo(startProj.x, startProj.y);
+                _ctx.lineTo(endProj.x, endProj.y);
+                _ctx.stroke();
+            }
         }
 
-        _ctx.strokeStyle = colorBorde;
+        // Juntas de dilatación (solo concreto)
+        if (esConcreto && _cam.scale > 0.2) {
+            _ctx.strokeStyle = '#4b5563';
+            _ctx.lineWidth = 0.8;
+            for (let jx = -w + 400 * _cam.scale; jx < w - 200 * _cam.scale; jx += 500 * _cam.scale) {
+                _ctx.beginPath();
+                _ctx.moveTo(p.x + jx, topY - d * 0.2);
+                _ctx.lineTo(p.x + jx, topY + d * 0.2);
+                _ctx.stroke();
+            }
+        }
+
+        // Patas/Columnas
+        _ctx.strokeStyle = esConcreto ? '#6b7280' : '#4b5563';
         _ctx.lineWidth = 1.5;
         const patas = [
             { x: eq.posX - (eq.largo || 6000) / 2, z: eq.posZ - (eq.ancho || 3000) / 2 },
@@ -345,10 +538,34 @@ const SmartFlowRenderer = (function() {
             _ctx.moveTo(top.x, top.y);
             _ctx.lineTo(bot.x, bot.y);
             _ctx.stroke();
+
+            // Placa base
+            const placaSize = 6 * _cam.scale;
+            _ctx.fillStyle = esConcreto ? '#78716c' : '#374151';
+            _ctx.fillRect(bot.x - placaSize, bot.y - placaSize/2, placaSize * 2, placaSize);
+            _ctx.strokeRect(bot.x - placaSize, bot.y - placaSize/2, placaSize * 2, placaSize);
         });
 
-        if (eq.baranda) {
-            _ctx.strokeStyle = colorBaranda;
+        // Arriostramientos (solo metálica)
+        if (esAcero && _cam.scale > 0.2) {
+            _ctx.strokeStyle = '#374151';
+            _ctx.lineWidth = 1;
+            _ctx.setLineDash([3, 3]);
+            for (let si = 0; si < 2; si++) {
+                const side = si === 0 ? -1 : 1;
+                const top1 = project({ x: eq.posX - (eq.largo || 6000) / 2, y: eq.posY - (eq.altura || 400), z: eq.posZ + side * (eq.ancho || 3000) / 2 });
+                const bot2 = project({ x: eq.posX + (eq.largo || 6000) / 2, y: eq.posY, z: eq.posZ - side * (eq.ancho || 3000) / 2 });
+                _ctx.beginPath();
+                _ctx.moveTo(top1.x, top1.y);
+                _ctx.lineTo(bot2.x, bot2.y);
+                _ctx.stroke();
+            }
+            _ctx.setLineDash([]);
+        }
+
+        // Barandas
+        if (eq.baranda !== false && _cam.scale > 0.12) {
+            _ctx.strokeStyle = esConcreto ? '#d1d5db' : '#f59e0b';
             _ctx.lineWidth = 0.8;
             const esquinas = [
                 { x: eq.posX - (eq.largo || 6000) / 2, z: eq.posZ - (eq.ancho || 3000) / 2 },
@@ -356,34 +573,165 @@ const SmartFlowRenderer = (function() {
                 { x: eq.posX + (eq.largo || 6000) / 2, z: eq.posZ + (eq.ancho || 3000) / 2 },
                 { x: eq.posX - (eq.largo || 6000) / 2, z: eq.posZ + (eq.ancho || 3000) / 2 }
             ];
+            const barandaAltura = 1100;
             for (let i = 0; i < esquinas.length; i++) {
                 const a = esquinas[i];
                 const b = esquinas[(i + 1) % esquinas.length];
                 const projA = project({ x: a.x, y: eq.posY - (eq.altura || 400), z: a.z });
                 const projB = project({ x: b.x, y: eq.posY - (eq.altura || 400), z: b.z });
-                const projATop = project({ x: a.x, y: eq.posY - (eq.altura || 400) - 200, z: a.z });
-                const projBTop = project({ x: b.x, y: eq.posY - (eq.altura || 400) - 200, z: b.z });
+                const projATop = project({ x: a.x, y: eq.posY - (eq.altura || 400) - barandaAltura, z: a.z });
+                const projBTop = project({ x: b.x, y: eq.posY - (eq.altura || 400) - barandaAltura, z: b.z });
+                // Pasamanos superior
                 _ctx.beginPath();
                 _ctx.moveTo(projATop.x, projATop.y);
                 _ctx.lineTo(projBTop.x, projBTop.y);
                 _ctx.stroke();
+                // Poste
                 _ctx.beginPath();
                 _ctx.moveTo(projA.x, projA.y);
                 _ctx.lineTo(projATop.x, projATop.y);
                 _ctx.stroke();
+                // Pasamanos intermedio
+                const projAMid = project({ x: a.x, y: eq.posY - (eq.altura || 400) - barandaAltura / 2, z: a.z });
+                const projBMid = project({ x: b.x, y: eq.posY - (eq.altura || 400) - barandaAltura / 2, z: b.z });
+                _ctx.beginPath();
+                _ctx.moveTo(projAMid.x, projAMid.y);
+                _ctx.lineTo(projBMid.x, projBMid.y);
+                _ctx.stroke();
             }
         }
 
-        drawIsoText(eq.tag, p.x, topY - 25, 'XY');
+        drawIsoText(eq.tag, p.x, topY - 30 * _cam.scale, 'XY');
+    }
+
+    function drawColector(eq) {
+        const pIzq = project({ x: eq.posX, y: eq.posY, z: eq.posZ });
+        const pDer = project({ x: eq.posX + eq.largo, y: eq.posY, z: eq.posZ });
+        _ctx.beginPath();
+        _ctx.moveTo(pIzq.x, pIzq.y);
+        _ctx.lineTo(pDer.x, pDer.y);
+        _ctx.strokeStyle = '#facc15';
+        _ctx.lineWidth = Math.max(4, (eq.diametro || 4) * _cam.scale);
+        _ctx.stroke();
+        drawIsoText(eq.tag, (pIzq.x + pDer.x) / 2, pIzq.y - 15, 'ZY');
+        drawPuertos(eq);
+    }
+
+    function drawRectEquip(eq, color) {
+        const p = project({ x: eq.posX, y: eq.posY, z: eq.posZ });
+        const w = (eq.largo || eq.diametro || 1000) * _cam.scale / 2;
+        const h = (eq.altura || 1000) * _cam.scale / 2;
+        const material = (eq.material || '').toUpperCase();
+
+        // Sombra
+        _ctx.save();
+        _ctx.fillStyle = 'rgba(0,0,0,0.2)';
+        _ctx.fillRect(p.x - w + 4, p.y + h + 2, w * 2, h * 0.3);
+        _ctx.restore();
+
+        // Cuerpo con gradiente
+        const grad = _ctx.createLinearGradient(p.x - w, 0, p.x + w, 0);
+        grad.addColorStop(0, adjustColor(color, -15));
+        grad.addColorStop(0.3, color);
+        grad.addColorStop(0.7, adjustColor(color, 10));
+        grad.addColorStop(1, adjustColor(color, -10));
+        _ctx.fillStyle = grad;
+        _ctx.fillRect(p.x - w, p.y - h, w * 2, h * 2);
+
+        // Borde
+        _ctx.strokeStyle = 'white';
+        _ctx.lineWidth = 1.5;
+        _ctx.strokeRect(p.x - w, p.y - h, w * 2, h * 2);
+
+        // Reflejo
+        _ctx.fillStyle = 'rgba(255,255,255,0.07)';
+        _ctx.fillRect(p.x - w * 0.7, p.y - h, w * 0.2, h * 2);
+
+        // Si es intercambiador/caldera, agregar tubos
+        if (eq.tipo === 'intercambiador' || eq.tipo === 'caldera') {
+            _ctx.strokeStyle = '#94a3b8';
+            _ctx.lineWidth = 1;
+            _ctx.globalAlpha = 0.5;
+            for (let ty = p.y - h * 0.6; ty <= p.y + h * 0.6; ty += h * 0.3) {
+                _ctx.beginPath();
+                _ctx.moveTo(p.x - w * 0.8, ty);
+                _ctx.lineTo(p.x + w * 0.8, ty);
+                _ctx.stroke();
+            }
+            _ctx.globalAlpha = 1;
+        }
+
+        drawIsoText(eq.tag, p.x, p.y - h - 5, 'XY');
+        drawPuertos(eq);
+    }
+
+    function drawCilindroHorizontal(eq, color) {
+        const p = project({ x: eq.posX, y: eq.posY, z: eq.posZ });
+        const w = (eq.largo || eq.diametro) * _cam.scale / 2;
+        const h = (eq.diametro / 2) * _cam.scale;
+        const material = (eq.material || '').toUpperCase();
+        const esMetal = !material.includes('PE') && !material.includes('PPR');
+
+        // Sombra
+        _ctx.save();
+        _ctx.fillStyle = 'rgba(0,0,0,0.2)';
+        _ctx.fillRect(p.x - w + 4, p.y + h + 2, w * 2, h * 0.4);
+        _ctx.restore();
+
+        // Cuerpo
+        const bodyGrad = _ctx.createLinearGradient(p.x, p.y - h, p.x, p.y + h);
+        bodyGrad.addColorStop(0, adjustColor(color, 15));
+        bodyGrad.addColorStop(0.3, color);
+        bodyGrad.addColorStop(0.7, adjustColor(color, -10));
+        bodyGrad.addColorStop(1, adjustColor(color, -20));
+        _ctx.fillStyle = bodyGrad;
+        _ctx.fillRect(p.x - w, p.y - h, w * 2, h * 2);
+        _ctx.strokeStyle = 'white';
+        _ctx.lineWidth = 1.5;
+        _ctx.strokeRect(p.x - w, p.y - h, w * 2, h * 2);
+
+        // Cabezales
+        _ctx.beginPath();
+        _ctx.ellipse(p.x - w, p.y, h, h * 0.5, 0, 0, 2 * Math.PI);
+        _ctx.fillStyle = adjustColor(color, 10);
+        _ctx.fill();
+        _ctx.stroke();
+        _ctx.beginPath();
+        _ctx.ellipse(p.x + w, p.y, h, h * 0.5, 0, 0, 2 * Math.PI);
+        _ctx.fillStyle = adjustColor(color, 10);
+        _ctx.fill();
+        _ctx.stroke();
+
+        // Soldaduras en cabezales si es metálico
+        if (esMetal && _cam.scale > 0.2) {
+            _ctx.strokeStyle = '#94a3b8';
+            _ctx.lineWidth = 1;
+            _ctx.globalAlpha = 0.5;
+            _ctx.beginPath();
+            _ctx.moveTo(p.x - w, p.y - h);
+            _ctx.lineTo(p.x - w, p.y + h);
+            _ctx.stroke();
+            _ctx.beginPath();
+            _ctx.moveTo(p.x + w, p.y - h);
+            _ctx.lineTo(p.x + w, p.y + h);
+            _ctx.stroke();
+            _ctx.globalAlpha = 1;
+        }
+
+        drawIsoText(eq.tag, p.x, p.y - h - 5, 'XY');
+        drawPuertos(eq);
     }
 
     function drawAccessory(acc, parentEq) {
         const pos = { x: parentEq.posX + (acc.relX || 0), y: parentEq.posY + (acc.relY || 0), z: parentEq.posZ + (acc.relZ || 0) };
         const proj = project(pos);
-        _ctx.strokeStyle = '#64748b'; _ctx.lineWidth = 1; _ctx.setLineDash([4, 4]);
+        _ctx.strokeStyle = '#64748b';
+        _ctx.lineWidth = 1;
+        _ctx.setLineDash([4, 4]);
         _ctx.beginPath();
         if (acc.type === 'CAGED_LADDER') { _ctx.moveTo(proj.x, proj.y); _ctx.lineTo(proj.x, proj.y - 40 * _cam.scale); }
-        _ctx.stroke(); _ctx.setLineDash([]);
+        _ctx.stroke();
+        _ctx.setLineDash([]);
     }
 
     function drawPuertos(obj) {
@@ -396,19 +744,29 @@ const SmartFlowRenderer = (function() {
                 const dir = nz.orientacion;
                 const endPos = { x: pos.x + dir.dx * 250, y: pos.y + dir.dy * 250, z: pos.z + dir.dz * 250 };
                 const projEnd = project(endPos);
-                _ctx.beginPath(); _ctx.moveTo(proj.x, proj.y); _ctx.lineTo(projEnd.x, projEnd.y);
-                _ctx.strokeStyle = '#ffaa00'; _ctx.lineWidth = 2; _ctx.stroke();
+                _ctx.beginPath();
+                _ctx.moveTo(proj.x, proj.y);
+                _ctx.lineTo(projEnd.x, projEnd.y);
+                _ctx.strokeStyle = '#ffaa00';
+                _ctx.lineWidth = 2;
+                _ctx.stroke();
                 const angle = Math.atan2(projEnd.y - proj.y, projEnd.x - proj.x);
                 const arrowSize = 8;
                 _ctx.beginPath();
                 _ctx.moveTo(projEnd.x, projEnd.y);
                 _ctx.lineTo(projEnd.x - arrowSize * Math.cos(angle - 0.5), projEnd.y - arrowSize * Math.sin(angle - 0.5));
                 _ctx.lineTo(projEnd.x - arrowSize * Math.cos(angle + 0.5), projEnd.y - arrowSize * Math.sin(angle + 0.5));
-                _ctx.closePath(); _ctx.fillStyle = '#ffaa00'; _ctx.fill();
+                _ctx.closePath();
+                _ctx.fillStyle = '#ffaa00';
+                _ctx.fill();
             }
-            _ctx.beginPath(); _ctx.arc(proj.x, proj.y, 6, 0, 2*Math.PI);
-            _ctx.fillStyle = nz.connectedLine ? '#4ade80' : '#ff8800'; _ctx.fill();
-            _ctx.strokeStyle = '#fff'; _ctx.lineWidth = 1; _ctx.stroke();
+            _ctx.beginPath();
+            _ctx.arc(proj.x, proj.y, 6, 0, 2 * Math.PI);
+            _ctx.fillStyle = nz.connectedLine ? '#4ade80' : '#ff8800';
+            _ctx.fill();
+            _ctx.strokeStyle = '#fff';
+            _ctx.lineWidth = 1;
+            _ctx.stroke();
             drawIsoText(`${nz.id} ${nz.diametro || obj.diameter || 3}"`, proj.x - 12, proj.y - 6, 'XY');
         });
     }
@@ -449,14 +807,16 @@ const SmartFlowRenderer = (function() {
         if (!text) return;
         _ctx.save();
         _ctx.font = `bold ${Math.max(12, 14 * _cam.scale)}px 'Segoe UI', monospace`;
-        _ctx.textAlign = 'center'; _ctx.textBaseline = 'bottom';
+        _ctx.textAlign = 'center';
+        _ctx.textBaseline = 'bottom';
         if (plane === 'XY') { _ctx.setTransform(1, 0.5, 0, 1, x, y); }
         else if (plane === 'ZY') { _ctx.setTransform(1, -0.5, 0, 1, x, y); }
         else { _ctx.setTransform(1, -0.5, 1, 0.5, x, y); }
         const tw = _ctx.measureText(text).width;
         _ctx.fillStyle = 'rgba(15, 23, 42, 0.7)';
         _ctx.fillRect(-tw/2 - 6, -16, tw + 12, 20);
-        _ctx.strokeStyle = 'rgba(51, 65, 85, 0.5)'; _ctx.lineWidth = 1;
+        _ctx.strokeStyle = 'rgba(51, 65, 85, 0.5)';
+        _ctx.lineWidth = 1;
         _ctx.strokeRect(-tw/2 - 6, -16, tw + 12, 20);
         if (_cam.scale < 0.3) { _ctx.globalAlpha = 0.12; }
         else if (_cam.scale < 0.7) { _ctx.globalAlpha = 0.18 + (_cam.scale - 0.3) * 1.3; }
@@ -464,7 +824,8 @@ const SmartFlowRenderer = (function() {
         _ctx.fillStyle = '#ffffff';
         _ctx.fillText(text, 0, 0);
         _ctx.globalAlpha = 1.0;
-        _ctx.restore(); _ctx.setTransform(1, 0, 0, 1, 0, 0);
+        _ctx.restore();
+        _ctx.setTransform(1, 0, 0, 1, 0, 0);
     }
 
     function drawFlowArrow(p1, p2, diameter) {
@@ -472,19 +833,27 @@ const SmartFlowRenderer = (function() {
         const proj1 = project(p1), proj2 = project(p2);
         const angle = Math.atan2(proj2.y - proj1.y, proj2.x - proj1.x);
         const midX = (proj1.x + proj2.x) / 2, midY = (proj1.y + proj2.y) / 2;
-        _ctx.save(); _ctx.translate(midX, midY); _ctx.rotate(angle);
+        _ctx.save();
+        _ctx.translate(midX, midY);
+        _ctx.rotate(angle);
         const arrowSize = 12 * _cam.scale;
         _ctx.beginPath();
-        _ctx.moveTo(-arrowSize, -arrowSize/2); _ctx.lineTo(0, 0); _ctx.lineTo(-arrowSize, arrowSize/2);
-        _ctx.fillStyle = '#00f2ff'; _ctx.shadowColor = '#00f2ff'; _ctx.shadowBlur = 8;
-        _ctx.fill(); _ctx.shadowBlur = 0; _ctx.restore();
+        _ctx.moveTo(-arrowSize, -arrowSize/2);
+        _ctx.lineTo(0, 0);
+        _ctx.lineTo(-arrowSize, arrowSize/2);
+        _ctx.fillStyle = '#00f2ff';
+        _ctx.shadowColor = '#00f2ff';
+        _ctx.shadowBlur = 8;
+        _ctx.fill();
+        _ctx.shadowBlur = 0;
+        _ctx.restore();
     }
 
-    function getPointAtDistance(from, to, dist) { 
-        const d = Math.hypot(to.x-from.x, to.y-from.y, to.z-from.z); 
+    function getPointAtDistance(from, to, dist) {
+        const d = Math.hypot(to.x-from.x, to.y-from.y, to.z-from.z);
         if (d === 0) return { ...from };
-        const t = Math.min(dist/d, 0.5); 
-        return { x: from.x + (to.x - from.x) * t, y: from.y + (to.y - from.y) * t, z: from.z + (to.z - from.z) * t }; 
+        const t = Math.min(dist/d, 0.5);
+        return { x: from.x + (to.x - from.x) * t, y: from.y + (to.y - from.y) * t, z: from.z + (to.z - from.z) * t };
     }
 
     function getSegmentDirection3D(p1, p2) {
@@ -501,7 +870,8 @@ const SmartFlowRenderer = (function() {
 
     function isPointCollidingWithEquipment(point, margin = 1500) {
         if (!_core) return false;
-        const db = _core.getDb(); if (!db || !db.equipos) return false;
+        const db = _core.getDb();
+        if (!db || !db.equipos) return false;
         return db.equipos.some(eq => {
             if (eq.tipo === 'tanque_v' || eq.tipo === 'torre' || eq.tipo === 'reactor') {
                 const dx = Math.abs(point.x - eq.posX), dz = Math.abs(point.z - eq.posZ);
@@ -535,13 +905,13 @@ const SmartFlowRenderer = (function() {
         return false;
     }
 
+    // ═══════════════════════════════════════════
+    // TUBERÍAS MEJORADAS (PPR con anillos, CS con soldaduras)
+    // ═══════════════════════════════════════════
     function drawPipeWithElbows(line) {
         const originalPts = _core ? _core.getLinePoints(line) : (line._cachedPoints || line.points3D);
         if (!originalPts || originalPts.length < 2) return;
-        const pts = originalPts.map((p, idx) => {
-            if (idx === 0 || idx === originalPts.length - 1) return { ...p };
-            return p;
-        });
+        const pts = originalPts.map((p, idx) => ({ ...p }));
         if (line.origin && _core) {
             const obj = _core.findObjectByTag(line.origin.objTag);
             if (obj) {
@@ -564,27 +934,32 @@ const SmartFlowRenderer = (function() {
         }
 
         const isPPR = line.material === 'PPR' || (line.spec && line.spec.includes('PPR'));
+        const isCS = (line.material || '').toUpperCase().includes('CS') || (line.material || '').toUpperCase().includes('ACERO') || (line.spec || '').toUpperCase().includes('SCH');
         const radioBase = isPPR ? (line.diameter * 25.4 * 0.8) : (line.diameter * 25.4 * 1.5);
         const radio = Math.min(radioBase, 350);
         const baseWidth = (line.diameter || 4) * _cam.scale;
         const mainWidth = Math.max(6, baseWidth);
-        _ctx.lineCap = 'round'; _ctx.lineJoin = 'round';
+        _ctx.lineCap = 'round';
+        _ctx.lineJoin = 'round';
         const hasAuditError = lineHasAuditError(line);
         const matShort = getShortMaterial(line.material);
         const lineLabel = line.service ? `${line.diameter}"-${line.service}` : `${line.diameter}"-${matShort}`;
 
         const drawPath = () => {
             _ctx.beginPath();
-            let first = project(pts[0]); _ctx.moveTo(first.x, first.y);
+            let first = project(pts[0]);
+            _ctx.moveTo(first.x, first.y);
             for (let i = 1; i < pts.length - 1; i++) {
                 const pPrev = pts[i-1], pCurr = pts[i], pNext = pts[i+1];
                 if (pCurr.isControlPoint && i + 1 < pts.length) {
                     const cp = project(pCurr), nextP = project(pts[i+1]);
-                    _ctx.quadraticCurveTo(cp.x, cp.y, nextP.x, nextP.y); i++;
+                    _ctx.quadraticCurveTo(cp.x, cp.y, nextP.x, nextP.y);
+                    i++;
                 } else {
                     const pIn = getPointAtDistance(pCurr, pPrev, radio), pOut = getPointAtDistance(pCurr, pNext, radio);
                     const projIn = project(pIn), projOut = project(pOut), projCurr = project(pCurr);
-                    _ctx.lineTo(projIn.x, projIn.y); _ctx.quadraticCurveTo(projCurr.x, projCurr.y, projOut.x, projOut.y);
+                    _ctx.lineTo(projIn.x, projIn.y);
+                    _ctx.quadraticCurveTo(projCurr.x, projCurr.y, projOut.x, projOut.y);
                 }
             }
             _ctx.lineTo(project(pts[pts.length-1]).x, project(pts[pts.length-1]).y);
@@ -592,18 +967,91 @@ const SmartFlowRenderer = (function() {
 
         const grad = getMaterialGradient(_ctx, pts[0], pts[pts.length-1], matShort, mainWidth*2);
 
-        _ctx.save(); drawPath();
-        _ctx.shadowColor = '#00000066'; _ctx.shadowBlur = 14 * _cam.scale;
-        _ctx.shadowOffsetX = 0; _ctx.shadowOffsetY = 8 * _cam.scale;
-        _ctx.strokeStyle = '#00000044'; _ctx.lineWidth = mainWidth + 10; _ctx.stroke(); _ctx.restore();
+        // Sombra
+        _ctx.save();
+        drawPath();
+        _ctx.shadowColor = '#00000066';
+        _ctx.shadowBlur = 14 * _cam.scale;
+        _ctx.shadowOffsetX = 0;
+        _ctx.shadowOffsetY = 8 * _cam.scale;
+        _ctx.strokeStyle = '#00000044';
+        _ctx.lineWidth = mainWidth + 10;
+        _ctx.stroke();
+        _ctx.restore();
 
+        // Capas de la tubería
         drawPath(); _ctx.strokeStyle = '#0a0e17'; _ctx.lineWidth = mainWidth + 4; _ctx.stroke();
         drawPath(); _ctx.strokeStyle = '#1e293b'; _ctx.lineWidth = mainWidth + 2; _ctx.stroke();
         drawPath(); _ctx.strokeStyle = grad; _ctx.lineWidth = mainWidth; _ctx.stroke();
         drawPath(); _ctx.strokeStyle = 'rgba(255,255,255,0.25)'; _ctx.lineWidth = mainWidth * 0.45; _ctx.stroke();
         drawPath(); _ctx.strokeStyle = '#ffffff'; _ctx.lineWidth = Math.max(1.2, mainWidth * 0.12); _ctx.globalAlpha = 0.85; _ctx.stroke(); _ctx.globalAlpha = 1.0;
 
-        if (isPPR && line.components && line.components.length > 0) {
+        // Anillos de fusión PPR
+        if (isPPR && pts.length >= 2 && _cam.scale > 0.15) {
+            const totalLen = pts.reduce((acc, p, i) => i > 0 ? acc + Math.hypot(p.x-pts[i-1].x, p.y-pts[i-1].y, p.z-pts[i-1].z) : 0, 0);
+            const spacing = 1500;
+            const numRings = Math.floor(totalLen / spacing);
+            for (let ri = 1; ri < numRings; ri++) {
+                const targetDist = ri * spacing;
+                let accum = 0;
+                for (let si = 0; si < pts.length - 1; si++) {
+                    const segLen = Math.hypot(pts[si+1].x-pts[si].x, pts[si+1].y-pts[si].y, pts[si+1].z-pts[si].z);
+                    if (accum + segLen >= targetDist) {
+                        const t = (targetDist - accum) / segLen;
+                        const ringPos = {
+                            x: pts[si].x + (pts[si+1].x - pts[si].x) * t,
+                            y: pts[si].y + (pts[si+1].y - pts[si].y) * t,
+                            z: pts[si].z + (pts[si+1].z - pts[si].z) * t
+                        };
+                        const projRing = project(ringPos);
+                        _ctx.beginPath();
+                        _ctx.arc(projRing.x, projRing.y, mainWidth * 1.1, 0, Math.PI * 2);
+                        _ctx.fillStyle = '#065f46';
+                        _ctx.fill();
+                        _ctx.strokeStyle = '#034028';
+                        _ctx.lineWidth = 1.5;
+                        _ctx.stroke();
+                        break;
+                    }
+                    accum += segLen;
+                }
+            }
+        }
+
+        // Soldaduras en tubería CS
+        if (isCS && pts.length >= 2 && _cam.scale > 0.12) {
+            const totalLen = pts.reduce((acc, p, i) => i > 0 ? acc + Math.hypot(p.x-pts[i-1].x, p.y-pts[i-1].y, p.z-pts[i-1].z) : 0, 0);
+            const weldSpacing = 2000;
+            const numWelds = Math.floor(totalLen / weldSpacing);
+            for (let wi = 1; wi < numWelds; wi++) {
+                const targetDist = wi * weldSpacing;
+                let accum = 0;
+                for (let si = 0; si < pts.length - 1; si++) {
+                    const segLen = Math.hypot(pts[si+1].x-pts[si].x, pts[si+1].y-pts[si].y, pts[si+1].z-pts[si].z);
+                    if (accum + segLen >= targetDist) {
+                        const t = (targetDist - accum) / segLen;
+                        const weldPos = {
+                            x: pts[si].x + (pts[si+1].x - pts[si].x) * t,
+                            y: pts[si].y + (pts[si+1].y - pts[si].y) * t,
+                            z: pts[si].z + (pts[si+1].z - pts[si].z) * t
+                        };
+                        const projWeld = project(weldPos);
+                        _ctx.beginPath();
+                        _ctx.arc(projWeld.x, projWeld.y, mainWidth * 1.05, 0, Math.PI * 2);
+                        _ctx.strokeStyle = '#7a7a7a';
+                        _ctx.lineWidth = 1;
+                        _ctx.globalAlpha = 0.6;
+                        _ctx.stroke();
+                        _ctx.globalAlpha = 1;
+                        break;
+                    }
+                    accum += segLen;
+                }
+            }
+        }
+
+        // Componentes PPR visibles en tubería
+        if (isPPR && line.components && line.components.length > 0 && _cam.scale > 0.2) {
             line.components.forEach(comp => {
                 try {
                     if (comp.param === undefined || comp.param === null) return;
@@ -615,8 +1063,11 @@ const SmartFlowRenderer = (function() {
                     const projComp = project(compPos);
                     _ctx.beginPath();
                     _ctx.arc(projComp.x, projComp.y, mainWidth * 0.9, 0, Math.PI*2);
-                    _ctx.fillStyle = '#065f46'; _ctx.fill();
-                    _ctx.strokeStyle = '#034028'; _ctx.lineWidth = 1.5; _ctx.stroke();
+                    _ctx.fillStyle = '#065f46';
+                    _ctx.fill();
+                    _ctx.strokeStyle = '#034028';
+                    _ctx.lineWidth = 1.5;
+                    _ctx.stroke();
                 } catch (e) {}
             });
         }
@@ -625,10 +1076,17 @@ const SmartFlowRenderer = (function() {
             const midIndex = Math.floor(pts.length / 2);
             const alertPt = pts[midIndex];
             const projAlert = project(alertPt);
-            _ctx.save(); _ctx.translate(projAlert.x, projAlert.y - 30*_cam.scale);
-            _ctx.font = `bold ${Math.max(16,20*_cam.scale)}px "Segoe UI"`; _ctx.textAlign = 'center'; _ctx.textBaseline = 'middle';
-            _ctx.shadowColor = '#ef4444'; _ctx.shadowBlur = 10; _ctx.fillStyle = '#ef4444';
-            _ctx.fillText('⚠', 0, 0); _ctx.shadowBlur = 0; _ctx.restore();
+            _ctx.save();
+            _ctx.translate(projAlert.x, projAlert.y - 30*_cam.scale);
+            _ctx.font = `bold ${Math.max(16,20*_cam.scale)}px "Segoe UI"`;
+            _ctx.textAlign = 'center';
+            _ctx.textBaseline = 'middle';
+            _ctx.shadowColor = '#ef4444';
+            _ctx.shadowBlur = 10;
+            _ctx.fillStyle = '#ef4444';
+            _ctx.fillText('⚠', 0, 0);
+            _ctx.shadowBlur = 0;
+            _ctx.restore();
         }
 
         const isSelected = _core && _core.getSelected() && _core.getSelected().obj === line;
@@ -703,55 +1161,54 @@ const SmartFlowRenderer = (function() {
 
     function drawSymbol(x, y, dir3D, comp) {
         _ctx.save();
-        const s = Math.max(10, 16 * _cam.scale);
-        _ctx.lineWidth = 1.8;
+        const s = Math.max(12, 18 * _cam.scale);
+        _ctx.lineWidth = 2;
         _ctx.strokeStyle = '#e2e8f0';
         _ctx.fillStyle = '#0f172a';
 
-        if (dir3D === 'X') {
-            _ctx.setTransform(1, 0.5, 0, 1, x, y);
-        } else if (dir3D === 'Z') {
-            _ctx.setTransform(1, -0.5, 0, 1, x, y);
-        } else if (dir3D === 'Y') {
-            _ctx.setTransform(0, 1, -1, 0, x, y);
-        }
+        if (dir3D === 'X') { _ctx.setTransform(1, 0.5, 0, 1, x, y); }
+        else if (dir3D === 'Z') { _ctx.setTransform(1, -0.5, 0, 1, x, y); }
+        else if (dir3D === 'Y') { _ctx.setTransform(0, 1, -1, 0, x, y); }
 
         switch (comp.type) {
             case 'BUTTERFLY_VALVE':
-                _ctx.beginPath(); _ctx.ellipse(0, 0, s*0.9, s*0.3, 0, 0, Math.PI*2); _ctx.fill(); _ctx.stroke();
+                _ctx.beginPath(); _ctx.ellipse(0, 0, s*0.9, s*0.35, 0, 0, Math.PI*2); _ctx.fill(); _ctx.stroke();
                 _ctx.beginPath(); _ctx.moveTo(0,0); _ctx.lineTo(0, -s*1.6);
-                _ctx.strokeStyle = '#ef4444'; _ctx.lineWidth = 2.5; _ctx.stroke();
+                _ctx.strokeStyle = '#ef4444'; _ctx.lineWidth = 3; _ctx.stroke();
                 _ctx.beginPath(); _ctx.moveTo(-s*0.8, -s*1.6); _ctx.lineTo(s*0.8, -s*1.6); _ctx.stroke();
-                _ctx.fillStyle = '#fbbf24'; _ctx.beginPath(); _ctx.arc(0, -s*1.6, 3, 0, Math.PI*2); _ctx.fill();
+                _ctx.fillStyle = '#fbbf24'; _ctx.beginPath(); _ctx.arc(0, -s*1.6, 4, 0, Math.PI*2); _ctx.fill();
                 break;
             case 'BALL_VALVE': case 'VALVE_BALL':
                 const ballGrad = _ctx.createRadialGradient(-s*0.15, -s*0.15, s*0.05, 0, 0, s*0.65);
                 ballGrad.addColorStop(0, '#ffffff'); ballGrad.addColorStop(0.6, '#94a3b8'); ballGrad.addColorStop(1, '#1e293b');
-                _ctx.beginPath(); _ctx.arc(0, 0, s*0.65, 0, Math.PI*2); _ctx.fillStyle = ballGrad; _ctx.fill(); _ctx.stroke();
+                _ctx.beginPath(); _ctx.arc(0, 0, s*0.7, 0, Math.PI*2); _ctx.fillStyle = ballGrad; _ctx.fill(); _ctx.stroke();
                 _ctx.beginPath(); _ctx.moveTo(-s, -s*0.55); _ctx.lineTo(-s, s*0.55); _ctx.lineTo(0, 0); _ctx.closePath();
                 _ctx.moveTo(s, -s*0.55); _ctx.lineTo(s, s*0.55); _ctx.lineTo(0, 0); _ctx.closePath();
                 _ctx.fillStyle = '#1e293b'; _ctx.fill(); _ctx.stroke();
-                _ctx.beginPath(); _ctx.moveTo(0, -s*0.35); _ctx.lineTo(0, -s*1.3); _ctx.lineTo(s*0.7, -s*1.3);
-                _ctx.strokeStyle = '#f8fafc'; _ctx.lineWidth = 2; _ctx.stroke();
+                _ctx.beginPath(); _ctx.moveTo(0, -s*0.4); _ctx.lineTo(0, -s*1.3); _ctx.lineTo(s*0.7, -s*1.3);
+                _ctx.strokeStyle = '#f8fafc'; _ctx.lineWidth = 2.5; _ctx.stroke();
+                _ctx.fillStyle = '#ef4444'; _ctx.beginPath(); _ctx.arc(s*0.7, -s*1.3, s*0.12, 0, Math.PI*2); _ctx.fill();
                 break;
             case 'GATE_VALVE':
                 _ctx.beginPath(); _ctx.moveTo(-s, -s*0.6); _ctx.lineTo(s, s*0.6); _ctx.lineTo(s, -s*0.6); _ctx.lineTo(-s, s*0.6); _ctx.closePath();
                 _ctx.fill(); _ctx.stroke();
-                _ctx.beginPath(); _ctx.moveTo(0, 0); _ctx.lineTo(0, -s*1.4);
-                _ctx.moveTo(-s*0.6, -s*1.4); _ctx.lineTo(s*0.6, -s*1.4); _ctx.stroke();
-                _ctx.fillStyle = '#fbbf24'; _ctx.beginPath(); _ctx.arc(0, -s*1.4, 3.5, 0, Math.PI*2); _ctx.fill();
+                _ctx.beginPath(); _ctx.moveTo(0, 0); _ctx.lineTo(0, -s*1.5);
+                _ctx.moveTo(-s*0.6, -s*1.5); _ctx.lineTo(s*0.6, -s*1.5); _ctx.stroke();
+                _ctx.fillStyle = '#fbbf24'; _ctx.beginPath(); _ctx.arc(0, -s*1.5, 4, 0, Math.PI*2); _ctx.fill();
+                _ctx.strokeStyle = '#94a3b8'; _ctx.lineWidth = 1;
+                _ctx.beginPath(); _ctx.moveTo(0, -s*1.2); _ctx.lineTo(0, -s*0.5); _ctx.stroke();
                 break;
             case 'GLOBE_VALVE':
-                _ctx.beginPath(); _ctx.ellipse(0, 0, s*0.9, s*0.55, 0, 0, Math.PI*2); _ctx.fill(); _ctx.stroke();
-                _ctx.beginPath(); _ctx.moveTo(0, -s*0.55); _ctx.lineTo(0, s*0.55); _ctx.strokeStyle = '#e2e8f0'; _ctx.stroke();
-                _ctx.fillStyle = '#1e293b'; _ctx.fillRect(-s*0.35, -s*1.2, s*0.7, s*0.55);
-                _ctx.strokeRect(-s*0.35, -s*1.2, s*0.7, s*0.55);
-                _ctx.beginPath(); _ctx.moveTo(-s*0.2, -s*1.2); _ctx.lineTo(s*0.2, -s*1.2); _ctx.stroke();
+                _ctx.beginPath(); _ctx.ellipse(0, 0, s*0.9, s*0.6, 0, 0, Math.PI*2); _ctx.fill(); _ctx.stroke();
+                _ctx.beginPath(); _ctx.moveTo(0, -s*0.6); _ctx.lineTo(0, s*0.6); _ctx.strokeStyle = '#e2e8f0'; _ctx.stroke();
+                _ctx.fillStyle = '#1e293b'; _ctx.fillRect(-s*0.35, -s*1.3, s*0.7, s*0.6);
+                _ctx.strokeRect(-s*0.35, -s*1.3, s*0.7, s*0.6);
+                _ctx.beginPath(); _ctx.moveTo(-s*0.2, -s*1.3); _ctx.lineTo(s*0.2, -s*1.3); _ctx.stroke();
                 break;
             case 'CHECK_VALVE':
-                _ctx.strokeRect(-s, -s*0.45, s*2, s*0.9);
+                _ctx.strokeRect(-s, -s*0.5, s*2, s*1.0);
                 _ctx.fillStyle = '#4ade80'; _ctx.beginPath();
-                _ctx.moveTo(-s*0.5, 0); _ctx.lineTo(s*0.3, -s*0.3); _ctx.lineTo(s*0.3, s*0.3); _ctx.closePath();
+                _ctx.moveTo(-s*0.5, 0); _ctx.lineTo(s*0.3, -s*0.35); _ctx.lineTo(s*0.3, s*0.35); _ctx.closePath();
                 _ctx.fill(); _ctx.stroke();
                 _ctx.setLineDash([2,2]); _ctx.beginPath(); _ctx.moveTo(-s, 0); _ctx.lineTo(-s*0.5, 0); _ctx.stroke(); _ctx.setLineDash([]);
                 break;
@@ -761,14 +1218,15 @@ const SmartFlowRenderer = (function() {
                 _ctx.beginPath(); _ctx.moveTo(-s, -s*0.5); _ctx.lineTo(s, -s*0.8); _ctx.lineTo(s, s*0.8); _ctx.lineTo(-s, s*0.5); _ctx.closePath();
                 _ctx.fillStyle = reducGrad; _ctx.fill(); _ctx.stroke();
                 if (comp.type === 'ECCENTRIC_REDUCER') {
-                    _ctx.beginPath(); _ctx.moveTo(-s, -s*0.5); _ctx.lineTo(-s, s*0.5); _ctx.strokeStyle = '#facc15'; _ctx.lineWidth = 2; _ctx.stroke();
+                    _ctx.beginPath(); _ctx.moveTo(-s, -s*0.5); _ctx.lineTo(-s, s*0.5);
+                    _ctx.strokeStyle = '#facc15'; _ctx.lineWidth = 2.5; _ctx.stroke();
                 }
                 break;
             case 'WELD_NECK_FLANGE':
                 _ctx.fillRect(-s*0.3, -s*0.9, s*0.6, s*1.8); _ctx.strokeRect(-s*0.3, -s*0.9, s*0.6, s*1.8);
                 for (let py = -0.7; py <= 0.7; py += 0.45) {
-                    _ctx.beginPath(); _ctx.arc(-s*0.5, py*s, 1.5, 0, Math.PI*2); _ctx.fillStyle = '#64748b'; _ctx.fill();
-                    _ctx.beginPath(); _ctx.arc(s*0.5, py*s, 1.5, 0, Math.PI*2); _ctx.fill();
+                    _ctx.beginPath(); _ctx.arc(-s*0.5, py*s, 2, 0, Math.PI*2); _ctx.fillStyle = '#64748b'; _ctx.fill();
+                    _ctx.beginPath(); _ctx.arc(s*0.5, py*s, 2, 0, Math.PI*2); _ctx.fill();
                 }
                 break;
             case 'SLIP_ON_FLANGE': case 'BLIND_FLANGE': case 'LAP_JOINT_FLANGE':
@@ -778,20 +1236,20 @@ const SmartFlowRenderer = (function() {
                 break;
             case 'TEE_EQUAL': case 'TEE_REDUCING':
                 _ctx.beginPath(); _ctx.moveTo(-s*0.9, 0); _ctx.lineTo(s*0.9, 0); _ctx.moveTo(0, 0); _ctx.lineTo(0, -s*1.3);
-                _ctx.strokeStyle = '#f8fafc'; _ctx.lineWidth = 2.5; _ctx.stroke();
-                _ctx.fillStyle = '#fbbf24'; _ctx.beginPath(); _ctx.arc(0, 0, s*0.3, 0, Math.PI*2); _ctx.fill(); _ctx.stroke();
+                _ctx.strokeStyle = '#f8fafc'; _ctx.lineWidth = 3; _ctx.stroke();
+                _ctx.fillStyle = '#fbbf24'; _ctx.beginPath(); _ctx.arc(0, 0, s*0.35, 0, Math.PI*2); _ctx.fill(); _ctx.stroke();
                 if (comp.type === 'TEE_REDUCING') { _ctx.fillStyle = '#facc15'; _ctx.beginPath(); _ctx.arc(0, -s*1.3, s*0.25, 0, Math.PI*2); _ctx.fill(); }
                 break;
             case 'ELBOW_45':
-                _ctx.beginPath(); _ctx.arc(0, 0, s, 0, Math.PI/4); _ctx.strokeStyle = '#f8fafc'; _ctx.lineWidth = 2.5; _ctx.stroke();
-                _ctx.beginPath(); _ctx.arc(0, 0, s, 0, Math.PI/4); _ctx.strokeStyle = '#ffffff'; _ctx.lineWidth = 0.8; _ctx.globalAlpha = 0.5; _ctx.stroke(); _ctx.globalAlpha = 1;
-                _ctx.fillStyle = '#ffffff'; _ctx.beginPath(); _ctx.arc(0, 0, 3, 0, Math.PI*2); _ctx.fill();
+                _ctx.beginPath(); _ctx.arc(0, 0, s, 0, Math.PI/4); _ctx.strokeStyle = '#f8fafc'; _ctx.lineWidth = 3; _ctx.stroke();
+                _ctx.beginPath(); _ctx.arc(0, 0, s, 0, Math.PI/4); _ctx.strokeStyle = '#ffffff'; _ctx.lineWidth = 1; _ctx.globalAlpha = 0.5; _ctx.stroke(); _ctx.globalAlpha = 1;
+                _ctx.fillStyle = '#ffffff'; _ctx.beginPath(); _ctx.arc(0, 0, 4, 0, Math.PI*2); _ctx.fill();
                 break;
             case 'ELBOW_90_LR': case 'ELBOW_90_SR':
-                const r = comp.type === 'ELBOW_90_LR' ? s*1.3 : s*0.8;
-                _ctx.beginPath(); _ctx.arc(0, 0, r, 0, Math.PI/2); _ctx.strokeStyle = '#f8fafc'; _ctx.lineWidth = 2.5; _ctx.stroke();
-                _ctx.beginPath(); _ctx.arc(0, 0, r, 0, Math.PI/2); _ctx.strokeStyle = '#ffffff'; _ctx.lineWidth = 0.8; _ctx.globalAlpha = 0.5; _ctx.stroke(); _ctx.globalAlpha = 1;
-                _ctx.fillStyle = '#ffffff'; _ctx.beginPath(); _ctx.arc(0, 0, 3, 0, Math.PI*2); _ctx.fill();
+                const radius = comp.type === 'ELBOW_90_LR' ? s*1.3 : s*0.8;
+                _ctx.beginPath(); _ctx.arc(0, 0, radius, 0, Math.PI/2); _ctx.strokeStyle = '#f8fafc'; _ctx.lineWidth = 3; _ctx.stroke();
+                _ctx.beginPath(); _ctx.arc(0, 0, radius, 0, Math.PI/2); _ctx.strokeStyle = '#ffffff'; _ctx.lineWidth = 1; _ctx.globalAlpha = 0.5; _ctx.stroke(); _ctx.globalAlpha = 1;
+                _ctx.fillStyle = '#ffffff'; _ctx.beginPath(); _ctx.arc(0, 0, 4, 0, Math.PI*2); _ctx.fill();
                 break;
             case 'CAP':
                 _ctx.beginPath(); _ctx.arc(0, 0, s*0.7, 0, Math.PI, true); _ctx.closePath(); _ctx.fill(); _ctx.stroke();
@@ -802,8 +1260,8 @@ const SmartFlowRenderer = (function() {
                 for (let i = -0.5; i <= 0.5; i += 0.25) { _ctx.beginPath(); _ctx.moveTo(-s*0.7, i*s); _ctx.lineTo(s*0.7, i*s); _ctx.strokeStyle = '#334155'; _ctx.lineWidth = 1; _ctx.stroke(); }
                 break;
             case 'BULKHEAD':
-                _ctx.beginPath(); _ctx.moveTo(-s*0.25, -s*1.3); _ctx.lineTo(-s*0.25, s*1.3); _ctx.lineWidth = 5; _ctx.strokeStyle = '#94a3b8'; _ctx.stroke();
-                _ctx.lineWidth = 1.8; _ctx.strokeStyle = '#e2e8f0'; _ctx.strokeRect(-s*1.1, -s*0.6, s*2.2, s*1.2);
+                _ctx.beginPath(); _ctx.moveTo(-s*0.25, -s*1.3); _ctx.lineTo(-s*0.25, s*1.3); _ctx.lineWidth = 6; _ctx.strokeStyle = '#94a3b8'; _ctx.stroke();
+                _ctx.lineWidth = 2; _ctx.strokeStyle = '#e2e8f0'; _ctx.strokeRect(-s*1.1, -s*0.6, s*2.2, s*1.2);
                 break;
             case 'TRANSITION': case 'ADAPTADOR_MACHO_PPR_3IN': case 'ADAPTADOR_HEMBRA_PPR_3IN':
                 _ctx.beginPath(); _ctx.moveTo(-s, -s*0.6); _ctx.lineTo(s*0.2, -s*0.8); _ctx.lineTo(s*0.2, s*0.8); _ctx.lineTo(-s, s*0.6); _ctx.closePath();
@@ -825,7 +1283,7 @@ const SmartFlowRenderer = (function() {
                 _ctx.beginPath(); _ctx.moveTo(-s, 0); _ctx.lineTo(s, 0); _ctx.strokeStyle = '#4ade80'; _ctx.lineWidth = 2; _ctx.stroke();
                 break;
             case 'PIPE_SHOE': case 'U_BOLT': case 'GUIDE': case 'ANCHOR': case 'HANGER': case 'PIPE_CLAMP': case 'SPRING_HANGER':
-                _ctx.strokeStyle = '#64748b'; _ctx.lineWidth = 1.2; _ctx.setLineDash([3, 3]);
+                _ctx.strokeStyle = '#64748b'; _ctx.lineWidth = 1.5; _ctx.setLineDash([3, 3]);
                 _ctx.beginPath(); _ctx.moveTo(-s*0.9, 0); _ctx.lineTo(s*0.9, 0);
                 if (comp.type === 'ANCHOR') { _ctx.moveTo(-s*0.6, -s*0.5); _ctx.lineTo(-s*0.6, s*0.5); _ctx.moveTo(s*0.6, -s*0.5); _ctx.lineTo(s*0.6, s*0.5); }
                 _ctx.stroke(); _ctx.setLineDash([]);
@@ -907,11 +1365,8 @@ const SmartFlowRenderer = (function() {
         _ctx.textAlign = 'center';
         _ctx.textBaseline = 'middle';
 
-        if (plane === 'LEFT') {
-            _ctx.setTransform(1, 0.5, 0, 1, midX, midY - 5);
-        } else if (plane === 'RIGHT') {
-            _ctx.setTransform(1, -0.5, 0, 1, midX, midY - 5);
-        }
+        if (plane === 'LEFT') { _ctx.setTransform(1, 0.5, 0, 1, midX, midY - 5); }
+        else if (plane === 'RIGHT') { _ctx.setTransform(1, -0.5, 0, 1, midX, midY - 5); }
         _ctx.fillText(formatDimensionText(realDist), 0, 0);
         _ctx.restore();
         _ctx.setTransform(1, 0, 0, 1, 0, 0);
@@ -972,10 +1427,6 @@ const SmartFlowRenderer = (function() {
         _ctx.restore();
     }
 
-    function isPointInCylinder(p, eq) { const dx = p.x - eq.posX, dz = p.z - eq.posZ; const radius = eq.diametro / 2; if (dx*dx + dz*dz > radius*radius) return false; const halfH = eq.altura / 2; return p.y >= eq.posY - halfH && p.y <= eq.posY + halfH; }
-    function isPointInHorizontalCylinder(p, eq) { const dx = p.x - eq.posX; const halfL = eq.largo / 2; if (Math.abs(dx) > halfL) return false; const dy = p.y - eq.posY, dz = p.z - eq.posZ; const radius = eq.diametro / 2; return dy*dy + dz*dz <= radius*radius; }
-    function isPointInBox(p, eq) { const halfL = (eq.largo || 1000) / 2, halfW = (eq.ancho || eq.diametro || 1000) / 2, halfH = (eq.altura || 1000) / 2; return Math.abs(p.x - eq.posX) <= halfL && Math.abs(p.y - eq.posY) <= halfH && Math.abs(p.z - eq.posZ) <= halfW; }
-
     function pickElement(mouseCanvas) {
         if (!_core) return null;
         const db = _core.getDb(); const equipos = db?.equipos || []; const lines = db?.lines || [];
@@ -996,8 +1447,6 @@ const SmartFlowRenderer = (function() {
         }
         return null;
     }
-
-    function pointToSegmentDistance(p, a, b) { const ax = p.x - a.x, ay = p.y - a.y; const bx = b.x - a.x, by = b.y - a.y; const dot = ax * bx + ay * by; const len2 = bx * bx + by * by; if (len2 === 0) return Math.hypot(ax, ay); let t = Math.max(0, Math.min(1, dot / len2)); const projX = a.x + t * bx, projY = a.y + t * by; return Math.hypot(p.x - projX, p.y - projY); }
 
     function pickComponent(mouseX, mouseY) {
         if (!_core) return null;
@@ -1046,11 +1495,7 @@ const SmartFlowRenderer = (function() {
             points.push({ x: eq.posX - r, y: eq.posY, z: eq.posZ });
             points.push({ x: eq.posX, y: eq.posY, z: eq.posZ + r });
             points.push({ x: eq.posX, y: eq.posY, z: eq.posZ - r });
-            if (eq.tipo === 'tanque_h') {
-                const hl = eq.largo / 2;
-                points.push({ x: eq.posX + hl, y: eq.posY, z: eq.posZ });
-                points.push({ x: eq.posX - hl, y: eq.posY, z: eq.posZ });
-            }
+            if (eq.tipo === 'tanque_h') { const hl = eq.largo / 2; points.push({ x: eq.posX + hl, y: eq.posY, z: eq.posZ }); points.push({ x: eq.posX - hl, y: eq.posY, z: eq.posZ }); }
         });
 
         let centroid = { x: 0, y: 0, z: 0 };
@@ -1060,54 +1505,30 @@ const SmartFlowRenderer = (function() {
         }
 
         lines.forEach(line => {
-            const pts = _core.getLinePoints(line);
-            if (!pts) return;
-            pts.forEach(p => {
-                if (equipos.length === 0) points.push(p);
-                else {
-                    const dist = Math.hypot(p.x - centroid.x, p.y - centroid.y, p.z - centroid.z);
-                    if (dist < 15000) points.push(p);
-                }
-            });
+            const pts = _core.getLinePoints(line); if (!pts) return;
+            pts.forEach(p => { if (equipos.length === 0) points.push(p); else { const dist = Math.hypot(p.x-centroid.x, p.y-centroid.y, p.z-centroid.z); if (dist < 15000) points.push(p); } });
         });
 
         if (points.length === 0) points = [{ x: -2000, y: 0, z: -2000 }, { x: 2000, y: 2000, z: 2000 }];
 
         let minX = Infinity, maxX = -Infinity, minY = Infinity, maxY = -Infinity;
         points.forEach(p => {
-            const rx = (p.x - p.z) * COS30;
-            const ry = (p.x + p.z) * SIN30 - p.y;
-            if (rx < minX) minX = rx;
-            if (rx > maxX) maxX = rx;
-            if (ry < minY) minY = ry;
-            if (ry > maxY) maxY = ry;
+            const rx = (p.x - p.z) * COS30; const ry = (p.x + p.z) * SIN30 - p.y;
+            if (rx < minX) minX = rx; if (rx > maxX) maxX = rx;
+            if (ry < minY) minY = ry; if (ry > maxY) maxY = ry;
         });
 
-        const margin = (maxX - minX) * 0.15;
-        const marginY = (maxY - minY) * 0.15;
-        minX -= margin; maxX += margin;
-        minY -= marginY; maxY += marginY;
-
-        const worldW = maxX - minX;
-        const worldH = maxY - minY;
-
+        const margin = (maxX - minX) * 0.15; const marginY = (maxY - minY) * 0.15;
+        minX -= margin; maxX += margin; minY -= marginY; maxY += marginY;
+        const worldW = maxX - minX; const worldH = maxY - minY;
         let sc = Math.min((_canvas.width - padding * 2) / worldW, (_canvas.height - padding * 2) / worldH, maxScale);
-        if (preferHorizontal && worldW > worldH) {
-            sc = Math.min((_canvas.width - padding * 2) / worldW, maxScale);
-        }
-        sc = Math.max(minScale, sc);
-        sc = isFinite(sc) ? sc : 0.3;
-
+        if (preferHorizontal && worldW > worldH) { sc = Math.min((_canvas.width - padding * 2) / worldW, maxScale); }
+        sc = Math.max(minScale, sc); sc = isFinite(sc) ? sc : 0.3;
         _cam.scale = sc;
         _cam.panX = _canvas.width / 2 - ((minX + maxX) / 2) * sc;
         _cam.panY = _canvas.height / 2 - ((minY + maxY) / 2) * sc;
-
-        if (_canvas.height > _canvas.width && isMobile) {
-            _cam.panY -= _canvas.height * 0.08;
-        }
-
-        _cacheDirty = true;
-        scheduleRender();
+        if (_canvas.height > _canvas.width && isMobile) { _cam.panY -= _canvas.height * 0.08; }
+        _cacheDirty = true; scheduleRender();
     }
 
     function pan(dx, dy) { _cam.panX += dx; _cam.panY += dy; _cacheDirty = true; scheduleRender(); }
@@ -1120,9 +1541,7 @@ const SmartFlowRenderer = (function() {
             _cam.panX = mouseX - (mouseX - _cam.panX) * (clampedScale / _cam.scale);
             _cam.panY = mouseY - (mouseY - _cam.panY) * (clampedScale / _cam.scale);
         }
-        _cam.scale = clampedScale;
-        _cacheDirty = true;
-        scheduleRender();
+        _cam.scale = clampedScale; _cacheDirty = true; scheduleRender();
     }
 
     function render() {
@@ -1181,9 +1600,7 @@ const SmartFlowRenderer = (function() {
                     eq.puertos.forEach(p => {
                         const worldPos = { x: eq.posX + (p.relX||0), y: eq.posY + (p.relY||0), z: eq.posZ + (p.relZ||0) };
                         const proj = project(worldPos);
-                        if (p.elevation !== undefined || p.status === 'open') {
-                            drawNozzleTag(proj, p, eq);
-                        }
+                        if (p.elevation !== undefined || p.status === 'open') drawNozzleTag(proj, p, eq);
                     });
                 }
             } else if (item.data.isFitting) {
@@ -1212,15 +1629,11 @@ const SmartFlowRenderer = (function() {
             _ctx.restore();
         }
         if (_hoveredComponent && _hoveredComponentScreenPos) drawTechnicalTooltip(_ctx, _hoveredComponent, _hoveredComponentScreenPos);
-
         if (_canvas.width >= 400) renderBOM();
     }
 
     function scheduleRender() {
-        if (!_renderScheduled) {
-            _renderScheduled = true;
-            requestAnimationFrame(() => render());
-        }
+        if (!_renderScheduled) { _renderScheduled = true; requestAnimationFrame(() => render()); }
     }
 
     function drawFitting(fitting) {
@@ -1262,14 +1675,10 @@ const SmartFlowRenderer = (function() {
         const boxW = 210, boxH = 80;
         const x = Math.min(screenPos.x + 30, _canvas.width - boxW - 10);
         const y = Math.max(screenPos.y - 60, 10);
-        ctx.save();
-        ctx.setTransform(1, 0, 0, 1, 0, 0);
+        ctx.save(); ctx.setTransform(1, 0, 0, 1, 0, 0);
         ctx.fillStyle = 'rgba(15, 23, 42, 0.95)'; ctx.strokeStyle = '#fbbf24'; ctx.lineWidth = 2;
-        if (ctx.roundRect) {
-            ctx.beginPath(); ctx.roundRect(x, y, boxW, boxH, 8); ctx.fill(); ctx.stroke();
-        } else {
-            ctx.fillRect(x, y, boxW, boxH); ctx.strokeRect(x, y, boxW, boxH);
-        }
+        if (ctx.roundRect) { ctx.beginPath(); ctx.roundRect(x, y, boxW, boxH, 8); ctx.fill(); ctx.stroke(); }
+        else { ctx.fillRect(x, y, boxW, boxH); ctx.strokeRect(x, y, boxW, boxH); }
         ctx.fillStyle = '#fbbf24'; ctx.font = 'bold 12px Inter'; ctx.fillText(`${abbr} — ${desc}`, x + 12, y + 22);
         ctx.fillStyle = '#e2e8f0'; ctx.font = '10px Inter'; ctx.fillText(`Material: ${material}`, x + 12, y + 42);
         ctx.fillText(`Tag: ${comp.tag || 'N/A'}`, x + 12, y + 58);
@@ -1375,10 +1784,7 @@ const SmartFlowRenderer = (function() {
         window.addEventListener('resize', resizeCanvas);
         window.addEventListener('orientationchange', () => { setTimeout(resizeCanvas, 100); });
         if (_core && _core.on) {
-            _core.on('modelChanged', () => {
-                _cacheDirty = true;
-                scheduleRender();
-            });
+            _core.on('modelChanged', () => { _cacheDirty = true; scheduleRender(); });
         }
         _canvas.addEventListener('mousemove', (e) => {
             const rect = _canvas.getBoundingClientRect();
@@ -1410,8 +1816,7 @@ const SmartFlowRenderer = (function() {
         _canvas.addEventListener('wheel', (e) => {
             e.preventDefault();
             const rect = _canvas.getBoundingClientRect();
-            const mX = e.clientX - rect.left;
-            const mY = e.clientY - rect.top;
+            const mX = e.clientX - rect.left, mY = e.clientY - rect.top;
             zoom(e.deltaY < 0 ? 1 : -1, mX, mY);
         });
         let lastTouchDist = 0;
@@ -1464,4 +1869,4 @@ const SmartFlowRenderer = (function() {
         calculateComponentPosition
     };
     return window.SmartFlowRenderer;
-})();
+})( );
