@@ -1,10 +1,12 @@
 
 // ============================================================
-// SMARTFLOW COMMANDS v3.0 - Intérprete de Comandos Unificado
+// SMARTFLOW COMMANDS v3.2 - Intérprete de Comandos Unificado
 // Archivo: js/commands.js
-// Compatible: SmartFlowCore v5.6 + SmartFlowRouter
-// Correcciones v3.0: parseDelete seguro, extractNamedParams,
-//                    resolveMaterialAndSpec, saveStateBeforeMutation funcional
+// Compatible: SmartFlowCore v5.6 + SmartFlowRouter v3.1
+// Novedades v3.2: accessories con posicionamiento automático,
+//                 transition para cambios de material,
+//                 route con waypoints via (x,y,z),
+//                 connect con posición decimal 0.5
 // ============================================================
 
 const SmartFlowCommands = (function() {
@@ -49,7 +51,9 @@ const SmartFlowCommands = (function() {
         'macro': 'macro', 'script': 'macro',
         'exportar': 'export', 'export': 'export',
         'vista': 'view', 'view': 'view', 'zoom': 'view', 'camara': 'view', 'cámara': 'view',
-        'apoyar': 'place', 'posar': 'place', 'place': 'place', 'poner': 'place', 'colocar': 'place'
+        'apoyar': 'place', 'posar': 'place', 'place': 'place', 'poner': 'place', 'colocar': 'place',
+        'accesorios': 'accessories', 'accesorios': 'accessories', 'accessories': 'accessories',
+        'transicion': 'transition', 'transition': 'transition'
     };
 
     function getIntent(word) {
@@ -83,11 +87,11 @@ const SmartFlowCommands = (function() {
         return null;
     }
 
-    // ✅ NUEVO v3.0: Extraer parámetros nombrados (material, spec, diameter, type)
+    // ✅ v3.2: Extraer parámetros nombrados (material, spec, diameter, type)
     function extractNamedParams(parts, startIndex) {
         const params = {};
         const keywords = ['material', 'spec', 'diameter', 'diametro', 'type', 'tipo'];
-        const skipWords = ['to', 'from', 'at', 'in', 'on', 'by', 'with', 'and', 'route', 'ruta', 'as', 'like'];
+        const skipWords = ['to', 'from', 'at', 'in', 'on', 'by', 'with', 'and', 'route', 'ruta', 'via', 'as', 'like', 'auto', 'add', 'transition', 'transicion'];
         
         for (let i = startIndex || 0; i < parts.length; i++) {
             const w = (parts[i] || '').toLowerCase();
@@ -107,7 +111,7 @@ const SmartFlowCommands = (function() {
         return params;
     }
 
-    // ✅ NUEVO v3.0: Resolver material y spec con herencia
+    // ✅ v3.2: Resolver material y spec con herencia
     function resolveMaterialAndSpec(explicitParams, connectedObjects, defaults) {
         const result = {
             material: explicitParams.material || (defaults && defaults.material) || 'PPR',
@@ -130,7 +134,6 @@ const SmartFlowCommands = (function() {
                     break;
                 }
             }
-            // Inferir spec del material
             const mat = (result.material || '').toUpperCase();
             if (mat.includes('ACERO') || mat.includes('CARBONO') || mat.includes('CS')) result.spec = 'A1A';
             else if (mat.includes('INOX') || mat.includes('SS')) result.spec = 'A3B';
@@ -209,12 +212,10 @@ const SmartFlowCommands = (function() {
         if (typeof _voiceFn === 'function') { _voiceFn(message); }
     }
 
-    // ✅ CORREGIDO v3.0: saveStateBeforeMutation funcional
     function saveStateBeforeMutation() {
         if (_core && _core._saveState) {
             _core._saveState();
         } else if (_core && _core.getDb) {
-            // Fallback manual
             const state = JSON.parse(JSON.stringify({
                 equipos: _core.getDb().equipos,
                 lines: _core.getDb().lines
@@ -238,10 +239,6 @@ const SmartFlowCommands = (function() {
         }
         return base;
     }
-
-    // ═══════════════════════════════════════════════════════
-    // FUNCIONES DE APOYO
-    // ═══════════════════════════════════════════════════════
 
     function getTopSurface(tag) {
         const obj = _core ? _core.findObjectByTag(tag) : null;
@@ -277,7 +274,7 @@ const SmartFlowCommands = (function() {
     }
 
     // ================================================================
-    //  COMANDO INFO (MEJORADO v3.0)
+    //  COMANDO INFO
     // ================================================================
 
     function parseInfo(cmd) {
@@ -311,7 +308,18 @@ const SmartFlowCommands = (function() {
         }
         let totalLen = 0;
         for (let i = 0; i < pts.length - 1; i++) totalLen += Math.hypot(pts[i+1].x - pts[i].x, pts[i+1].y - pts[i].y, pts[i+1].z - pts[i].z);
-        const msg = "📋 Línea " + tag + " | ⌀" + (line.diameter || '?') + "\" | " + (line.material || 'N/D') + " | Spec: " + (line.spec || 'N/D') + " | Puntos: " + numPuntos + " | Long: " + (totalLen/1000).toFixed(2) + "m | Componentes: " + (line.components ? line.components.length : 0) + " | Origen: " + origen + " | Destino: " + destino;
+        
+        // Mostrar componentes ordenados
+        let compInfo = '';
+        if (line.components && line.components.length > 0) {
+            const sorted = line.components.slice().sort(function(a, b) { return (a.param || 0) - (b.param || 0); });
+            compInfo = '\n🔩 Componentes (' + sorted.length + '):';
+            sorted.forEach(function(c) {
+                compInfo += '\n   ' + (c.type || '?') + ' @' + (c.param ? c.param.toFixed(3) : '?') + ' [' + (c.tag || '') + ']';
+            });
+        }
+        
+        const msg = "📋 Línea " + tag + " | ⌀" + (line.diameter || '?') + "\" | " + (line.material || 'N/D') + " | Spec: " + (line.spec || 'N/D') + " | Puntos: " + numPuntos + " | Long: " + (totalLen/1000).toFixed(2) + "m | Componentes: " + (line.components ? line.components.length : 0) + " | Origen: " + origen + " | Destino: " + destino + compInfo;
         notifyWithVoice(msg, false);
         return true;
     }
@@ -646,7 +654,6 @@ const SmartFlowCommands = (function() {
         if (!coords) return false;
         const x = parseFloat(coords[1]), y = parseFloat(coords[2]), z = parseFloat(coords[3]);
         
-        // ✅ v3.0: Usar extractNamedParams para parámetros
         const namedParams = extractNamedParams(parts, 5);
         
         let params = {};
@@ -655,7 +662,6 @@ const SmartFlowCommands = (function() {
         if (namedParams.spec) params.spec = namedParams.spec;
         if (namedParams.type) params.tipo = namedParams.type;
         
-        // Compatibilidad con sintaxis antigua
         for (let i = 5; i < parts.length; i++) {
             let key = parts[i];
             if (key === 'diam' || key === 'diametro') params.diametro = params.diametro || parseFloat(parts[++i]);
@@ -671,7 +677,6 @@ const SmartFlowCommands = (function() {
         const equipoDef = _catalog.getEquipment(tipo);
         if (!equipoDef) { notifyWithVoice("Tipo de equipo desconocido: " + tipo, true); return true; }
         
-        // ✅ v3.0: Verificar tag duplicado
         if (_core && _core.findObjectByTag(tag)) {
             notifyWithVoice("❌ Error: El tag " + tag + " ya existe", true);
             return true;
@@ -687,7 +692,7 @@ const SmartFlowCommands = (function() {
     }
 
     // ================================================================
-    //  COMANDO CREATE LINE (CORREGIDO v3.0)
+    //  COMANDO CREATE LINE
     // ================================================================
 
     function parseCreateLine(cmd) {
@@ -696,13 +701,11 @@ const SmartFlowCommands = (function() {
         const tag = parts[2];
         if (!tag) { notifyWithVoice("Error: Tag de línea requerido", true); return true; }
         
-        // ✅ v3.0: Verificar tag duplicado
         if (_core && _core.findObjectByTag(tag)) {
             notifyWithVoice("❌ Error: El tag " + tag + " ya existe", true);
             return true;
         }
         
-        // ✅ v3.0: Extraer parámetros nombrados
         const namedParams = extractNamedParams(parts, 3);
         const resolved = resolveMaterialAndSpec(namedParams, [], { material: 'PPR', spec: 'PPR_PN12_5' });
         
@@ -711,7 +714,6 @@ const SmartFlowCommands = (function() {
         let spec = resolved.spec;
         let points = [];
         
-        // Extraer puntos de ruta
         let i = 3;
         while (i < parts.length) {
             if (parts[i] === 'route' || parts[i] === 'ruta') {
@@ -723,7 +725,6 @@ const SmartFlowCommands = (function() {
                         points.push({ x: parseFloat(m[1]), y: parseFloat(m[2]), z: parseFloat(m[3]) });
                         i++;
                     } else {
-                        // ✅ v3.0: Si no es coordenada, podría ser keyword → saltar
                         const lower = (parts[i] || '').toLowerCase();
                         if (['material', 'spec', 'diameter', 'diametro'].indexOf(lower) !== -1) {
                             i += 2;
@@ -768,7 +769,7 @@ const SmartFlowCommands = (function() {
     }
 
     // ================================================================
-    //  COMANDO CONNECT (CORREGIDO v3.1 - Soporta posición decimal)
+    //  COMANDO CONNECT (v3.1 - Soporta posición decimal 0.5)
     // ================================================================
 
     function parseConnect(cmd) {
@@ -779,7 +780,6 @@ const SmartFlowCommands = (function() {
         if (parts[3] !== 'to' && parts[3] !== 'a') return false;
         const toEquip = parts[4];
         
-        // ✅ v3.1: Detectar puerto destino correctamente
         let toNozzleRaw = parts[5];
         let paramsStartIndex = 6;
         
@@ -789,7 +789,6 @@ const SmartFlowCommands = (function() {
             paramsStartIndex = 5;
         }
         
-        // ✅ v3.1: Extraer parámetros desde el índice correcto
         const namedParams = extractNamedParams(parts, paramsStartIndex);
         
         if (!_core) { notifyWithVoice("Core no inicializado", true); return true; }
@@ -798,20 +797,17 @@ const SmartFlowCommands = (function() {
         const toObj = _core.findObjectByTag(toEquip);
         if (!fromObj || !toObj) { notifyWithVoice("Objeto no encontrado", true); return true; }
         
-        // ✅ v3.1: Resolver material con herencia de objetos conectados
         const resolved = resolveMaterialAndSpec(namedParams, [fromObj, toObj], { material: 'PPR', spec: 'PPR_PN12_5' });
         let diameter = namedParams.diameter || 4;
         let material = resolved.material;
         let spec = resolved.spec;
         
-        // Compatibilidad con sintaxis antigua (bucle for)
         for (let i = paramsStartIndex; i < parts.length; i++) {
             if (parts[i] === 'diameter' || parts[i] === 'diametro') diameter = parseFloat(parts[++i]);
             else if (parts[i] === 'material') material = parts[++i].toUpperCase();
             else if (parts[i] === 'spec') spec = parts[++i];
         }
 
-        // ✅ v3.1: NUEVO - Detectar si fromNozzle es una posición decimal (0.0 a 1.0)
         const numPosFrom = parseFloat(fromNozzle);
         const isNumericFrom = !isNaN(numPosFrom) && isFinite(numPosFrom) && numPosFrom >= 0 && numPosFrom <= 1;
         const isFromLine = _core.getLinePoints(fromObj) ? true : false;
@@ -829,7 +825,6 @@ const SmartFlowCommands = (function() {
                 return true; 
             }
             
-            // Calcular punto en la posición paramétrica
             let totalLen = 0, lengths = [];
             for (let i = 0; i < pts.length - 1; i++) {
                 const d = Math.hypot(pts[i+1].x - pts[i].x, pts[i+1].y - pts[i].y, pts[i+1].z - pts[i].z);
@@ -853,7 +848,6 @@ const SmartFlowCommands = (function() {
                 z: pA.z + (pB.z - pA.z) * t
             };
             
-            // Insertar TEE en la línea origen
             if (typeof SmartFlowRouter !== 'undefined' && typeof SmartFlowRouter.insertarAccesorioEnLinea === 'function') {
                 const nuevoPuertoId = SmartFlowRouter.insertarAccesorioEnLinea(fromEquip, puntoConexion, diameter, true);
                 if (nuevoPuertoId) {
@@ -887,7 +881,6 @@ const SmartFlowCommands = (function() {
         }
         if (!startPos) { notifyWithVoice("No se pudo obtener la posición del puerto origen", true); return true; }
         
-        // ✅ v3.1: Generar tag único garantizado
         let newTag;
         let counter = 1;
         const existingTags = new Set(db.lines.map(function(l) { return l.tag; }));
@@ -997,42 +990,74 @@ const SmartFlowCommands = (function() {
         return true;
     }
 
-   
-
     // ================================================================
-    //  COMANDO ROUTE (CORREGIDO v3.0)
+    //  COMANDO ROUTE (v3.2 - Soporta via waypoints)
     // ================================================================
 
     function parseRoute(cmd) {
         const parts = cmd.split(/\s+/);
         if (parts[0] !== 'route' && parts[0] !== 'ruta') return false;
-        if (parts[1] !== 'from' && parts[1] !== 'desde') return false;
-        const fromEquip = parts[2], fromNozzle = parts[3];
-        if (parts[4] !== 'to' && parts[4] !== 'a' && parts[4] !== 'hasta') return false;
-        const toEquip = parts[5];
         
-        // ✅ v3.0: Detectar puerto destino vs keyword
-        let toNozzle = null, paramsStartIdx = 6;
+        // Detectar "from"/"desde"
+        let fromIdx = -1, toIdx = -1, viaIdx = -1;
+        for (let i = 1; i < parts.length; i++) {
+            const w = parts[i].toLowerCase();
+            if ((w === 'from' || w === 'desde') && fromIdx === -1) fromIdx = i;
+            if ((w === 'to' || w === 'a' || w === 'hasta') && toIdx === -1) toIdx = i;
+            if (w === 'via' && viaIdx === -1) viaIdx = i;
+        }
+        
+        if (fromIdx === -1 || toIdx === -1) {
+            notifyWithVoice("Uso: route from [origen] [puerto] [via (x,y,z)...] to [destino] [puerto] [diameter X] [material X]", true);
+            return true;
+        }
+        
+        const fromEquip = parts[fromIdx + 1];
+        const fromNozzle = parts[fromIdx + 2];
+        const toEquip = parts[toIdx + 1];
+        
+        if (!fromEquip || !fromNozzle || !toEquip) {
+            notifyWithVoice("❌ Faltan parámetros. Uso: route from [origen] [puerto] to [destino] [puerto]", true);
+            return true;
+        }
+        
+        // ✅ v3.2: Extraer waypoints si hay "via"
+        let waypoints = [];
+        let toNozzle = null;
+        let paramsStartIdx;
+        
+        if (viaIdx !== -1 && viaIdx < toIdx) {
+            for (let i = viaIdx + 1; i < toIdx; i++) {
+                const coordStr = parts[i];
+                const m = coordStr.match(/\((-?\d+(?:\.\d+)?),(-?\d+(?:\.\d+)?),(-?\d+(?:\.\d+)?)\)/);
+                if (m) {
+                    waypoints.push({ 
+                        x: parseFloat(m[1]), 
+                        y: parseFloat(m[2]), 
+                        z: parseFloat(m[3]) 
+                    });
+                }
+            }
+            paramsStartIdx = toIdx + 2;
+        } else {
+            paramsStartIdx = toIdx + 2;
+        }
+        
         const knownKeywords = ['material', 'spec', 'diameter', 'diametro'];
         if (paramsStartIdx < parts.length && knownKeywords.indexOf((parts[paramsStartIdx] || '').toLowerCase()) === -1) {
             toNozzle = parts[paramsStartIdx];
-            paramsStartIdx = 7;
+            paramsStartIdx++;
         }
         
-        // ✅ v3.0: Extraer parámetros nombrados
         const namedParams = extractNamedParams(parts, paramsStartIdx);
-        
-        // Obtener objetos para herencia
         const fromObj = _core ? _core.findObjectByTag(fromEquip) : null;
         const toObj = _core ? _core.findObjectByTag(toEquip) : null;
-        
-        // ✅ v3.0: Resolver con herencia
         const resolved = resolveMaterialAndSpec(namedParams, [fromObj, toObj].filter(Boolean), { material: 'PPR', spec: 'PPR_PN12_5' });
+        
         let diameter = namedParams.diameter || 3;
         let material = resolved.material;
         let spec = resolved.spec;
         
-        // Compatibilidad con sintaxis antigua
         for (let i = paramsStartIdx; i < parts.length; i++) {
             if (parts[i] === 'diameter' || parts[i] === 'diametro') diameter = parseFloat(parts[++i]);
             else if (parts[i] === 'material') material = parts[++i].toUpperCase();
@@ -1040,13 +1065,19 @@ const SmartFlowCommands = (function() {
         }
         
         if (typeof SmartFlowRouter !== 'undefined') {
-            SmartFlowRouter.routeBetweenPorts(fromEquip, fromNozzle, toEquip, toNozzle, diameter, material, spec);
-        } else { notifyWithVoice("Módulo Router no disponible.", true); }
+            if (waypoints.length > 0 && typeof SmartFlowRouter.routeWithWaypoints === 'function') {
+                SmartFlowRouter.routeWithWaypoints(fromEquip, fromNozzle, toEquip, toNozzle, waypoints, diameter, material, spec);
+            } else {
+                SmartFlowRouter.routeBetweenPorts(fromEquip, fromNozzle, toEquip, toNozzle, diameter, material, spec);
+            }
+        } else { 
+            notifyWithVoice("Módulo Router no disponible.", true); 
+        }
         return true;
     }
 
     // ================================================================
-    //  COMANDO TAP (CORREGIDO v3.0)
+    //  COMANDO TAP
     // ================================================================
 
     function parseTap(cmd) {
@@ -1063,7 +1094,6 @@ const SmartFlowCommands = (function() {
             return true; 
         }
         
-        // ✅ v3.0: Extraer parámetros desde índice 6
         const namedParams = extractNamedParams(parts, 6);
         
         if (!_core) { notifyWithVoice("Core no inicializado", true); return true; }
@@ -1075,13 +1105,11 @@ const SmartFlowCommands = (function() {
         const toObj = _core.findObjectByTag(toLine);
         if (!toObj || !_core.getLines().includes(toObj) || !getPoints(toObj).length) { notifyWithVoice('Línea "' + toLine + '" no encontrada', true); return true; }
         
-        // ✅ v3.0: Resolver con herencia
         const resolved = resolveMaterialAndSpec(namedParams, [fromObj, toObj], { material: 'PPR', spec: 'PPR_PN12_5' });
         let diameter = namedParams.diameter || toObj.diameter || 4;
         let material = resolved.material;
         let spec = resolved.spec;
         
-        // Compatibilidad con sintaxis antigua
         for (let i = 6; i < parts.length; i++) {
             if (parts[i] === 'diameter' || parts[i] === 'diametro') diameter = parseFloat(parts[++i]);
             else if (parts[i] === 'material') material = parts[++i].toUpperCase();
@@ -1104,7 +1132,6 @@ const SmartFlowCommands = (function() {
         const puertoId = SmartFlowRouter.insertarAccesorioEnLinea(toLine, puntoConexion, diameter, true);
         if (!puertoId) { notifyWithVoice("No se pudo insertar el accesorio", true); return true; }
         
-        // ✅ v3.0: Generar tag único
         const db = _core.getDb();
         const existingTags = new Set(db.lines.map(function(l) { return l.tag; }));
         let newTag, counter = 1;
@@ -1154,7 +1181,7 @@ const SmartFlowCommands = (function() {
     }
 
     // ================================================================
-    //  COMANDO DELETE (COMPLETAMENTE REESCRITO v3.0)
+    //  COMANDO DELETE (v3.0 - Eliminación segura)
     // ================================================================
 
     function parseDelete(cmd) {
@@ -1171,16 +1198,13 @@ const SmartFlowCommands = (function() {
         
         if (!_core) { notifyWithVoice("Core no inicializado", true); return true; }
         
-        // ✅ v3.0: Usar saveStateBeforeMutation funcional
         saveStateBeforeMutation();
         
         if (type === 'equipment' || type === 'equipo' || type === 'eq') {
-            // ✅ v3.0: Usar removeEquipment del core (eliminación segura)
             if (_core.removeEquipment) {
                 _core.removeEquipment(tag);
                 if (_renderUI) _renderUI();
             } else {
-                // Fallback manual
                 const db = _core.getDb();
                 const equipo = _core.findObjectByTag(tag);
                 if (!equipo || !_core.getEquipos().includes(equipo)) {
@@ -1188,13 +1212,11 @@ const SmartFlowCommands = (function() {
                     return true;
                 }
                 
-                // Encontrar y eliminar líneas conectadas
                 const lineasConectadas = db.lines.filter(function(line) {
                     return (line.origin && (line.origin.equipTag === tag || line.origin.objTag === tag)) ||
                            (line.destination && (line.destination.equipTag === tag || line.destination.objTag === tag));
                 });
                 
-                // Liberar puertos en otros extremos
                 lineasConectadas.forEach(function(linea) {
                     var otroExtremo = null;
                     if (linea.origin && (linea.origin.equipTag === tag || linea.origin.objTag === tag)) {
@@ -1217,17 +1239,13 @@ const SmartFlowCommands = (function() {
                     }
                 });
                 
-                // Eliminar líneas
                 db.lines = db.lines.filter(function(line) {
                     return lineasConectadas.indexOf(line) === -1;
                 });
                 
-                // Eliminar equipo
                 db.equipos = db.equipos.filter(function(e) { return e.tag !== tag; });
                 
-                // Reconstruir índices
                 if (_core.rebuildIndexes) _core.rebuildIndexes();
-                
                 if (_core.syncPhysicalData) _core.syncPhysicalData();
                 if (_renderUI) _renderUI();
                 
@@ -1237,12 +1255,10 @@ const SmartFlowCommands = (function() {
         }
         
         if (type === 'line' || type === 'línea' || type === 'linea' || type === 'pipe') {
-            // ✅ v3.0: Usar removeLine del core (eliminación segura)
             if (_core.removeLine) {
                 _core.removeLine(tag);
                 if (_renderUI) _renderUI();
             } else {
-                // Fallback manual
                 const db = _core.getDb();
                 const linea = _core.findObjectByTag(tag);
                 if (!linea || !_core.getLines().includes(linea)) {
@@ -1250,7 +1266,6 @@ const SmartFlowCommands = (function() {
                     return true;
                 }
                 
-                // Liberar puerto origen
                 if (linea.origin && (linea.origin.equipTag || linea.origin.objTag)) {
                     var origTag = linea.origin.equipTag || linea.origin.objTag;
                     var objOrigen = _core.findObjectByTag(origTag);
@@ -1265,7 +1280,6 @@ const SmartFlowCommands = (function() {
                     }
                 }
                 
-                // Liberar puerto destino
                 if (linea.destination && (linea.destination.equipTag || linea.destination.objTag)) {
                     var destTag = linea.destination.equipTag || linea.destination.objTag;
                     var objDestino = _core.findObjectByTag(destTag);
@@ -1280,12 +1294,9 @@ const SmartFlowCommands = (function() {
                     }
                 }
                 
-                // Eliminar línea
                 db.lines = db.lines.filter(function(l) { return l.tag !== tag; });
                 
-                // Reconstruir índices
                 if (_core.rebuildIndexes) _core.rebuildIndexes();
-                
                 if (_core.syncPhysicalData) _core.syncPhysicalData();
                 if (_renderUI) _renderUI();
                 
@@ -1294,7 +1305,6 @@ const SmartFlowCommands = (function() {
             return true;
         }
         
-        // Detección automática
         const obj = _core.findObjectByTag(tag);
         if (!obj) {
             notifyWithVoice("❌ \"" + tag + "\" no encontrado", true);
@@ -1310,8 +1320,9 @@ const SmartFlowCommands = (function() {
         notifyWithVoice("❌ No se pudo determinar el tipo de \"" + tag + "\". Use: delete equipment/line [TAG]", true);
         return true;
     }
+
     // ================================================================
-    //  COMANDO EDIT (CORREGIDO v3.0)
+    //  COMANDO EDIT
     // ================================================================
 
     function parseEditCommand(cmd) {
@@ -1399,7 +1410,6 @@ const SmartFlowCommands = (function() {
                     const comp = { type: compDef.tipo || compType, tag: compType + "-" + Date.now().toString().slice(-6), param: position };
                     if (!line.components) line.components = [];
                     
-                    // ✅ v3.0: Verificar duplicado
                     const existe = line.components.some(function(c) { 
                         return c.type === comp.type && Math.abs((c.param || 0) - position) < 0.02; 
                     });
@@ -1531,7 +1541,6 @@ const SmartFlowCommands = (function() {
         if (asIdx !== -1 && asIdx + 1 < parts.length) { newTag = parts[asIdx + 1]; }
         else { newTag = tag + '-COPY'; }
         
-        // ✅ v3.0: Verificar que el nuevo tag no existe
         if (_core.findObjectByTag(newTag)) {
             notifyWithVoice("❌ El tag " + newTag + " ya existe", true);
             return true;
@@ -1607,8 +1616,369 @@ const SmartFlowCommands = (function() {
         if (_renderUI) _renderUI();
         return true;
     }
+    // ================================================================
+    //  REGLAS DE ESPACIAMIENTO PARA ACCESORIOS (NUEVO v3.2)
+    // ================================================================
 
+    const SPACING_RULES = {
+        'VALVE':          { spaceBefore: 150, spaceAfter: 150, category: 'inline' },
+        'GATE_VALVE':     { spaceBefore: 150, spaceAfter: 150, category: 'inline' },
+        'GLOBE_VALVE':    { spaceBefore: 180, spaceAfter: 150, category: 'inline' },
+        'BALL_VALVE':     { spaceBefore: 120, spaceAfter: 120, category: 'inline' },
+        'BUTTERFLY_VALVE':{ spaceBefore: 120, spaceAfter: 120, category: 'inline' },
+        'CHECK_VALVE':    { spaceBefore: 150, spaceAfter: 150, category: 'inline' },
+        'STRAINER':       { spaceBefore: 200, spaceAfter: 200, category: 'inline' },
+        'FLANGE':         { spaceBefore: 50,  spaceAfter: 50,  category: 'connection' },
+        'WELD_NECK_FLANGE':{ spaceBefore: 50, spaceAfter: 50,  category: 'connection' },
+        'SLIP_ON_FLANGE': { spaceBefore: 50,  spaceAfter: 50,  category: 'connection' },
+        'BLIND_FLANGE':   { spaceBefore: 30,  spaceAfter: 0,   category: 'connection' },
+        'REDUCER':             { spaceBefore: 100, spaceAfter: 80,  category: 'transition' },
+        'CONCENTRIC_REDUCER':  { spaceBefore: 100, spaceAfter: 80,  category: 'transition' },
+        'ECCENTRIC_REDUCER':   { spaceBefore: 100, spaceAfter: 80,  category: 'transition' },
+        'TEE_REDUCING':        { spaceBefore: 120, spaceAfter: 100, category: 'branch' },
+        'ELBOW':         { spaceBefore: 80,  spaceAfter: 80,  category: 'directional' },
+        'ELBOW_90_LR':   { spaceBefore: 80,  spaceAfter: 80,  category: 'directional' },
+        'ELBOW_90_SR':   { spaceBefore: 60,  spaceAfter: 60,  category: 'directional' },
+        'ELBOW_45':      { spaceBefore: 60,  spaceAfter: 60,  category: 'directional' },
+        'TEE':           { spaceBefore: 120, spaceAfter: 120, category: 'branch' },
+        'TEE_EQUAL':     { spaceBefore: 120, spaceAfter: 120, category: 'branch' },
+        'EXPANSION_JOINT': { spaceBefore: 250, spaceAfter: 250, category: 'expansion' },
+        'PIPE_GUIDE':      { spaceBefore: 50,  spaceAfter: 50,  category: 'support' },
+        'CAP':             { spaceBefore: 30,  spaceAfter: 0,   category: 'end' },
+        'CROSS':           { spaceBefore: 150, spaceAfter: 150, category: 'branch' },
+        'PRESSURE_GAUGE':  { spaceBefore: 60,  spaceAfter: 0,   category: 'instrument' },
+        'TEMPERATURE_GAUGE':{ spaceBefore: 60, spaceAfter: 0,   category: 'instrument' },
+        'FLOW_METER':      { spaceBefore: 200, spaceAfter: 200, category: 'instrument' },
+        'DEFAULT':        { spaceBefore: 100, spaceAfter: 100, category: 'general' }
+    };
 
+    function getSpacingRules(componentType) {
+        const typeUpper = (componentType || '').toUpperCase();
+        if (SPACING_RULES[typeUpper]) return SPACING_RULES[typeUpper];
+        
+        const keys = Object.keys(SPACING_RULES);
+        for (let i = 0; i < keys.length; i++) {
+            if (typeUpper.indexOf(keys[i]) !== -1 || keys[i].indexOf(typeUpper) !== -1) {
+                return SPACING_RULES[keys[i]];
+            }
+        }
+        
+        if (typeUpper.indexOf('VALVE') !== -1) return SPACING_RULES['VALVE'];
+        if (typeUpper.indexOf('FLANGE') !== -1) return SPACING_RULES['FLANGE'];
+        if (typeUpper.indexOf('REDUC') !== -1) return SPACING_RULES['REDUCER'];
+        if (typeUpper.indexOf('ELBOW') !== -1) return SPACING_RULES['ELBOW'];
+        if (typeUpper.indexOf('TEE') !== -1) return SPACING_RULES['TEE'];
+        
+        return SPACING_RULES['DEFAULT'];
+    }
+
+    function calculateAccessoryPositions(componentTypes, startPosition, totalLength, diameter) {
+        const positions = [];
+        let currentPos = startPosition;
+        const diamMM = (diameter || 4) * 25.4;
+        
+        for (let i = 0; i < componentTypes.length; i++) {
+            const compType = componentTypes[i];
+            const rules = getSpacingRules(compType);
+            let spaceBefore = rules.spaceBefore;
+            
+            if (diameter > 6) spaceBefore *= 1.5;
+            if (diameter > 12) spaceBefore *= 2.0;
+            
+            if (i > 0) {
+                const prevRules = getSpacingRules(componentTypes[i - 1]);
+                if (prevRules.category === 'connection' && rules.category === 'inline') {
+                    spaceBefore = Math.max(spaceBefore, 50);
+                }
+                if (prevRules.category === 'inline' && rules.category === 'inline') {
+                    spaceBefore *= 1.5;
+                }
+                if (prevRules.category === 'transition') {
+                    spaceBefore *= 0.7;
+                }
+            }
+            
+            const spaceParam = spaceBefore / totalLength;
+            currentPos += spaceParam;
+            
+            if (currentPos > 0.99) {
+                console.warn('⚠️ Posición ' + currentPos.toFixed(3) + ' excede el límite para ' + compType);
+                currentPos = 0.99;
+            }
+            
+            positions.push({
+                type: compType,
+                position: currentPos,
+                spaceBeforeMM: spaceBefore,
+                category: rules.category
+            });
+        }
+        
+        return positions;
+    }
+
+    function addComponentToLine(line, lineTag, compType, position) {
+        let finalType = compType;
+        const compDef = _catalog ? _catalog.getComponent(compType) : null;
+        if (!compDef) {
+            if (typeof SmartFlowRouter !== 'undefined' && SmartFlowRouter.findComponentInCatalog) {
+                const found = SmartFlowRouter.findComponentInCatalog(compType, line.material || 'PPR', []);
+                if (!found) {
+                    notifyWithVoice("⚠️ Componente no encontrado: " + compType, true);
+                    return false;
+                }
+                finalType = found;
+            } else {
+                notifyWithVoice("⚠️ Componente no encontrado: " + compType, true);
+                return false;
+            }
+        }
+        
+        const existe = line.components && line.components.some(function(c) { 
+            return c.type && c.type.toUpperCase().indexOf(finalType.toUpperCase()) !== -1 && 
+                   Math.abs((c.param || 0) - position) < 0.01; 
+        });
+        
+        if (existe) {
+            notifyWithVoice("⚠️ Ya existe " + finalType + " en pos " + position.toFixed(2), false);
+            return false;
+        }
+        
+        if (!line.components) line.components = [];
+        
+        line.components.push({
+            type: finalType,
+            tag: finalType + '-' + Date.now().toString(36) + '-' + Math.random().toString(36).substr(2, 4),
+            param: position
+        });
+        
+        return true;
+    }
+
+    // ================================================================
+    //  COMANDO ACCESSORIES (NUEVO v3.2)
+    // ================================================================
+
+    function parseAccessoriesCommand(cmd) {
+        const parts = cmd.trim().split(/\s+/);
+        if (parts[0] !== 'accessories' && parts[0] !== 'accesorios') return false;
+        
+        const lineTag = parts[1];
+        if (!lineTag) { 
+            notifyWithVoice("Uso: accessories LINEA add TIPO@pos... | accessories LINEA auto TIPO... at POS | accessories LINEA transition from MAT1 to MAT2 [with COMP] at POS", true); 
+            return true; 
+        }
+        
+        if (!_core) { notifyWithVoice("Core no inicializado", true); return true; }
+        
+        const line = _core.findObjectByTag(lineTag);
+        if (!line || !_core.getLines().includes(line)) {
+            notifyWithVoice("❌ Línea " + lineTag + " no encontrada", true);
+            return true;
+        }
+        
+        saveStateBeforeMutation();
+        
+        // ═══════════════════════════════════════════
+        // MODO 1: Posiciones manuales (TYPE@pos)
+        // ═══════════════════════════════════════════
+        if (parts[2] === 'add' || parts[2] === 'añadir') {
+            let added = 0, errors = 0;
+            
+            for (let i = 3; i < parts.length; i++) {
+                const accDef = parts[i];
+                const atIdx = accDef.indexOf('@');
+                
+                if (atIdx === -1) {
+                    notifyWithVoice("⚠️ Formato: " + accDef + " (use TIPO@pos)", true);
+                    errors++;
+                    continue;
+                }
+                
+                const compType = accDef.substring(0, atIdx);
+                const position = parseFloat(accDef.substring(atIdx + 1));
+                
+                if (isNaN(position) || position < 0 || position > 1) {
+                    notifyWithVoice("⚠️ Posición inválida: " + accDef, true);
+                    errors++;
+                    continue;
+                }
+                
+                if (!addComponentToLine(line, lineTag, compType, position)) {
+                    errors++;
+                } else {
+                    added++;
+                }
+            }
+            
+            notifyWithVoice(
+                "✅ " + added + " accesorio(s) añadido(s)" + 
+                (errors > 0 ? " | ⚠️ " + errors + " error(es)" : ""), 
+                errors > 0
+            );
+            return true;
+        }
+        
+        // ═══════════════════════════════════════════
+        // MODO 2: Posicionamiento AUTOMÁTICO
+        // ═══════════════════════════════════════════
+        if (parts[2] === 'auto') {
+            const atIdx = parts.indexOf('at') !== -1 ? parts.indexOf('at') : parts.indexOf('en');
+            
+            const endIdx = atIdx !== -1 ? atIdx : parts.length;
+            const componentTypes = [];
+            for (let i = 3; i < endIdx; i++) {
+                const compType = parts[i].toUpperCase();
+                if (['AT', 'EN', 'DIAMETER', 'DIAMETRO'].indexOf(compType) === -1) {
+                    componentTypes.push(compType);
+                }
+            }
+            
+            if (componentTypes.length === 0) {
+                notifyWithVoice("❌ Especifique al menos un componente", true);
+                return true;
+            }
+            
+            let startPosition = 0.5;
+            if (atIdx !== -1 && atIdx + 1 < parts.length) {
+                startPosition = parseFloat(parts[atIdx + 1]);
+                if (isNaN(startPosition)) startPosition = 0.5;
+            }
+            
+            const namedParams = extractNamedParams(parts, endIdx);
+            const diameter = namedParams.diameter || line.diameter || 4;
+            
+            const pts = getPoints(line);
+            let totalLength = 10000;
+            if (pts.length >= 2) {
+                totalLength = 0;
+                for (let i = 0; i < pts.length - 1; i++) {
+                    totalLength += Math.hypot(
+                        pts[i+1].x - pts[i].x,
+                        pts[i+1].y - pts[i].y,
+                        pts[i+1].z - pts[i].z
+                    );
+                }
+            }
+            
+            const positions = calculateAccessoryPositions(
+                componentTypes, 
+                startPosition, 
+                totalLength, 
+                diameter
+            );
+            
+            let added = 0, errors = 0;
+            for (let i = 0; i < positions.length; i++) {
+                const pos = positions[i];
+                if (addComponentToLine(line, lineTag, pos.type, pos.position)) {
+                    added++;
+                    console.log('✅ ' + pos.type + ' @' + pos.position.toFixed(3) + 
+                               ' (' + pos.spaceBeforeMM + 'mm) [' + pos.category + ']');
+                } else {
+                    errors++;
+                }
+            }
+            
+            if (line.components) {
+                line.components.sort(function(a, b) { return (a.param || 0) - (b.param || 0); });
+            }
+            _core.updateLine(lineTag, { components: line.components });
+            
+            if (_renderUI) _renderUI();
+            
+            notifyWithVoice(
+                "✅ " + added + " accesorio(s) añadido(s) automáticamente a " + lineTag +
+                " (desde pos " + startPosition.toFixed(2) + ")" +
+                (errors > 0 ? " | ⚠️ " + errors + " error(es)" : ""),
+                errors > 0
+            );
+            return true;
+        }
+        
+        // ═══════════════════════════════════════════
+        // MODO 3: Transición de materiales
+        // ═══════════════════════════════════════════
+        if (parts[2] === 'transition' || parts[2] === 'transicion') {
+            const fromIdx = parts.indexOf('from') !== -1 ? parts.indexOf('from') : parts.indexOf('de');
+            const toIdx = parts.indexOf('to') !== -1 ? parts.indexOf('to') : parts.indexOf('a');
+            const withIdx = parts.indexOf('with') !== -1 ? parts.indexOf('with') : parts.indexOf('con');
+            const atIdx = parts.indexOf('at') !== -1 ? parts.indexOf('at') : parts.indexOf('en');
+            
+            if (fromIdx === -1 || toIdx === -1) {
+                notifyWithVoice("Uso: accessories LINEA transition from MAT1 to MAT2 [with COMP] at POS", true);
+                return true;
+            }
+            
+            const material1 = parts[fromIdx + 1].toUpperCase();
+            const material2 = parts[toIdx + 1].toUpperCase();
+            const componente = withIdx !== -1 ? parts[withIdx + 1] : null;
+            
+            let startPos = 0.85;
+            if (atIdx !== -1 && atIdx + 1 < parts.length) {
+                startPos = parseFloat(parts[atIdx + 1]);
+                if (isNaN(startPos)) startPos = 0.85;
+            }
+            
+            const namedParams = extractNamedParams(parts, toIdx + 2);
+            const diameter = namedParams.diameter || line.diameter || 4;
+            
+            const transitionComponents = ['FLANGE'];
+            if (material1 !== material2) {
+                transitionComponents.push('CONCENTRIC_REDUCER');
+            }
+            if (componente) {
+                transitionComponents.push(componente);
+            }
+            transitionComponents.push('FLANGE');
+            
+            const pts = getPoints(line);
+            let totalLength = 10000;
+            if (pts.length >= 2) {
+                totalLength = 0;
+                for (let i = 0; i < pts.length - 1; i++) {
+                    totalLength += Math.hypot(
+                        pts[i+1].x - pts[i].x,
+                        pts[i+1].y - pts[i].y,
+                        pts[i+1].z - pts[i].z
+                    );
+                }
+            }
+            
+            const positions = calculateAccessoryPositions(
+                transitionComponents,
+                startPos,
+                totalLength,
+                diameter
+            );
+            
+            let added = 0;
+            for (let i = 0; i < positions.length; i++) {
+                const pos = positions[i];
+                if (addComponentToLine(line, lineTag, pos.type, pos.position)) {
+                    added++;
+                }
+            }
+            
+            if (line.components) {
+                line.components.sort(function(a, b) { return (a.param || 0) - (b.param || 0); });
+            }
+            _core.updateLine(lineTag, { components: line.components });
+            
+            if (_renderUI) _renderUI();
+            
+            notifyWithVoice(
+                "✅ Transición " + material1 + " → " + material2 + 
+                " creada en " + lineTag + " (" + added + " accesorios)" +
+                (componente ? " con " + componente : ""),
+                false
+            );
+            return true;
+        }
+        
+        notifyWithVoice("Modo no reconocido. Use: add | auto | transition", true);
+        return true;
+    }
 
     // ================================================================
     //  COMANDO BOM
@@ -1683,38 +2053,35 @@ const SmartFlowCommands = (function() {
         const lower = cmd.toLowerCase(); 
         if (lower !== 'help' && lower !== 'ayuda') return false;
         let ayuda = "═══════════════════════════════════════════════════════════\n";
-        ayuda += "              SMARTFLOW PRO v3.0 - COMANDOS\n";
+        ayuda += "              SMARTFLOW PRO v3.2 - COMANDOS\n";
         ayuda += "═══════════════════════════════════════════════════════════\n\n";
         ayuda += "🏗️ CREACIÓN:\n";
         ayuda += "  create [tipo] [tag] at (x,y,z) [diam X] [height X] [material X]\n";
         ayuda += "  create line [tag] route (x,y,z) (x,y,z)... [diameter X] [material X] [spec X]\n\n";
         ayuda += "🔗 CONEXIÓN:\n";
-        ayuda += "  connect [origen] [puerto] to [destino] [puerto|0-1|0.0-1.0] [material X] [diameter X] [spec X]\n";
-        ayuda += "  route from [origen] [puerto] to [destino] [puerto] [material X] [diameter X] [spec X]\n";
-        ayuda += "  tap [origen] [puerto] to [linea] [0.0-1.0] [material X] [diameter X] [spec X]\n\n";
+        ayuda += "  connect [origen] [0.5|puerto] to [destino] [puerto] [material X] [diameter X]\n";
+        ayuda += "  route from [origen] [puerto] via (x,y,z)... to [destino] [puerto]\n";
+        ayuda += "  tap [origen] [puerto] to [linea] [0.0-1.0] [material X] [diameter X]\n\n";
         ayuda += "✏️ EDICIÓN:\n";
         ayuda += "  move [tag] to (x,y,z)  |  move [tag] by (dx,dy,dz)\n";
-        ayuda += "  place [equipo] on [superficie|ground|suelo]\n";
         ayuda += "  rotate [tag] [angulo] [around X|Y|Z]\n";
         ayuda += "  duplicate [tag] as [nuevo_tag] [offset (dx,dy,dz)]\n";
-        ayuda += "  align [tag1] [tag2] ... on X|Y|Z\n";
-        ayuda += "  edit line [tag] add component [tipo] at [0-1]\n";
-        ayuda += "  edit line [tag] set material|diameter|spec [valor]\n";
-        ayuda += "  split [línea] at (x,y,z) [type TEE_EQUAL]\n";
-        ayuda += "  delete equipment|line [tag]\n\n";
+        ayuda += "  delete equipment|line [tag]\n";
+        ayuda += "  split [línea] at (x,y,z) [type TEE_EQUAL]\n\n";
+        ayuda += "🔩 ACCESORIOS (NUEVO v3.2):\n";
+        ayuda += "  accessories [linea] add TIPO@pos TIPO@pos...\n";
+        ayuda += "  accessories [linea] auto TIPO TIPO... at POS [diameter X]\n";
+        ayuda += "  accessories [linea] transition from MAT1 to MAT2 [with COMP] at POS\n";
+        ayuda += "  edit line [tag] set material|diameter|spec [valor]\n\n";
         ayuda += "📊 CONSULTAS:\n";
         ayuda += "  info line|equipment|component [tag]\n";
         ayuda += "  point de [tag] [puerto|@0.5|punto N]\n";
-        ayuda += "  nodes [tag]\n";
-        ayuda += "  measure [tag1] to [tag2]  |  measure between [tag1] and [tag2]\n";
+        ayuda += "  measure [tag1] to [tag2]\n";
         ayuda += "  list equipos | lineas | componentes | especificaciones\n\n";
-        ayuda += "🎯 VISTA:\n";
-        ayuda += "  view top|front|iso|extents  |  view [tag] (centrar)\n\n";
-        ayuda += "💾 MACROS / EXPORT:\n";
-        ayuda += "  macro save [nombre]  |  macro run [nombre]\n";
-        ayuda += "  macro list  |  macro delete [nombre]\n";
-        ayuda += "  export json  |  export csv\n\n";
-        ayuda += "🔄 undo | redo | bom | audit | help\n";
+        ayuda += "🎯 VISTA / OTROS:\n";
+        ayuda += "  view top|front|iso|extents  |  view [tag] (centrar)\n";
+        ayuda += "  macro save|run|list|delete [nombre]\n";
+        ayuda += "  export json | csv  |  bom  |  audit  |  undo | redo\n";
         ayuda += "═══════════════════════════════════════════════════════════\n";
         notifyWithVoice(ayuda, false); return true;
     }
@@ -1985,13 +2352,13 @@ const SmartFlowCommands = (function() {
             return true; 
         }
         
-        // Orden de parsing optimizado - comandos más comunes primero
         if (parseCreateLine(trimmed)) { recordCommand(cmd); return true; }
         if (parseCreate(trimmed)) { recordCommand(cmd); return true; }
         if (parseConnect(trimmed)) { recordCommand(cmd); return true; }
         if (parseRoute(trimmed)) { recordCommand(cmd); return true; }
         if (parseDelete(trimmed)) { recordCommand(cmd); return true; }
         if (parseTap(trimmed)) { recordCommand(cmd); return true; }
+        if (parseAccessoriesCommand(trimmed)) { recordCommand(cmd); return true; }
         if (parseSplit(trimmed)) { recordCommand(cmd); return true; }
         if (parseMoveCommand(trimmed)) { recordCommand(cmd); return true; }
         if (parsePlace(trimmed)) { recordCommand(cmd); return true; }
@@ -2055,3 +2422,4 @@ const SmartFlowCommands = (function() {
         clearHistory: function() { window._commandHistory = []; }
     };
 })();
+
