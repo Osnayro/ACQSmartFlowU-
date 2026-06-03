@@ -1,4 +1,5 @@
 
+
 // ============================================================
 // SMARTFLOW ROUTER v3.3 - Enrutador de Tuberías Inteligente
 // Archivo: js/router.js
@@ -21,6 +22,10 @@ const SmartFlowRouter = (function() {
     const ORTHOGONAL_TOLERANCE = 0.0175;
     const MIN_ANGLE_FOR_ELBOW = 3;
     const EXTENSION_DISTANCE = 500;
+
+    // ================================================================
+    //  INICIALIZACIÓN
+    // ================================================================
 
     function ensureInitialized() {
         if (!_core && typeof SmartFlowCore !== 'undefined') _core = SmartFlowCore;
@@ -51,10 +56,25 @@ const SmartFlowRouter = (function() {
         speakText(message);
     }
 
-    function distance(p1, p2) { return Math.hypot(p2.x - p1.x, p2.y - p1.y, p2.z - p1.z); }
-    function addPoints(p1, p2) { return { x: p1.x + p2.x, y: p1.y + p2.y, z: p1.z + p2.z }; }
-    function subtractPoints(p1, p2) { return { x: p1.x - p2.x, y: p1.y - p2.y, z: p1.z - p2.z }; }
-    function scalePoint(p, factor) { return { x: p.x * factor, y: p.y * factor, z: p.z * factor }; }
+    // ================================================================
+    //  UTILIDADES GEOMÉTRICAS
+    // ================================================================
+
+    function distance(p1, p2) { 
+        return Math.hypot(p2.x - p1.x, p2.y - p1.y, p2.z - p1.z); 
+    }
+    
+    function addPoints(p1, p2) { 
+        return { x: p1.x + p2.x, y: p1.y + p2.y, z: p1.z + p2.z }; 
+    }
+    
+    function subtractPoints(p1, p2) { 
+        return { x: p1.x - p2.x, y: p1.y - p2.y, z: p1.z - p2.z }; 
+    }
+    
+    function scalePoint(p, factor) { 
+        return { x: p.x * factor, y: p.y * factor, z: p.z * factor }; 
+    }
     
     function normalizeVector(v) {
         var len = Math.hypot(v.x, v.y, v.z);
@@ -64,7 +84,13 @@ const SmartFlowRouter = (function() {
         return n;
     }
     
-    function dotProduct(v1, v2) { return v1.x * v2.x + v1.y * v2.y + v1.z * v2.z; }
+    function dotProduct(v1, v2) { 
+        return v1.x * v2.x + v1.y * v2.y + v1.z * v2.z; 
+    }
+    
+    function crossProduct(v1, v2) { 
+        return { x: v1.y * v2.z - v1.z * v2.y, y: v1.z * v2.x - v1.x * v2.z, z: v1.x * v2.y - v1.y * v2.x }; 
+    }
     
     function projectPointOnSegment(p, a, b) {
         var ab = subtractPoints(b, a);
@@ -79,8 +105,12 @@ const SmartFlowRouter = (function() {
 
     function calculateOrthogonalIntersection(portPos, portDir, targetPos) {
         if (!portPos || !portDir || !targetPos) {
-            return { intersection: portPos || { x: 0, y: 0, z: 0 }, lateralDistance: 0, isOrthogonal: true, angleDeg: 0, needsElbow: false,
-                lateralVector: { x: 0, y: 0, z: 0 }, lateralDir: { dx: 0, dy: 0, dz: 0, x: 0, y: 0, z: 0 } };
+            return { 
+                intersection: portPos || { x: 0, y: 0, z: 0 }, 
+                lateralDistance: 0, isOrthogonal: true, angleDeg: 0, needsElbow: false,
+                lateralVector: { x: 0, y: 0, z: 0 },
+                lateralDir: { dx: 0, dy: 0, dz: 0, x: 0, y: 0, z: 0 }
+            };
         }
         var dir = normalizeVector(portDir);
         if (Math.hypot(dir.x, dir.y, dir.z) < 0.0001) {
@@ -108,10 +138,16 @@ const SmartFlowRouter = (function() {
         var angleDeg = Math.acos(cosAngle) * 180 / Math.PI;
         var isOrthogonal = lateralDistance < ORTHOGONAL_TOLERANCE || Math.abs(projLength) < ORTHOGONAL_TOLERANCE;
         var lateralDir = lateralDistance > 0 ? normalizeVector(lateralVector) : { dx: 0, dy: 0, dz: 0, x: 0, y: 0, z: 0 };
-        return { intersection: intersection, lateralVector: lateralVector, lateralDir: lateralDir,
+        return {
+            intersection: intersection, lateralVector: lateralVector, lateralDir: lateralDir,
             lateralDistance: lateralDistance, isOrthogonal: isOrthogonal, angleDeg: angleDeg,
-            needsElbow: !isOrthogonal && (angleDeg > MIN_ANGLE_FOR_ELBOW) };
+            needsElbow: !isOrthogonal && (angleDeg > MIN_ANGLE_FOR_ELBOW)
+        };
     }
+
+    // ================================================================
+    //  CONSULTA DE PUERTOS Y DIRECCIONES
+    // ================================================================
 
     function getPortPosition(obj, portId) {
         if (!obj) return null;
@@ -131,7 +167,10 @@ const SmartFlowRouter = (function() {
         }
         var pts = _core ? _core.getLinePoints(obj) : (obj._cachedPoints || obj.points3D || obj.points);
         if (!pts || pts.length === 0) return null;
-        if (obj.puertos) { var puerto3 = obj.puertos.find(function(p) { return p.id === portId; }); if (puerto3 && puerto3.pos) return puerto3.pos; }
+        if (obj.puertos) {
+            var puerto3 = obj.puertos.find(function(p) { return p.id === portId; });
+            if (puerto3 && puerto3.pos) return puerto3.pos;
+        }
         if (portId === '0') return pts[0];
         if (portId === '1') return pts[pts.length - 1];
         return pts[Math.floor(pts.length / 2)];
@@ -174,7 +213,10 @@ const SmartFlowRouter = (function() {
 
     function getPortDiameter(obj, portId) {
         if (!obj) return null;
-        if (obj.puertos) { var puerto = obj.puertos.find(function(p) { return p.id === portId; }); if (puerto && puerto.diametro) return parseFloat(puerto.diametro); }
+        if (obj.puertos) {
+            var puerto = obj.puertos.find(function(p) { return p.id === portId; });
+            if (puerto && puerto.diametro) return parseFloat(puerto.diametro);
+        }
         if (obj.diameter) return parseFloat(obj.diameter);
         if (obj.diametro) return parseFloat(obj.diametro);
         return null;
@@ -199,10 +241,16 @@ const SmartFlowRouter = (function() {
             if (dimForDiam && dimForDiam.centerToFace) return dimForDiam.centerToFace;
             var typicalLengths = { 'ELBOW_90': 38, 'ELBOW_45': 25, 'TEE': 50, 'TEE_EQUAL': 50, 'TEE_REDUCING': 55, 'CONCENTRIC_REDUCER': 75 };
             var keys = Object.keys(typicalLengths);
-            for (var k = 0; k < keys.length; k++) { if (componentType.toUpperCase().indexOf(keys[k]) !== -1) return typicalLengths[keys[k]]; }
+            for (var k = 0; k < keys.length; k++) {
+                if (componentType.toUpperCase().indexOf(keys[k]) !== -1) return typicalLengths[keys[k]];
+            }
         } catch (e) { console.warn('Error obteniendo fitting length:', e); }
         return 50;
     }
+
+    // ================================================================
+    //  BÚSQUEDA EN CATÁLOGO
+    // ================================================================
 
     function findComponentInCatalog(desiredType, lineMaterial, fallbackTypes) {
         ensureInitialized();
@@ -215,13 +263,15 @@ const SmartFlowRouter = (function() {
             'TEE': ['TEE_EQUAL', 'TEE_PPR', 'TEE_CS', 'TEE_SS', 'EQUAL_TEE'],
             'TEE_EQUAL': ['TEE', 'TEE_PPR', 'TEE_CS', 'TEE_SS', 'EQUAL_TEE'],
             'TEE_REDUCING': ['TEE_REDUCER', 'REDUCING_TEE', 'TEE_RED'],
-            'CONCENTRIC_REDUCER': ['REDUCER_CONCENTRIC', 'REDC', 'CONC_REDUCER', 'REDUCER'],
+            'CONCENTRIC_REDUCER': ['REDUCER_CONCENTRIC', 'REDC', 'CONC_REDUCER', 'REDUCER', 'REDUCER_CONCENTRIC_CS', 'REDUCER_CONCENTRIC_PPR'],
             'ECCENTRIC_REDUCER': ['REDUCER_ECCENTRIC', 'REDE', 'ECC_REDUCER'],
-            'ELBOW_90_LR': ['ELBOW_90', 'ELBOW', 'ELBW', '90DEG_ELBOW'],
+            'ELBOW_90_LR': ['ELBOW_90', 'ELBOW', 'ELBW', '90DEG_ELBOW', 'ELBOW_90_PPR', 'ELBOW_90_CS'],
+            'ELBOW_90_SR': ['ELBOW_90_SHORT', 'ELBOW_SHORT'],
             'ELBOW_45': ['ELBOW_45_LR', '45DEG_ELBOW', 'ELL4'],
             'WELD_NECK_FLANGE': ['FLANGE_WN', 'FLWN', 'WN_FLANGE'],
             'SLIP_ON_FLANGE': ['FLANGE_SO', 'FLSO', 'SO_FLANGE'],
             'GATE_VALVE': ['VALVE_GATE', 'VAGF', 'GATE'],
+            'GLOBE_VALVE': ['VALVE_GLOBE', 'VGLF', 'GLOBE'],
             'BALL_VALVE': ['VALVE_BALL', 'VBAL', 'BALL'],
             'CHECK_VALVE': ['VALVE_CHECK', 'VCFF', 'CHECK']
         };
@@ -255,8 +305,8 @@ const SmartFlowRouter = (function() {
                 var t = elbowTypes[j];
                 if (mat.indexOf('PPR') !== -1 && t.toUpperCase().indexOf('PPR') !== -1) { bestMatch = t; break; }
                 if (mat.indexOf('HDPE') !== -1 && t.toUpperCase().indexOf('HDPE') !== -1) { bestMatch = t; break; }
-                if ((mat.indexOf('ACERO') !== -1 || mat.indexOf('CS') !== -1) && t.toUpperCase().indexOf('CS') !== -1) { bestMatch = t; break; }
-                if ((mat.indexOf('INOX') !== -1 || mat.indexOf('SS') !== -1) && t.toUpperCase().indexOf('SS') !== -1) { bestMatch = t; break; }
+                if ((mat.indexOf('ACERO') !== -1 || mat.indexOf('CS') !== -1 || mat.indexOf('CARBONO') !== -1) && (t.toUpperCase().indexOf('CS') !== -1 || t.toUpperCase().indexOf('LR') !== -1)) { bestMatch = t; break; }
+                if ((mat.indexOf('INOX') !== -1 || mat.indexOf('SS') !== -1) && (t.toUpperCase().indexOf('SS') !== -1 || t.toUpperCase().indexOf('SANITARY') !== -1)) { bestMatch = t; break; }
             }
         }
         return bestMatch;
@@ -269,14 +319,18 @@ const SmartFlowRouter = (function() {
         var materialUpper = (material || '').toUpperCase();
         var candidates = [];
         if (materialUpper.indexOf('PPR') !== -1) { candidates.push('CONCENTRIC_REDUCER_PPR', 'REDUCER_CONCENTRIC_PPR'); }
-        else if (materialUpper.indexOf('ACERO') !== -1 || materialUpper.indexOf('CS') !== -1) { candidates.push('CONCENTRIC_REDUCER_CS', 'CONCENTRIC_REDUCER'); }
-        else if (materialUpper.indexOf('INOX') !== -1 || materialUpper.indexOf('SS') !== -1) { candidates.push('CONCENTRIC_REDUCER_SS', 'ECCENTRIC_REDUCER_SS'); }
+        else if (materialUpper.indexOf('ACERO') !== -1 || materialUpper.indexOf('CARBONO') !== -1 || materialUpper.indexOf('CS') !== -1) { candidates.push('CONCENTRIC_REDUCER_CS', 'REDUCER_CONCENTRIC_CS', 'CONCENTRIC_REDUCER'); }
+        else if (materialUpper.indexOf('INOX') !== -1 || materialUpper.indexOf('SS') !== -1) { candidates.push('CONCENTRIC_REDUCER_SS', 'REDUCER_CONCENTRIC_SS', 'ECCENTRIC_REDUCER_SS'); }
         candidates.push('CONCENTRIC_REDUCER', 'ECCENTRIC_REDUCER', 'REDUCER');
         for (var i = 0; i < candidates.length; i++) { if (allTypes.indexOf(candidates[i]) !== -1) return candidates[i]; }
         var reducerTypes = allTypes.filter(function(t) { return t.toUpperCase().indexOf('REDUC') !== -1 || t.toUpperCase().indexOf('REDC') !== -1; });
         for (var r = 0; r < reducerTypes.length; r++) { if (reducerTypes[r].toUpperCase().indexOf('CONC') !== -1) return reducerTypes[r]; }
         return reducerTypes.length > 0 ? reducerTypes[0] : null;
     }
+
+    // ================================================================
+    //  ENSUREFITTINGS
+    // ================================================================
 
     function ensureFittings(lineObj, fromObj, fromPortId, toObj, toPortId, diameter, material) {
         if (!lineObj) return { added: [], message: ' | ⚠️ Sin objeto de línea' };
@@ -299,18 +353,34 @@ const SmartFlowRouter = (function() {
             if (diamPuertoOrigen && necesitaReductor(diamPuertoOrigen, diamLinea)) {
                 var reducerType = findReducerForDiameters(Math.max(diamPuertoOrigen, diamLinea), Math.min(diamPuertoOrigen, diamLinea), material);
                 if (reducerType && !existeComponenteSimilar('REDUCER', 0.0)) {
-                    lineObj.components.push({ type: reducerType, tag: 'RED-' + lineObj.tag + '-START-' + Date.now().toString(36), param: 0.0 });
+                    lineObj.components.push({ type: reducerType, tag: 'RED-' + lineObj.tag + '-START-' + Date.now().toString(36), param: 0.0, diameterLarge: Math.max(diamPuertoOrigen, diamLinea), diameterSmall: Math.min(diamPuertoOrigen, diamLinea), material: material || 'PPR' });
                     addedFittings.push(lineObj.components[lineObj.components.length - 1].tag);
                 }
             }
         }
+        
         if (toObj && toPortId) {
             var diamPuertoDestino = getPortDiameter(toObj, toPortId);
             var diamLinea2 = parseFloat(lineObj.diameter || diameter);
             if (diamPuertoDestino && necesitaReductor(diamLinea2, diamPuertoDestino)) {
                 var reducerType2 = findReducerForDiameters(Math.max(diamLinea2, diamPuertoDestino), Math.min(diamLinea2, diamPuertoDestino), material);
                 if (reducerType2 && !existeComponenteSimilar('REDUCER', 1.0)) {
-                    lineObj.components.push({ type: reducerType2, tag: 'RED-' + lineObj.tag + '-END-' + Date.now().toString(36), param: 1.0 });
+                    lineObj.components.push({ type: reducerType2, tag: 'RED-' + lineObj.tag + '-END-' + Date.now().toString(36), param: 1.0, diameterLarge: Math.max(diamLinea2, diamPuertoDestino), diameterSmall: Math.min(diamLinea2, diamPuertoDestino), material: material || 'PPR' });
+                    addedFittings.push(lineObj.components[lineObj.components.length - 1].tag);
+                }
+            }
+        }
+        
+        if (fromObj && fromPortId && puntos.length >= 2) {
+            var dirPuerto = getPortDirection(fromObj, fromPortId);
+            var vInicial = { x: puntos[1].x - puntos[0].x, y: puntos[1].y - puntos[0].y, z: puntos[1].z - puntos[0].z };
+            var lenInic = Math.hypot(vInicial.x, vInicial.y, vInicial.z) || 1;
+            var dotInicio = (dirPuerto.x * vInicial.x + dirPuerto.y * vInicial.y + dirPuerto.z * vInicial.z) / lenInic;
+            var angleDegInicio = Math.acos(Math.max(-1, Math.min(1, dotInicio))) * 180 / Math.PI;
+            if (angleDegInicio > MIN_ANGLE_FOR_ELBOW && !existeComponenteSimilar('ELBOW', 0.0, 0.05)) {
+                var elbowType = findElbowForLine(material, diameter, angleDegInicio);
+                if (elbowType) {
+                    lineObj.components.push({ type: elbowType, tag: 'ELB-' + lineObj.tag + '-START-' + Date.now().toString(36), param: 0.0, diameter: diameter || 4, material: material || 'PPR', angle: angleDegInicio });
                     addedFittings.push(lineObj.components[lineObj.components.length - 1].tag);
                 }
             }
@@ -334,27 +404,47 @@ const SmartFlowRouter = (function() {
                 if (!existeComponenteSimilar('ELBOW', paramValue)) {
                     var elbowType2 = findElbowForLine(material, diameter, angleDegInter);
                     if (elbowType2) {
-                        lineObj.components.push({ type: elbowType2, tag: 'ELB-' + lineObj.tag + '-P' + i2 + '-' + Date.now().toString(36), param: paramValue });
+                        lineObj.components.push({ type: elbowType2, tag: 'ELB-' + lineObj.tag + '-P' + i2 + '-' + Date.now().toString(36), param: paramValue, diameter: diameter || 4, material: material || 'PPR', angle: angleDegInter });
                         addedFittings.push(lineObj.components[lineObj.components.length - 1].tag);
                     }
                 }
             }
         }
         
+        if (toObj && toPortId && puntos.length >= 2) {
+            var dirPuertoDest = getPortDirection(toObj, toPortId);
+            var dirLlegada = { x: puntos[puntos.length - 1].x - puntos[puntos.length - 2].x, y: puntos[puntos.length - 1].y - puntos[puntos.length - 2].y, z: puntos[puntos.length - 1].z - puntos[puntos.length - 2].z };
+            var lenLlegada = Math.hypot(dirLlegada.x, dirLlegada.y, dirLlegada.z) || 1;
+            var dirPuertoInv = { x: -dirPuertoDest.x, y: -dirPuertoDest.y, z: -dirPuertoDest.z };
+            var dotFin = (dirPuertoInv.x * dirLlegada.x + dirPuertoInv.y * dirLlegada.y + dirPuertoInv.z * dirLlegada.z) / lenLlegada;
+            var angleDegFin = Math.acos(Math.max(-1, Math.min(1, dotFin))) * 180 / Math.PI;
+            if (angleDegFin > MIN_ANGLE_FOR_ELBOW && !existeComponenteSimilar('ELBOW', 1.0, 0.05)) {
+                var elbowType3 = findElbowForLine(material, diameter, angleDegFin);
+                if (elbowType3) {
+                    lineObj.components.push({ type: elbowType3, tag: 'ELB-' + lineObj.tag + '-END-' + Date.now().toString(36), param: 1.0, diameter: diameter || 4, material: material || 'PPR', angle: angleDegFin });
+                    addedFittings.push(lineObj.components[lineObj.components.length - 1].tag);
+                }
+            }
+        }
+        
         var delta = lineObj.components.length - inicialCount;
+        var msgs = [];
         if (delta > 0) {
             var codosCount = 0, redsCount = 0;
             for (var a = 0; a < addedFittings.length; a++) {
                 if (addedFittings[a].indexOf('ELB') !== -1) codosCount++;
                 if (addedFittings[a].indexOf('RED') !== -1) redsCount++;
             }
-            var msgs = [];
             if (codosCount > 0) msgs.push(codosCount + ' codo(s)');
             if (redsCount > 0) msgs.push(redsCount + ' reductor(es)');
             return { added: addedFittings, message: ' | 🛠️ Inyectado: ' + msgs.join(' + ') };
         }
         return { added: [], message: ' | 📐 Continuidad geométrica OK' };
     }
+
+    // ================================================================
+    //  INSERTAR ACCESORIO EN LÍNEA
+    // ================================================================
 
     function insertarAccesorioEnLinea(lineTag, puntoConexion, diametroNuevaLinea, forzarTee) {
         ensureInitialized();
@@ -379,20 +469,27 @@ const SmartFlowRouter = (function() {
         var diffDiam = necesitaReductor(diametroNuevaLinea, diamLinea);
         var lineMaterial = linea.material || 'PPR';
         var tipoAccesorio, descripcion;
-        if (esExtremo && diffDiam) { tipoAccesorio = 'CONCENTRIC_REDUCER'; descripcion = 'Reductor'; }
-        else if (!esExtremo && diffDiam) { tipoAccesorio = 'TEE_REDUCING'; descripcion = 'Tee reductora'; }
-        else if (!esExtremo) { tipoAccesorio = 'TEE'; descripcion = 'Tee igual'; }
-        else { var puertoExtremo = linea.puertos ? linea.puertos.find(function(p) { return esInicio ? p.id === '0' : p.id === '1'; }) : null; if (puertoExtremo) { puertoExtremo.status = 'connected'; } _core.updateLine(lineTag, { puertos: linea.puertos }); return puertoExtremo ? puertoExtremo.id : (esInicio ? '0' : '1'); }
+        if (esExtremo && diffDiam) { tipoAccesorio = 'CONCENTRIC_REDUCER'; descripcion = 'Reductor ' + Math.max(diamLinea, diametroNuevaLinea) + '"x' + Math.min(diamLinea, diametroNuevaLinea) + '"'; }
+        else if (!esExtremo && diffDiam) { tipoAccesorio = 'TEE_REDUCING'; descripcion = 'Tee reductora ' + Math.max(diamLinea, diametroNuevaLinea) + '"x' + Math.min(diamLinea, diametroNuevaLinea) + '"'; }
+        else if (!esExtremo) { tipoAccesorio = 'TEE'; descripcion = 'Tee igual ' + diamLinea + '"'; }
+        else { var puertoExtremo = linea.puertos ? linea.puertos.find(function(p) { return esInicio ? p.id === '0' : p.id === '1'; }) : null; if (puertoExtremo) { puertoExtremo.diametro = diametroNuevaLinea; puertoExtremo.status = 'connected'; } _core.updateLine(lineTag, { puertos: linea.puertos }); notifyUser('✅ Conexión directa en extremo de ' + lineTag, false); return puertoExtremo ? puertoExtremo.id : (esInicio ? '0' : '1'); }
         var compEnCatalogo = findComponentInCatalog(tipoAccesorio, lineMaterial, []);
-        if (!compEnCatalogo) { notifyUser('Componente no encontrado: ' + tipoAccesorio, true); return null; }
+        if (!compEnCatalogo) { notifyUser('Componente no encontrado: ' + tipoAccesorio + ' (' + lineMaterial + ')', true); return null; }
         if (!linea.components) linea.components = [];
-        var comp = { type: compEnCatalogo, tag: compEnCatalogo + '-' + Date.now().toString(36), param: param };
+        var existeDuplicado = linea.components.some(function(c) { return c.type === compEnCatalogo && Math.abs((c.param || 0) - param) < 0.02; });
+        if (existeDuplicado) { notifyUser('⚠️ Ya existe un ' + descripcion + ' en esa posición', false); var puertoExistente = linea.puertos ? linea.puertos.find(function(p) { return p.id.indexOf(compEnCatalogo) !== -1; }) : null; return puertoExistente ? puertoExistente.id : null; }
+        var comp = { type: compEnCatalogo, tag: compEnCatalogo + '-' + Date.now().toString(36) + '-' + Math.random().toString(36).substr(2, 4), param: param, diameter: diamLinea, material: lineMaterial };
         linea.components.push(comp);
-        _core.updateLine(lineTag, { components: linea.components });
+        _core.updateLine(lineTag, { components: linea.components, puertos: linea.puertos });
+        notifyUser('✅ ' + descripcion + ' (' + compEnCatalogo + ') insertado en ' + lineTag + ' @' + param.toFixed(3), false);
         var lineaActualizada = db.lines.find(function(l) { return l.tag === lineTag; });
-        if (lineaActualizada && lineaActualizada.puertos && lineaActualizada.puertos.length > 0) { return lineaActualizada.puertos[lineaActualizada.puertos.length - 1].id; }
+        if (lineaActualizada && lineaActualizada.puertos && lineaActualizada.puertos.length > 0) { var nuevoPuerto = lineaActualizada.puertos.find(function(p2) { return p2.id.indexOf(comp.tag) !== -1; }); if (nuevoPuerto) return nuevoPuerto.id; return lineaActualizada.puertos[lineaActualizada.puertos.length - 1].id; }
         return null;
     }
+
+    // ================================================================
+    //  PROCESAR INTERSECCIONES DE LÍNEA
+    // ================================================================
 
     function procesarInterseccionesDeLinea(nuevaLinea) {
         ensureInitialized();
@@ -421,8 +518,12 @@ const SmartFlowRouter = (function() {
                             var ptsActualizados = ptsNueva.slice();
                             ptsActualizados[ptsActualizados.length - 1] = proj.point;
                             updatedLine._cachedPoints = ptsActualizados;
+                            updatedLine.points3D = ptsActualizados;
+                            updatedLine.points = ptsActualizados;
+                            updatedLine.waypoints = ptsActualizados.slice(1, -1);
                             _core.updateLine(updatedLine.tag, updatedLine);
-                            if (lineaExistente.puertos) { var puerto = lineaExistente.puertos.find(function(p) { return p.id === puertoId; }); if (puerto) { puerto.connectedLine = updatedLine.tag; puerto.status = 'connected'; } }
+                            if (lineaExistente.puertos) { var puerto = lineaExistente.puertos.find(function(p) { return p.id === puertoId; }); if (puerto) { puerto.connectedLine = updatedLine.tag; puerto.status = 'connected'; } _core.updateLine(lineaExistente.tag, { puertos: lineaExistente.puertos }); }
+                            notifyUser('✅ Conexión automática: ' + updatedLine.tag + ' a ' + lineaExistente.tag, false);
                         }
                         return;
                     }
@@ -430,6 +531,10 @@ const SmartFlowRouter = (function() {
             }
         }
     }
+
+    // ================================================================
+    //  GENERAR TAG ÚNICO
+    // ================================================================
 
     function generateUniqueLineTag() {
         if (!_core) return 'L-' + Date.now();
@@ -560,6 +665,10 @@ const SmartFlowRouter = (function() {
         return lineaRegistrada;
     }
 
+    // ================================================================
+    //  HANDLER DE SNAP
+    // ================================================================
+
     function handleSnapClick(snapData) {
         if (!snapData) return;
         ensureInitialized();
@@ -567,17 +676,26 @@ const SmartFlowRouter = (function() {
         notifyUser('Puerto seleccionado: ' + snapData.item.tag + ' - ' + snapData.port.id);
     }
 
+    // ================================================================
+    //  COMANDOS DIRECTOS DEL ROUTER
+    // ================================================================
+
     function executeCommand(cmdLine) {
         ensureInitialized();
         var parts = cmdLine.trim().split(/\s+/);
         var action = parts[0] ? parts[0].toLowerCase() : '';
+        var args = parts.slice(1);
         switch(action) {
-            case 'conectar': if (parts.length >= 5) routeBetweenPorts(parts[1], parts[2], parts[3], parts[4]); else notifyUser('Formato: conectar [Origen] [Puerto] [Destino] [Puerto]', true); break;
-            case 'split': if (parts.length >= 2) { var p = parseFloat(parts[1]); if (!isNaN(p) && _core.injectAccessory) _core.injectAccessory(parts[0], p, { tag: 'TEE' }); } break;
-            case 'limpiar': if (_core.nuevoProyecto) _core.nuevoProyecto(); break;
-            default: notifyUser('Comando no reconocido: ' + action, true);
+            case 'conectar': if (args.length >= 4) { routeBetweenPorts(args[0], args[1], args[2], args[3]); } else { notifyUser('Formato: conectar [Origen] [Puerto] [Destino] [Puerto]', true); } break;
+            case 'split': if (args.length >= 2) { var lineTag = args[0]; var param = parseFloat(args[1]); if (!isNaN(param) && _core.injectAccessory) { _core.injectAccessory(lineTag, param, { tag: 'TEE', generarPuertos: function(line, p, d) { var cat = _catalog || window.SmartFlowCatalog; var comp = cat ? cat.getComponent('TEE_EQUAL') : null; return comp && comp.generarPuertos ? comp.generarPuertos({diameter: d}) : []; } }); } } else { notifyUser('Formato: split [Línea] [Posición 0-1]', true); } break;
+            case 'limpiar': if (_core.nuevoProyecto) _core.nuevoProyecto(); notifyUser('Proyecto limpiado.', false); break;
+            default: notifyUser('Comando router no reconocido: ' + action, true);
         }
     }
+
+    // ================================================================
+    //  INICIALIZACIÓN
+    // ================================================================
 
     function init(coreInstance, catalogInstance, notifyFn, renderFn) {
         _core = coreInstance;
@@ -586,16 +704,29 @@ const SmartFlowRouter = (function() {
         _renderUI = renderFn || _renderUI;
     }
 
+    // ================================================================
+    //  API PÚBLICA
+    // ================================================================
     return {
-        init: init, routeBetweenPorts: routeBetweenPorts, routeWithWaypoints: routeWithWaypoints,
-        insertarAccesorioEnLinea: insertarAccesorioEnLinea, procesarInterseccionesDeLinea: procesarInterseccionesDeLinea,
-        getPortPosition: getPortPosition, getPortDirection: getPortDirection,
-        getPortDirectionLocal: getPortDirectionLocal, getPortDiameter: getPortDiameter,
-        findComponentInCatalog: findComponentInCatalog, findElbowForLine: findElbowForLine,
-        findReducerForDiameters: findReducerForDiameters, calculateOrthogonalIntersection: calculateOrthogonalIntersection,
-        getFittingLength: getFittingLength, ensureFittings: ensureFittings,
-        necesitaReductor: necesitaReductor, generateUniqueLineTag: generateUniqueLineTag,
-        handleSnapClick: handleSnapClick, executeCommand: executeCommand
+        init: init,
+        routeBetweenPorts: routeBetweenPorts,
+        routeWithWaypoints: routeWithWaypoints,
+        insertarAccesorioEnLinea: insertarAccesorioEnLinea,
+        procesarInterseccionesDeLinea: procesarInterseccionesDeLinea,
+        getPortPosition: getPortPosition,
+        getPortDirection: getPortDirection,
+        getPortDirectionLocal: getPortDirectionLocal,
+        getPortDiameter: getPortDiameter,
+        findComponentInCatalog: findComponentInCatalog,
+        findElbowForLine: findElbowForLine,
+        findReducerForDiameters: findReducerForDiameters,
+        calculateOrthogonalIntersection: calculateOrthogonalIntersection,
+        getFittingLength: getFittingLength,
+        ensureFittings: ensureFittings,
+        necesitaReductor: necesitaReductor,
+        generateUniqueLineTag: generateUniqueLineTag,
+        handleSnapClick: handleSnapClick,
+        executeCommand: executeCommand
     };
 })();
 
