@@ -1,12 +1,10 @@
 
 // ============================================================
-// SMARTFLOW COMMANDS v3.2 - Intérprete de Comandos Unificado
+// SMARTFLOW COMMANDS v3.3 - Intérprete de Comandos Unificado
 // Archivo: js/commands.js
-// Compatible: SmartFlowCore v5.6 + SmartFlowRouter v3.1
-// Novedades v3.2: accessories con posicionamiento automático,
-//                 transition para cambios de material,
-//                 route con waypoints via (x,y,z),
-//                 connect con posición decimal 0.5
+// Compatible: SmartFlowCore v5.6 + SmartFlowRouter v3.5
+// Novedades v3.3: Corrección de spec para PPR y HDPE,
+//                 runFittingInjection propaga spec a ensureFittings
 // ============================================================
 
 const SmartFlowCommands = (function() {
@@ -87,7 +85,6 @@ const SmartFlowCommands = (function() {
         return null;
     }
 
-    // ✅ v3.2: Extraer parámetros nombrados (material, spec, diameter, type)
     function extractNamedParams(parts, startIndex) {
         const params = {};
         const keywords = ['material', 'spec', 'diameter', 'diametro', 'type', 'tipo'];
@@ -111,7 +108,6 @@ const SmartFlowCommands = (function() {
         return params;
     }
 
-    // ✅ v3.2: Resolver material y spec con herencia
     function resolveMaterialAndSpec(explicitParams, connectedObjects, defaults) {
         const result = {
             material: explicitParams.material || (defaults && defaults.material) || 'PPR',
@@ -135,9 +131,10 @@ const SmartFlowCommands = (function() {
                 }
             }
             const mat = (result.material || '').toUpperCase();
-            if (mat.includes('ACERO') || mat.includes('CARBONO') || mat.includes('CS')) result.spec = 'A1A';
-            else if (mat.includes('INOX') || mat.includes('SS')) result.spec = 'A3B';
-            else if (mat.includes('HDPE')) result.spec = 'HDPE_PN10';
+            if (mat.includes('PPR')) result.spec = 'PPR_PN12_5';
+            else if (mat.includes('ACERO') || mat.includes('CARBONO') || mat.includes('CS')) result.spec = 'ACERO_150_RF';
+            else if (mat.includes('INOX') || mat.includes('SS')) result.spec = 'SS_150_RF';
+            else if (mat.includes('HDPE') || mat.includes('PE100')) result.spec = 'HDPE_PE100';
             else if (mat.includes('PVC')) result.spec = 'PVC_SCH80';
         }
         
@@ -266,9 +263,10 @@ const SmartFlowCommands = (function() {
         return names[tipo] || tipo || 'Equipo';
     }
 
-    function runFittingInjection(line, fromObj, fromPortId, toObj, toPortId, diameter, material) {
+    // ✅ v3.3: runFittingInjection ahora acepta y propaga spec
+    function runFittingInjection(line, fromObj, fromPortId, toObj, toPortId, diameter, material, spec) {
         if (typeof SmartFlowRouter !== 'undefined' && typeof SmartFlowRouter.ensureFittings === 'function') {
-            return SmartFlowRouter.ensureFittings(line, fromObj, fromPortId, toObj, toPortId, diameter, material);
+            return SmartFlowRouter.ensureFittings(line, fromObj, fromPortId, toObj, toPortId, diameter, material, spec);
         }
         return { added: [], message: ' | ⚠️ Router no disponible para inyección' };
     }
@@ -309,7 +307,6 @@ const SmartFlowCommands = (function() {
         let totalLen = 0;
         for (let i = 0; i < pts.length - 1; i++) totalLen += Math.hypot(pts[i+1].x - pts[i].x, pts[i+1].y - pts[i].y, pts[i+1].z - pts[i].z);
         
-        // Mostrar componentes ordenados
         let compInfo = '';
         if (line.components && line.components.length > 0) {
             const sorted = line.components.slice().sort(function(a, b) { return (a.param || 0) - (b.param || 0); });
@@ -638,7 +635,6 @@ const SmartFlowCommands = (function() {
         
         return true;
     }
-
     // ================================================================
     //  COMANDO CREATE EQUIPO
     // ================================================================
@@ -692,7 +688,7 @@ const SmartFlowCommands = (function() {
     }
 
     // ================================================================
-    //  COMANDO CREATE LINE
+    //  COMANDO CREATE LINE (v3.3 - Propaga spec)
     // ================================================================
 
     function parseCreateLine(cmd) {
@@ -757,7 +753,7 @@ const SmartFlowCommands = (function() {
         
         const db = _core.getDb();
         const lineaRegistrada = db.lines.find(function(l) { return l.tag === tag; }) || nuevaLinea;
-        const fittingInfo = runFittingInjection(lineaRegistrada, null, null, null, null, diameter, material);
+        const fittingInfo = runFittingInjection(lineaRegistrada, null, null, null, null, diameter, material, spec);
         
         if (_core.updateLine) { 
             _core.updateLine(tag, lineaRegistrada); 
@@ -769,7 +765,7 @@ const SmartFlowCommands = (function() {
     }
 
     // ================================================================
-    //  COMANDO CONNECT (v3.1 - Soporta posición decimal 0.5)
+    //  COMANDO CONNECT (v3.3 - Propaga spec)
     // ================================================================
 
     function parseConnect(cmd) {
@@ -817,7 +813,6 @@ const SmartFlowCommands = (function() {
         let startPos = null, fromDiameter = 4;
         let effectiveFromNozzle = fromNozzle;
         
-        // ✅ v3.1: Si es posición decimal en una línea, insertar TEE automáticamente
         if (isFromLine && isNumericFrom && numPosFrom > 0.01 && numPosFrom < 0.99) {
             const pts = _core.getLinePoints(fromObj);
             if (!pts || pts.length < 2) { 
@@ -978,7 +973,7 @@ const SmartFlowCommands = (function() {
 
         _core.addLine(nuevaLinea);
         const lineaRegistrada = _core.getDb().lines.find(function(l) { return l.tag === newTag; }) || nuevaLinea;
-        const fittingInfo = runFittingInjection(lineaRegistrada, fromObj, effectiveFromNozzle, toObj, nuevoPuertoId, diameter, material);
+        const fittingInfo = runFittingInjection(lineaRegistrada, fromObj, effectiveFromNozzle, toObj, nuevoPuertoId, diameter, material, spec);
         if (_core.updateLine) { _core.updateLine(newTag, lineaRegistrada); }
         if (_core.setSelected) _core.setSelected({ type: 'line', obj: lineaRegistrada });
         
@@ -998,7 +993,6 @@ const SmartFlowCommands = (function() {
         const parts = cmd.split(/\s+/);
         if (parts[0] !== 'route' && parts[0] !== 'ruta') return false;
         
-        // Detectar "from"/"desde"
         let fromIdx = -1, toIdx = -1, viaIdx = -1;
         for (let i = 1; i < parts.length; i++) {
             const w = parts[i].toLowerCase();
@@ -1021,7 +1015,6 @@ const SmartFlowCommands = (function() {
             return true;
         }
         
-        // ✅ v3.2: Extraer waypoints si hay "via"
         let waypoints = [];
         let toNozzle = null;
         let paramsStartIdx;
@@ -1077,7 +1070,7 @@ const SmartFlowCommands = (function() {
     }
 
     // ================================================================
-    //  COMANDO TAP
+    //  COMANDO TAP (v3.3 - Propaga spec)
     // ================================================================
 
     function parseTap(cmd) {
@@ -1145,7 +1138,7 @@ const SmartFlowCommands = (function() {
         };
         _core.addLine(nuevaLinea);
         const lineaRegistrada = db.lines.find(function(l) { return l.tag === newTag; }) || nuevaLinea;
-        const fittingInfo = runFittingInjection(lineaRegistrada, fromObj, fromNozzle, toObj, puertoId, diameter, material);
+        const fittingInfo = runFittingInjection(lineaRegistrada, fromObj, fromNozzle, toObj, puertoId, diameter, material, spec);
         if (_core.updateLine) { _core.updateLine(newTag, lineaRegistrada); }
         if (_core.setSelected) _core.setSelected({ type: 'line', obj: lineaRegistrada });
         nzFrom.connectedLine = newTag;
@@ -1779,9 +1772,6 @@ const SmartFlowCommands = (function() {
         
         saveStateBeforeMutation();
         
-        // ═══════════════════════════════════════════
-        // MODO 1: Posiciones manuales (TYPE@pos)
-        // ═══════════════════════════════════════════
         if (parts[2] === 'add' || parts[2] === 'añadir') {
             let added = 0, errors = 0;
             
@@ -1819,9 +1809,6 @@ const SmartFlowCommands = (function() {
             return true;
         }
         
-        // ═══════════════════════════════════════════
-        // MODO 2: Posicionamiento AUTOMÁTICO
-        // ═══════════════════════════════════════════
         if (parts[2] === 'auto') {
             const atIdx = parts.indexOf('at') !== -1 ? parts.indexOf('at') : parts.indexOf('en');
             
@@ -1873,8 +1860,6 @@ const SmartFlowCommands = (function() {
                 const pos = positions[i];
                 if (addComponentToLine(line, lineTag, pos.type, pos.position)) {
                     added++;
-                    console.log('✅ ' + pos.type + ' @' + pos.position.toFixed(3) + 
-                               ' (' + pos.spaceBeforeMM + 'mm) [' + pos.category + ']');
                 } else {
                     errors++;
                 }
@@ -1896,9 +1881,6 @@ const SmartFlowCommands = (function() {
             return true;
         }
         
-        // ═══════════════════════════════════════════
-        // MODO 3: Transición de materiales
-        // ═══════════════════════════════════════════
         if (parts[2] === 'transition' || parts[2] === 'transicion') {
             const fromIdx = parts.indexOf('from') !== -1 ? parts.indexOf('from') : parts.indexOf('de');
             const toIdx = parts.indexOf('to') !== -1 ? parts.indexOf('to') : parts.indexOf('a');
@@ -2053,7 +2035,7 @@ const SmartFlowCommands = (function() {
         const lower = cmd.toLowerCase(); 
         if (lower !== 'help' && lower !== 'ayuda') return false;
         let ayuda = "═══════════════════════════════════════════════════════════\n";
-        ayuda += "              SMARTFLOW PRO v3.2 - COMANDOS\n";
+        ayuda += "              SMARTFLOW PRO v3.3 - COMANDOS\n";
         ayuda += "═══════════════════════════════════════════════════════════\n\n";
         ayuda += "🏗️ CREACIÓN:\n";
         ayuda += "  create [tipo] [tag] at (x,y,z) [diam X] [height X] [material X]\n";
@@ -2263,7 +2245,7 @@ const SmartFlowCommands = (function() {
                 _core.addLine(currentLine);
                 const db = _core.getDb();
                 const lReg = db.lines.find(function(l) { return l.tag === currentLine.tag; }) || currentLine;
-                runFittingInjection(lReg, null, null, null, null, lReg.diameter || 4, lReg.material || 'PPR');
+                runFittingInjection(lReg, null, null, null, null, lReg.diameter || 4, lReg.material || 'PPR', lReg.spec || 'PPR_PN12_5');
                 if (_core.updateLine) { _core.updateLine(lReg.tag, lReg); }
                 lineasMap.set(currentLine.tag, lReg);
             }
