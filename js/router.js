@@ -105,9 +105,6 @@ const SmartFlowRouter = (function() {
         return { point: proj, t: t, distance: distance(p, proj) };
     }
 
-    /**
-     * Calcula un punto en una polilínea dada una posición paramétrica (0 a 1)
-     */
     function getPointAtParam(pts, param) {
         if (!pts || pts.length < 2) return pts && pts[0] ? { x: pts[0].x, y: pts[0].y, z: pts[0].z } : null;
         
@@ -141,9 +138,6 @@ const SmartFlowRouter = (function() {
         return { x: pts[pts.length - 1].x, y: pts[pts.length - 1].y, z: pts[pts.length - 1].z };
     }
 
-    /**
-     * Calcula la dirección de una línea en una posición paramétrica
-     */
     function getDirectionAtParam(pts, param) {
         if (!pts || pts.length < 2) return { dx: 1, dy: 0, dz: 0, x: 1, y: 0, z: 0 };
         
@@ -225,10 +219,6 @@ const SmartFlowRouter = (function() {
     //  CONSULTA DE PUERTOS Y DIRECCIONES
     // ================================================================
 
-    /**
-     * Determina si un portId representa una posición paramétrica
-     * (número entre 0 y 1 que NO es exactamente '0' ni '1')
-     */
     function isParametricPortId(portId) {
         if (portId === '0' || portId === '1' || portId === 0 || portId === 1) return false;
         if (String(portId) === '0.0' || String(portId) === '1.0') return false;
@@ -239,7 +229,6 @@ const SmartFlowRouter = (function() {
     function getPortPosition(obj, portId) {
         if (!obj) return null;
         
-        // Caso 1: Equipo con posX/posY/posZ
         if (obj.posX !== undefined) {
             var puerto = obj.puertos ? obj.puertos.find(function(p) { return p.id === portId; }) : null;
             if (!puerto) return null;
@@ -248,7 +237,6 @@ const SmartFlowRouter = (function() {
                      z: obj.posZ + (puerto.relZ || (puerto.relPos ? puerto.relPos.z : 0) || 0) };
         }
         
-        // Caso 2: Equipo con pos.x/pos.y/pos.z
         if (obj.pos && obj.pos.x !== undefined) {
             var puerto2 = obj.puertos ? obj.puertos.find(function(p) { return p.id === portId; }) : null;
             if (!puerto2) return null;
@@ -257,27 +245,22 @@ const SmartFlowRouter = (function() {
                      z: obj.pos.z + (puerto2.relZ || (puerto2.relPos ? puerto2.relPos.z : 0) || 0) };
         }
         
-        // Caso 3: Línea (tiene puntos)
         var pts = _core ? _core.getLinePoints(obj) : (obj._cachedPoints || obj.points3D || obj.points);
         if (!pts || pts.length === 0) return null;
         
-        // Buscar en puertos existentes del objeto
         if (obj.puertos) {
             var puerto3 = obj.puertos.find(function(p) { return p.id === portId; });
             if (puerto3 && puerto3.pos) return puerto3.pos;
         }
         
-        // ✅ Interpretar posición paramétrica
         if (isParametricPortId(portId)) {
             var paramValue = parseFloat(portId);
             return getPointAtParam(pts, paramValue);
         }
         
-        // Puertos tradicionales
         if (portId === '0') return { x: pts[0].x, y: pts[0].y, z: pts[0].z };
         if (portId === '1') return { x: pts[pts.length - 1].x, y: pts[pts.length - 1].y, z: pts[pts.length - 1].z };
         
-        // Fallback: punto medio
         var midIdx = Math.floor(pts.length / 2);
         return { x: pts[midIdx].x, y: pts[midIdx].y, z: pts[midIdx].z };
     }
@@ -303,7 +286,6 @@ const SmartFlowRouter = (function() {
         var pts = _core ? _core.getLinePoints(obj) : (obj._cachedPoints || obj.points3D || obj.points);
         if (pts && Array.isArray(pts) && pts.length >= 2) {
             try {
-                // ✅ Si es posición paramétrica, calcular dirección en ese punto
                 if (isParametricPortId(portId)) {
                     var paramValue = parseFloat(portId);
                     return getDirectionAtParam(pts, paramValue);
@@ -439,7 +421,6 @@ const SmartFlowRouter = (function() {
             return t.toUpperCase().indexOf('ELBOW') !== -1; 
         });
         
-        // PRIMERA PASADA: Buscar por spec + ángulo
         var bestMatch = null, bestDiff = Infinity;
         
         for (var i = 0; i < elbowTypes.length; i++) {
@@ -457,7 +438,6 @@ const SmartFlowRouter = (function() {
             }
         }
         
-        // SEGUNDA PASADA: Buscar por material
         if (!bestMatch) {
             for (var j = 0; j < elbowTypes.length; j++) {
                 var t = elbowTypes[j];
@@ -491,7 +471,6 @@ const SmartFlowRouter = (function() {
             }
         }
         
-        // TERCERA PASADA (FALLBACK): Cualquier codo con el ángulo correcto
         if (!bestMatch) {
             bestDiff = Infinity;
             for (var k = 0; k < elbowTypes.length; k++) {
@@ -581,7 +560,6 @@ const SmartFlowRouter = (function() {
             });
         }
         
-        // --- REDUCTOR EN ORIGEN ---
         if (fromObj && fromPortId) {
             var diamPuertoOrigen = getPortDiameter(fromObj, fromPortId);
             var diamLinea = parseFloat(lineObj.diameter || diameter);
@@ -602,7 +580,6 @@ const SmartFlowRouter = (function() {
             }
         }
         
-        // --- REDUCTOR EN DESTINO ---
         if (toObj && toPortId) {
             var diamPuertoDestino = getPortDiameter(toObj, toPortId);
             var diamLinea2 = parseFloat(lineObj.diameter || diameter);
@@ -623,7 +600,6 @@ const SmartFlowRouter = (function() {
             }
         }
         
-        // --- CODO EN INICIO ---
         if (fromObj && fromPortId && puntos.length >= 2) {
             var dirPuerto = getPortDirection(fromObj, fromPortId);
             var vInicial = { x: puntos[1].x - puntos[0].x, y: puntos[1].y - puntos[0].y, z: puntos[1].z - puntos[0].z };
@@ -647,7 +623,6 @@ const SmartFlowRouter = (function() {
             }
         }
         
-        // --- CODOS INTERMEDIOS ---
         var totalLen = 0;
         for (var i = 0; i < puntos.length - 1; i++) { 
             totalLen += Math.hypot(puntos[i+1].x - puntos[i].x, puntos[i+1].y - puntos[i].y, puntos[i+1].z - puntos[i].z); 
@@ -685,7 +660,6 @@ const SmartFlowRouter = (function() {
             }
         }
         
-        // --- CODO EN FIN ---
         if (toObj && toPortId && puntos.length >= 2) {
             var dirPuertoDest = getPortDirection(toObj, toPortId);
             var dirLlegada = { 
@@ -934,17 +908,12 @@ const SmartFlowRouter = (function() {
         var startPos = getPortPosition(fromObj, fromPortId);
         if (!startPos) { notifyUser('Puerto origen ' + fromPortId + ' no encontrado', true); return null; }
         
-        // ================================================================
-        // ✅ NUEVO v3.5: Lógica de conexión a línea destino
-        // ================================================================
         var endPos, nuevoPuertoId = toPortId;
         var ptsTo = _core.getLinePoints(toObj) || toObj._cachedPoints || toObj.points3D || toObj.points;
         var isToLine = ptsTo && ptsTo.length >= 2;
         
         if (isToLine) {
-            // El destino es una línea existente
             if (!toPortId || toPortId === '') {
-                // Sin puerto especificado: buscar punto más cercano
                 var minDist = Infinity, bestPoint = ptsTo[0];
                 for (var i = 0; i < ptsTo.length - 1; i++) { 
                     var proj = projectPointOnSegment(startPos, ptsTo[i], ptsTo[i+1]); 
@@ -956,24 +925,20 @@ const SmartFlowRouter = (function() {
                 endPos = bestPoint;
                 toObj = _core.findObjectByTag(toEquipTag) || db.lines.find(function(l) { return l.tag === toEquipTag; });
             } else if (isParametricPortId(toPortId)) {
-                // ✅ NUEVO v3.5: Posición paramétrica (ej: 0.1583)
-                // Calcular el punto exacto en la línea
                 var paramValue = parseFloat(toPortId);
                 var puntoConexion = getPointAtParam(ptsTo, paramValue);
                 if (!puntoConexion) { notifyUser('No se pudo calcular punto en posición ' + toPortId, true); return null; }
                 
-                // Verificar si necesita reductor
+                // ✅ CORREGIDO: necesitaReductor (con "c")
                 var diamLineaDestino = toObj.diameter || 4;
                 var diffDiam = necesitaReductor(diameter, diamLineaDestino);
                 
-                // Siempre forzar Tee para posiciones intermedias (no son extremos)
                 var puertoInsertado3 = insertarAccesorioEnLinea(toEquipTag, puntoConexion, diameter, true);
                 if (!puertoInsertado3) return null;
                 nuevoPuertoId = puertoInsertado3; 
                 endPos = puntoConexion;
                 toObj = _core.findObjectByTag(toEquipTag) || db.lines.find(function(l) { return l.tag === toEquipTag; });
             } else {
-                // Puerto tradicional ('0', '1', nombre de puerto)
                 var puntoConexion;
                 if (toPortId === '0') puntoConexion = ptsTo[0];
                 else if (toPortId === '1') puntoConexion = ptsTo[ptsTo.length - 1];
@@ -999,13 +964,11 @@ const SmartFlowRouter = (function() {
                 }
             }
         } else {
-            // El destino es un equipo (no una línea)
             endPos = getPortPosition(toObj, toPortId);
         }
         
         if (!endPos) { notifyUser('Puerto destino no encontrado', true); return null; }
         
-        // Construir todos los puntos respetando coordenadas exactas del usuario
         var allPoints = [startPos];
         if (waypoints && Array.isArray(waypoints)) {
             for (var w = 0; w < waypoints.length; w++) {
@@ -1022,7 +985,6 @@ const SmartFlowRouter = (function() {
             z: endPos.z
         });
         
-        // Eliminar puntos duplicados consecutivos
         var cleanPoints = [allPoints[0]];
         for (var i2 = 1; i2 < allPoints.length; i2++) {
             var prev = cleanPoints[cleanPoints.length - 1];
