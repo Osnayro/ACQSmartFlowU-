@@ -1,12 +1,12 @@
 
 // ============================================================
-// SMARTFLOW ROUTER v3.3 - Enrutador de Tuberías Inteligente
+// SMARTFLOW ROUTER v3.4 - Enrutador de Tuberías Inteligente
 // Archivo: js/router.js
 // Compatible: SmartFlowCore v5.6 + SmartFlowCommands v3.2
-// Correcciones v3.3: routeWithWaypoints respeta coordenadas exactas,
-//                    no fuerza alineación con puerto destino,
-//                    inyección de codos en cambios de dirección,
-//                    material PPR asigna spec PPR_PN12_5
+// Correcciones v3.4: Búsqueda de accesorios por spec + material,
+//                    ensureFittings recibe y propaga spec,
+//                    findElbowForLine filtra por spec antes de ángulo,
+//                    findReducerForDiameters valida spec como fallback
 // ============================================================
 
 const SmartFlowRouter = (function() {
@@ -248,6 +248,37 @@ const SmartFlowRouter = (function() {
     }
 
     // ================================================================
+    //  MAPEO DE MATERIAL A SPEC ESPERADO (NUEVO v3.4)
+    // ================================================================
+
+    /**
+     * Determina el spec esperado según el material de la línea.
+     * Esto permite a las funciones de búsqueda filtrar componentes
+     * por spec y no solo por nombre de material.
+     */
+    function getExpectedSpecForMaterial(material) {
+        if (!material) return null;
+        var mat = material.toUpperCase();
+        
+        if (mat.indexOf('PPR') !== -1) return 'PPR_PN12_5';
+        if (mat.indexOf('HDPE') !== -1 || mat.indexOf('PE100') !== -1 || mat.indexOf('PE 100') !== -1) return 'HDPE_PE100';
+        if (mat.indexOf('PVC') !== -1 && mat.indexOf('CPVC') === -1) return 'PVC_SCH80';
+        if (mat.indexOf('CPVC') !== -1) return 'CPVC_SCH80';
+        if (mat.indexOf('PVDF') !== -1) return 'PVDF_PN16';
+        if (mat.indexOf('ACERO INOX') !== -1 || mat.indexOf('INOX') !== -1 || mat.indexOf('SS') !== -1 || mat.indexOf('STAINLESS') !== -1) return 'SS_150_RF';
+        if (mat.indexOf('ACERO') !== -1 || mat.indexOf('CARBONO') !== -1 || mat.indexOf('CS') !== -1 || mat.indexOf('STEEL') !== -1) return 'ACERO_150_RF';
+        if (mat.indexOf('DUPLEX') !== -1) return 'DUPLEX_150_RF';
+        if (mat.indexOf('HASTELLOY') !== -1) return 'HASTELLOY_150_RF';
+        if (mat.indexOf('PTFE') !== -1) return 'PTFE_LINED';
+        if (mat.indexOf('FRP') !== -1) return 'FRP';
+        if (mat.indexOf('CONCRETO') !== -1 || mat.indexOf('HORMIGON') !== -1) return 'HORMIGON_ESTRUCTURAL';
+        if (mat.indexOf('ALUMINIO') !== -1 || mat.indexOf('ALUMINUM') !== -1) return 'ALUMINIO_ESTRUCTURAL';
+        if (mat.indexOf('MADERA') !== -1 || mat.indexOf('WOOD') !== -1) return 'MADERA_ESTRUCTURAL';
+        
+        return null;
+    }
+
+    // ================================================================
     //  BÚSQUEDA EN CATÁLOGO
     // ================================================================
 
@@ -286,58 +317,181 @@ const SmartFlowRouter = (function() {
         return null;
     }
 
+    /**
+     * 🔧 CORREGIDO v3.4: Busca codo filtrando PRIMERO por spec esperado (según material)
+     * y luego por ángulo. Esto evita que un codo HDPE sea seleccionado
+     * para una línea PPR solo porque aparece primero en la lista.
+     */
     function findElbowForLine(material, diameter, angleDeg) {
         var catalog = _catalog || window.SmartFlowCatalog;
         if (!catalog) return null;
+        
         var allTypes = catalog.listComponentTypes();
-        var elbowTypes = allTypes.filter(function(t) { return t.toUpperCase().indexOf('ELBOW') !== -1; });
+        var mat = (material || '').toUpperCase();
+        var expectedSpec = getExpectedSpecForMaterial(material);
+        
+        // Filtrar solo tipos que contengan 'ELBOW'
+        var elbowTypes = allTypes.filter(function(t) { 
+            return t.toUpperCase().indexOf('ELBOW') !== -1; 
+        });
+        
+        // ============================================================
+        // PRIMERA PASADA: Buscar por spec + ángulo (CORREGIDO v3.4)
+        // ============================================================
         var bestMatch = null, bestDiff = Infinity;
+        
         for (var i = 0; i < elbowTypes.length; i++) {
             var comp = catalog.getComponent(elbowTypes[i]);
             if (!comp || typeof comp.angulo === 'undefined') continue;
+            
+            // ✅ NUEVO v3.4: Si tenemos un spec esperado, filtrar por él
+            if (expectedSpec && comp.spec && comp.spec.toUpperCase() !== expectedSpec.toUpperCase()) {
+                continue; // Saltar componentes que no coinciden en spec
+            }
+            
             var diff = Math.abs(comp.angulo - angleDeg);
-            if (diff < bestDiff && diff < 15) { bestDiff = diff; bestMatch = elbowTypes[i]; }
-        }
-        if (!bestMatch) {
-            var mat = (material || '').toUpperCase();
-            for (var j = 0; j < elbowTypes.length; j++) {
-                var t = elbowTypes[j];
-                if (mat.indexOf('PPR') !== -1 && t.toUpperCase().indexOf('PPR') !== -1) { bestMatch = t; break; }
-                if (mat.indexOf('HDPE') !== -1 && t.toUpperCase().indexOf('HDPE') !== -1) { bestMatch = t; break; }
-                if ((mat.indexOf('ACERO') !== -1 || mat.indexOf('CS') !== -1 || mat.indexOf('CARBONO') !== -1) && (t.toUpperCase().indexOf('CS') !== -1 || t.toUpperCase().indexOf('LR') !== -1)) { bestMatch = t; break; }
-                if ((mat.indexOf('INOX') !== -1 || mat.indexOf('SS') !== -1) && (t.toUpperCase().indexOf('SS') !== -1 || t.toUpperCase().indexOf('SANITARY') !== -1)) { bestMatch = t; break; }
+            if (diff < bestDiff && diff < 15) { 
+                bestDiff = diff; 
+                bestMatch = elbowTypes[i];
             }
         }
+        
+        // ============================================================
+        // SEGUNDA PASADA: Si no encontró por spec, buscar por material
+        // ============================================================
+        if (!bestMatch) {
+            for (var j = 0; j < elbowTypes.length; j++) {
+                var t = elbowTypes[j];
+                var comp2 = catalog.getComponent(t);
+                if (!comp2) continue;
+                
+                var compMat = (comp2.material || '').toUpperCase();
+                var compName = t.toUpperCase();
+                
+                // Buscar coincidencia de material en nombre o propiedad
+                if (mat.indexOf('PPR') !== -1 && (compName.indexOf('PPR') !== -1 || compMat.indexOf('PPR') !== -1)) { 
+                    bestMatch = t; break; 
+                }
+                if ((mat.indexOf('HDPE') !== -1 || mat.indexOf('PE100') !== -1) && (compName.indexOf('HDPE') !== -1 || compMat.indexOf('HDPE') !== -1)) { 
+                    bestMatch = t; break; 
+                }
+                if (mat.indexOf('PVC') !== -1 && mat.indexOf('CPVC') === -1 && (compName.indexOf('PVC') !== -1 && compName.indexOf('CPVC') === -1)) { 
+                    bestMatch = t; break; 
+                }
+                if (mat.indexOf('CPVC') !== -1 && compName.indexOf('CPVC') !== -1) { 
+                    bestMatch = t; break; 
+                }
+                if ((mat.indexOf('ACERO') !== -1 || mat.indexOf('CS') !== -1 || mat.indexOf('CARBONO') !== -1) && 
+                    (compName.indexOf('CS') !== -1 || compName.indexOf('LR') !== -1) &&
+                    compName.indexOf('SS') === -1 && compName.indexOf('SANITARY') === -1) { 
+                    bestMatch = t; break; 
+                }
+                if ((mat.indexOf('INOX') !== -1 || mat.indexOf('SS') !== -1 || mat.indexOf('STAINLESS') !== -1) && 
+                    (compName.indexOf('SS') !== -1 || compName.indexOf('SANITARY') !== -1)) { 
+                    bestMatch = t; break; 
+                }
+            }
+        }
+        
+        // ============================================================
+        // TERCERA PASADA (FALLBACK): Cualquier codo con el ángulo correcto
+        // ============================================================
+        if (!bestMatch) {
+            bestDiff = Infinity;
+            for (var k = 0; k < elbowTypes.length; k++) {
+                var comp3 = catalog.getComponent(elbowTypes[k]);
+                if (!comp3 || typeof comp3.angulo === 'undefined') continue;
+                var diff3 = Math.abs(comp3.angulo - angleDeg);
+                if (diff3 < bestDiff && diff3 < 15) { 
+                    bestDiff = diff3; 
+                    bestMatch = elbowTypes[k];
+                }
+            }
+        }
+        
         return bestMatch;
     }
 
+    /**
+     * 🔧 MEJORADO v3.4: Busca reductor validando también por spec esperado
+     * como criterio adicional de filtrado.
+     */
     function findReducerForDiameters(diamLarge, diamSmall, material) {
         var catalog = _catalog || window.SmartFlowCatalog;
         if (!catalog) return null;
+        
         var allTypes = catalog.listComponentTypes();
         var materialUpper = (material || '').toUpperCase();
+        var expectedSpec = getExpectedSpecForMaterial(material);
+        
+        // Construir lista de candidatos priorizando el material correcto
         var candidates = [];
-        if (materialUpper.indexOf('PPR') !== -1) { candidates.push('CONCENTRIC_REDUCER_PPR', 'REDUCER_CONCENTRIC_PPR'); }
-        else if (materialUpper.indexOf('ACERO') !== -1 || materialUpper.indexOf('CARBONO') !== -1 || materialUpper.indexOf('CS') !== -1) { candidates.push('CONCENTRIC_REDUCER_CS', 'REDUCER_CONCENTRIC_CS', 'CONCENTRIC_REDUCER'); }
-        else if (materialUpper.indexOf('INOX') !== -1 || materialUpper.indexOf('SS') !== -1) { candidates.push('CONCENTRIC_REDUCER_SS', 'REDUCER_CONCENTRIC_SS', 'ECCENTRIC_REDUCER_SS'); }
+        
+        if (materialUpper.indexOf('PPR') !== -1) { 
+            candidates.push('CONCENTRIC_REDUCER_PPR', 'REDUCER_CONCENTRIC_PPR', 'ECCENTRIC_REDUCER_PPR'); 
+        } else if (materialUpper.indexOf('ACERO') !== -1 || materialUpper.indexOf('CARBONO') !== -1 || materialUpper.indexOf('CS') !== -1) { 
+            candidates.push('CONCENTRIC_REDUCER_CS', 'REDUCER_CONCENTRIC_CS', 'ECCENTRIC_REDUCER_CS', 'CONCENTRIC_REDUCER'); 
+        } else if (materialUpper.indexOf('INOX') !== -1 || materialUpper.indexOf('SS') !== -1) { 
+            candidates.push('CONCENTRIC_REDUCER_SS', 'REDUCER_CONCENTRIC_SS', 'ECCENTRIC_REDUCER_SS'); 
+        } else if (materialUpper.indexOf('HDPE') !== -1 || materialUpper.indexOf('PE100') !== -1) {
+            candidates.push('CONCENTRIC_REDUCER_HDPE');
+        } else if (materialUpper.indexOf('PVC') !== -1) {
+            candidates.push('CONCENTRIC_REDUCER_PVC');
+        }
+        
+        // Fallbacks genéricos
         candidates.push('CONCENTRIC_REDUCER', 'ECCENTRIC_REDUCER', 'REDUCER');
-        for (var i = 0; i < candidates.length; i++) { if (allTypes.indexOf(candidates[i]) !== -1) return candidates[i]; }
-        var reducerTypes = allTypes.filter(function(t) { return t.toUpperCase().indexOf('REDUC') !== -1 || t.toUpperCase().indexOf('REDC') !== -1; });
-        for (var r = 0; r < reducerTypes.length; r++) { if (reducerTypes[r].toUpperCase().indexOf('CONC') !== -1) return reducerTypes[r]; }
+        
+        // ✅ NUEVO v3.4: Primero buscar candidatos que coincidan con el spec esperado
+        if (expectedSpec) {
+            for (var i = 0; i < candidates.length; i++) {
+                if (allTypes.indexOf(candidates[i]) !== -1) {
+                    var comp = catalog.getComponent(candidates[i]);
+                    if (comp && comp.spec && comp.spec.toUpperCase() === expectedSpec.toUpperCase()) {
+                        return candidates[i];
+                    }
+                }
+            }
+        }
+        
+        // Si no encontró por spec, buscar por nombre de candidato (comportamiento original)
+        for (var j = 0; j < candidates.length; j++) { 
+            if (allTypes.indexOf(candidates[j]) !== -1) return candidates[j]; 
+        }
+        
+        // Búsqueda genérica como último recurso
+        var reducerTypes = allTypes.filter(function(t) { 
+            return t.toUpperCase().indexOf('REDUC') !== -1 || t.toUpperCase().indexOf('REDC') !== -1; 
+        });
+        
+        // Priorizar concéntricos
+        for (var r = 0; r < reducerTypes.length; r++) { 
+            if (reducerTypes[r].toUpperCase().indexOf('CONC') !== -1) return reducerTypes[r]; 
+        }
+        
         return reducerTypes.length > 0 ? reducerTypes[0] : null;
     }
 
     // ================================================================
-    //  ENSUREFITTINGS
+    //  ENSUREFITTINGS (CORREGIDO v3.4 - Recibe y propaga spec)
     // ================================================================
 
-    function ensureFittings(lineObj, fromObj, fromPortId, toObj, toPortId, diameter, material) {
+    /**
+     * 🔧 CORREGIDO v3.4: Ahora recibe el parámetro 'spec' y lo propaga
+     * a todos los accesorios inyectados (codos, reductores, etc.)
+     */
+    function ensureFittings(lineObj, fromObj, fromPortId, toObj, toPortId, diameter, material, spec) {
         if (!lineObj) return { added: [], message: ' | ⚠️ Sin objeto de línea' };
+        
         var puntos = lineObj._cachedPoints || lineObj.points3D || [];
         if (puntos.length < 2) return { added: [], message: ' | ⚠️ Puntos insuficientes' };
+        
         lineObj.components = lineObj.components || [];
         var inicialCount = lineObj.components.length;
         var addedFittings = [];
+        
+        // Usar el spec de la línea si no se pasó explícitamente
+        var effectiveSpec = spec || lineObj.spec || getExpectedSpecForMaterial(material) || 'PPR_PN12_5';
         
         function existeComponenteSimilar(tipo, param, tolerancia) {
             tolerancia = tolerancia || 0.03;
@@ -346,30 +500,49 @@ const SmartFlowRouter = (function() {
             });
         }
         
+        // --- REDUCTOR EN ORIGEN ---
         if (fromObj && fromPortId) {
             var diamPuertoOrigen = getPortDiameter(fromObj, fromPortId);
             var diamLinea = parseFloat(lineObj.diameter || diameter);
             if (diamPuertoOrigen && necesitaReductor(diamPuertoOrigen, diamLinea)) {
                 var reducerType = findReducerForDiameters(Math.max(diamPuertoOrigen, diamLinea), Math.min(diamPuertoOrigen, diamLinea), material);
                 if (reducerType && !existeComponenteSimilar('REDUCER', 0.0)) {
-                    lineObj.components.push({ type: reducerType, tag: 'RED-' + lineObj.tag + '-START-' + Date.now().toString(36), param: 0.0, diameterLarge: Math.max(diamPuertoOrigen, diamLinea), diameterSmall: Math.min(diamPuertoOrigen, diamLinea), material: material || 'PPR' });
+                    lineObj.components.push({ 
+                        type: reducerType, 
+                        tag: 'RED-' + lineObj.tag + '-START-' + Date.now().toString(36), 
+                        param: 0.0, 
+                        diameterLarge: Math.max(diamPuertoOrigen, diamLinea), 
+                        diameterSmall: Math.min(diamPuertoOrigen, diamLinea), 
+                        material: material || 'PPR',
+                        spec: effectiveSpec  // ✅ v3.4: Propagar spec
+                    });
                     addedFittings.push(lineObj.components[lineObj.components.length - 1].tag);
                 }
             }
         }
         
+        // --- REDUCTOR EN DESTINO ---
         if (toObj && toPortId) {
             var diamPuertoDestino = getPortDiameter(toObj, toPortId);
             var diamLinea2 = parseFloat(lineObj.diameter || diameter);
             if (diamPuertoDestino && necesitaReductor(diamLinea2, diamPuertoDestino)) {
                 var reducerType2 = findReducerForDiameters(Math.max(diamLinea2, diamPuertoDestino), Math.min(diamLinea2, diamPuertoDestino), material);
                 if (reducerType2 && !existeComponenteSimilar('REDUCER', 1.0)) {
-                    lineObj.components.push({ type: reducerType2, tag: 'RED-' + lineObj.tag + '-END-' + Date.now().toString(36), param: 1.0, diameterLarge: Math.max(diamLinea2, diamPuertoDestino), diameterSmall: Math.min(diamLinea2, diamPuertoDestino), material: material || 'PPR' });
+                    lineObj.components.push({ 
+                        type: reducerType2, 
+                        tag: 'RED-' + lineObj.tag + '-END-' + Date.now().toString(36), 
+                        param: 1.0, 
+                        diameterLarge: Math.max(diamLinea2, diamPuertoDestino), 
+                        diameterSmall: Math.min(diamLinea2, diamPuertoDestino), 
+                        material: material || 'PPR',
+                        spec: effectiveSpec  // ✅ v3.4: Propagar spec
+                    });
                     addedFittings.push(lineObj.components[lineObj.components.length - 1].tag);
                 }
             }
         }
         
+        // --- CODO EN INICIO ---
         if (fromObj && fromPortId && puntos.length >= 2) {
             var dirPuerto = getPortDirection(fromObj, fromPortId);
             var vInicial = { x: puntos[1].x - puntos[0].x, y: puntos[1].y - puntos[0].y, z: puntos[1].z - puntos[0].z };
@@ -379,14 +552,25 @@ const SmartFlowRouter = (function() {
             if (angleDegInicio > MIN_ANGLE_FOR_ELBOW && !existeComponenteSimilar('ELBOW', 0.0, 0.05)) {
                 var elbowType = findElbowForLine(material, diameter, angleDegInicio);
                 if (elbowType) {
-                    lineObj.components.push({ type: elbowType, tag: 'ELB-' + lineObj.tag + '-START-' + Date.now().toString(36), param: 0.0, diameter: diameter || 4, material: material || 'PPR', angle: angleDegInicio });
+                    lineObj.components.push({ 
+                        type: elbowType, 
+                        tag: 'ELB-' + lineObj.tag + '-START-' + Date.now().toString(36), 
+                        param: 0.0, 
+                        diameter: diameter || 4, 
+                        material: material || 'PPR', 
+                        spec: effectiveSpec,  // ✅ v3.4: Propagar spec
+                        angle: angleDegInicio 
+                    });
                     addedFittings.push(lineObj.components[lineObj.components.length - 1].tag);
                 }
             }
         }
         
+        // --- CODOS INTERMEDIOS ---
         var totalLen = 0;
-        for (var i = 0; i < puntos.length - 1; i++) { totalLen += Math.hypot(puntos[i+1].x - puntos[i].x, puntos[i+1].y - puntos[i].y, puntos[i+1].z - puntos[i].z); }
+        for (var i = 0; i < puntos.length - 1; i++) { 
+            totalLen += Math.hypot(puntos[i+1].x - puntos[i].x, puntos[i+1].y - puntos[i].y, puntos[i+1].z - puntos[i].z); 
+        }
         
         for (var i2 = 1; i2 < puntos.length - 1; i2++) {
             var pAnt = puntos[i2 - 1], pAct = puntos[i2], pSig = puntos[i2 + 1];
@@ -398,21 +582,36 @@ const SmartFlowRouter = (function() {
             var angleDegInter = Math.acos(Math.max(-1, Math.min(1, dot))) * (180 / Math.PI);
             if (angleDegInter > MIN_ANGLE_FOR_ELBOW) {
                 var accum = 0;
-                for (var j = 0; j < i2; j++) { accum += Math.hypot(puntos[j+1].x - puntos[j].x, puntos[j+1].y - puntos[j].y, puntos[j+1].z - puntos[j].z); }
+                for (var j = 0; j < i2; j++) { 
+                    accum += Math.hypot(puntos[j+1].x - puntos[j].x, puntos[j+1].y - puntos[j].y, puntos[j+1].z - puntos[j].z); 
+                }
                 var paramValue = totalLen > 0 ? (accum / totalLen) : 0.5;
                 if (!existeComponenteSimilar('ELBOW', paramValue)) {
                     var elbowType2 = findElbowForLine(material, diameter, angleDegInter);
                     if (elbowType2) {
-                        lineObj.components.push({ type: elbowType2, tag: 'ELB-' + lineObj.tag + '-P' + i2 + '-' + Date.now().toString(36), param: paramValue, diameter: diameter || 4, material: material || 'PPR', angle: angleDegInter });
+                        lineObj.components.push({ 
+                            type: elbowType2, 
+                            tag: 'ELB-' + lineObj.tag + '-P' + i2 + '-' + Date.now().toString(36), 
+                            param: paramValue, 
+                            diameter: diameter || 4, 
+                            material: material || 'PPR', 
+                            spec: effectiveSpec,  // ✅ v3.4: Propagar spec
+                            angle: angleDegInter 
+                        });
                         addedFittings.push(lineObj.components[lineObj.components.length - 1].tag);
                     }
                 }
             }
         }
         
+        // --- CODO EN FIN ---
         if (toObj && toPortId && puntos.length >= 2) {
             var dirPuertoDest = getPortDirection(toObj, toPortId);
-            var dirLlegada = { x: puntos[puntos.length - 1].x - puntos[puntos.length - 2].x, y: puntos[puntos.length - 1].y - puntos[puntos.length - 2].y, z: puntos[puntos.length - 1].z - puntos[puntos.length - 2].z };
+            var dirLlegada = { 
+                x: puntos[puntos.length - 1].x - puntos[puntos.length - 2].x, 
+                y: puntos[puntos.length - 1].y - puntos[puntos.length - 2].y, 
+                z: puntos[puntos.length - 1].z - puntos[puntos.length - 2].z 
+            };
             var lenLlegada = Math.hypot(dirLlegada.x, dirLlegada.y, dirLlegada.z) || 1;
             var dirPuertoInv = { x: -dirPuertoDest.x, y: -dirPuertoDest.y, z: -dirPuertoDest.z };
             var dotFin = (dirPuertoInv.x * dirLlegada.x + dirPuertoInv.y * dirLlegada.y + dirPuertoInv.z * dirLlegada.z) / lenLlegada;
@@ -420,7 +619,15 @@ const SmartFlowRouter = (function() {
             if (angleDegFin > MIN_ANGLE_FOR_ELBOW && !existeComponenteSimilar('ELBOW', 1.0, 0.05)) {
                 var elbowType3 = findElbowForLine(material, diameter, angleDegFin);
                 if (elbowType3) {
-                    lineObj.components.push({ type: elbowType3, tag: 'ELB-' + lineObj.tag + '-END-' + Date.now().toString(36), param: 1.0, diameter: diameter || 4, material: material || 'PPR', angle: angleDegFin });
+                    lineObj.components.push({ 
+                        type: elbowType3, 
+                        tag: 'ELB-' + lineObj.tag + '-END-' + Date.now().toString(36), 
+                        param: 1.0, 
+                        diameter: diameter || 4, 
+                        material: material || 'PPR', 
+                        spec: effectiveSpec,  // ✅ v3.4: Propagar spec
+                        angle: angleDegFin 
+                    });
                     addedFittings.push(lineObj.components[lineObj.components.length - 1].tag);
                 }
             }
@@ -467,6 +674,7 @@ const SmartFlowRouter = (function() {
         var diamLinea = linea.diameter || 4;
         var diffDiam = necesitaReductor(diametroNuevaLinea, diamLinea);
         var lineMaterial = linea.material || 'PPR';
+        var lineSpec = linea.spec || getExpectedSpecForMaterial(lineMaterial) || 'PPR_PN12_5';
         var tipoAccesorio, descripcion;
         if (esExtremo && diffDiam) { tipoAccesorio = 'CONCENTRIC_REDUCER'; descripcion = 'Reductor ' + Math.max(diamLinea, diametroNuevaLinea) + '"x' + Math.min(diamLinea, diametroNuevaLinea) + '"'; }
         else if (!esExtremo && diffDiam) { tipoAccesorio = 'TEE_REDUCING'; descripcion = 'Tee reductora ' + Math.max(diamLinea, diametroNuevaLinea) + '"x' + Math.min(diamLinea, diametroNuevaLinea) + '"'; }
@@ -477,7 +685,7 @@ const SmartFlowRouter = (function() {
         if (!linea.components) linea.components = [];
         var existeDuplicado = linea.components.some(function(c) { return c.type === compEnCatalogo && Math.abs((c.param || 0) - param) < 0.02; });
         if (existeDuplicado) { notifyUser('⚠️ Ya existe un ' + descripcion + ' en esa posición', false); var puertoExistente = linea.puertos ? linea.puertos.find(function(p) { return p.id.indexOf(compEnCatalogo) !== -1; }) : null; return puertoExistente ? puertoExistente.id : null; }
-        var comp = { type: compEnCatalogo, tag: compEnCatalogo + '-' + Date.now().toString(36) + '-' + Math.random().toString(36).substr(2, 4), param: param, diameter: diamLinea, material: lineMaterial };
+        var comp = { type: compEnCatalogo, tag: compEnCatalogo + '-' + Date.now().toString(36) + '-' + Math.random().toString(36).substr(2, 4), param: param, diameter: diamLinea, material: lineMaterial, spec: lineSpec };
         linea.components.push(comp);
         _core.updateLine(lineTag, { components: linea.components, puertos: linea.puertos });
         notifyUser('✅ ' + descripcion + ' (' + compEnCatalogo + ') insertado en ' + lineTag + ' @' + param.toFixed(3), false);
@@ -547,14 +755,17 @@ const SmartFlowRouter = (function() {
     }
 
     // ================================================================
-    //  RUTEO ENTRE PUERTOS (v3.3 - PPR corregido)
+    //  RUTEO ENTRE PUERTOS (CORREGIDO v3.4 - Pasa spec a ensureFittings)
     // ================================================================
 
     function routeBetweenPorts(fromEquipTag, fromPortId, toEquipTag, toPortId, diameter, material, spec) {
         ensureInitialized();
         if (!_core) { notifyUser('Core no inicializado', true); return null; }
         diameter = diameter || 3; material = material || 'PPR'; spec = spec || 'PPR_PN12_5';
+        
+        // ✅ Corrección para PPR: asegurar spec correcto
         if (material.toUpperCase().indexOf('PPR') !== -1) spec = 'PPR_PN12_5';
+        
         var db = _core.getDb();
         var fromObj = _core.findObjectByTag(fromEquipTag) || db.equipos.find(function(e) { return e.tag === fromEquipTag; }) || db.lines.find(function(l) { return l.tag === fromEquipTag; });
         var toObj = _core.findObjectByTag(toEquipTag) || db.equipos.find(function(e) { return e.tag === toEquipTag; }) || db.lines.find(function(l) { return l.tag === toEquipTag; });
@@ -608,7 +819,10 @@ const SmartFlowRouter = (function() {
         };
         _core.addLine(nuevaLinea);
         var lineaRegistrada = db.lines.find(function(l) { return l.tag === tag; }) || nuevaLinea;
-        var fittingInfo = ensureFittings(lineaRegistrada, fromObj, fromPortId, toObj, nuevoPuertoId, diameter, material);
+        
+        // ✅ CORREGIDO v3.4: Pasar spec a ensureFittings
+        var fittingInfo = ensureFittings(lineaRegistrada, fromObj, fromPortId, toObj, nuevoPuertoId, diameter, material, spec);
+        
         if (_core.updateLine) { _core.updateLine(tag, lineaRegistrada); }
         if (fromObj.puertos) { var pFrom = fromObj.puertos.find(function(p) { return p.id === fromPortId; }); if (pFrom) pFrom.connectedLine = tag; }
         if (toObj.puertos) { var pTo = toObj.puertos.find(function(p) { return p.id === nuevoPuertoId; }); if (pTo) pTo.connectedLine = tag; }
@@ -618,48 +832,132 @@ const SmartFlowRouter = (function() {
     }
 
     // ================================================================
-    //  RUTEO CON WAYPOINTS (v3.3 - PPR corregido)
+    //  RUTEO CON WAYPOINTS (CORREGIDO v3.4 - Pasa spec a ensureFittings)
     // ================================================================
 
     function routeWithWaypoints(fromEquipTag, fromPortId, toEquipTag, toPortId, waypoints, diameter, material, spec) {
         ensureInitialized();
         if (!_core) { notifyUser('Core no inicializado', true); return null; }
-        diameter = diameter || 3; material = material || 'PPR'; spec = spec || 'PPR_PN12_5';
+        
+        diameter = diameter || 3;
+        material = material || 'PPR';
+        spec = spec || 'PPR_PN12_5';
+        
+        // ✅ v3.4: Corrección de spec para PPR
         if (material.toUpperCase().indexOf('PPR') !== -1) spec = 'PPR_PN12_5';
+        
         var db = _core.getDb();
-        var fromObj = _core.findObjectByTag(fromEquipTag) || db.equipos.find(function(e) { return e.tag === fromEquipTag; }) || db.lines.find(function(l) { return l.tag === fromEquipTag; });
-        var toObj = _core.findObjectByTag(toEquipTag) || db.equipos.find(function(e) { return e.tag === toEquipTag; }) || db.lines.find(function(l) { return l.tag === toEquipTag; });
+        var fromObj = _core.findObjectByTag(fromEquipTag) || 
+                      db.equipos.find(function(e) { return e.tag === fromEquipTag; }) || 
+                      db.lines.find(function(l) { return l.tag === fromEquipTag; });
+        var toObj = _core.findObjectByTag(toEquipTag) || 
+                    db.equipos.find(function(e) { return e.tag === toEquipTag; }) || 
+                    db.lines.find(function(l) { return l.tag === toEquipTag; });
+        
         if (!fromObj) { notifyUser('Origen ' + fromEquipTag + ' no encontrado', true); return null; }
         if (!toObj) { notifyUser('Destino ' + toEquipTag + ' no encontrado', true); return null; }
+
         var startPos = getPortPosition(fromObj, fromPortId);
         if (!startPos) { notifyUser('Puerto origen ' + fromPortId + ' no encontrado', true); return null; }
+        
         var endPos = getPortPosition(toObj, toPortId);
         if (!endPos) { notifyUser('Puerto destino ' + toPortId + ' no encontrado', true); return null; }
+        
+        // ✅ RESPETAR EXACTAMENTE las coordenadas del usuario
+        // NO forzar alineación con dirección del puerto destino
         var allPoints = [startPos];
-        if (waypoints && Array.isArray(waypoints)) { for (var w = 0; w < waypoints.length; w++) { allPoints.push({ x: waypoints[w].x, y: waypoints[w].y, z: waypoints[w].z }); } }
-        allPoints.push({ x: endPos.x, y: endPos.y, z: endPos.z });
+        if (waypoints && Array.isArray(waypoints)) {
+            for (var w = 0; w < waypoints.length; w++) {
+                allPoints.push({
+                    x: waypoints[w].x,
+                    y: waypoints[w].y,
+                    z: waypoints[w].z
+                });
+            }
+        }
+        // El último punto es EXACTAMENTE el puerto destino
+        allPoints.push({
+            x: endPos.x,
+            y: endPos.y,
+            z: endPos.z
+        });
+        
+        // Eliminar puntos duplicados consecutivos (sin modificar coordenadas)
         var cleanPoints = [allPoints[0]];
-        for (var i = 1; i < allPoints.length; i++) { if (distance(allPoints[i], cleanPoints[cleanPoints.length - 1]) > 10) { cleanPoints.push({ x: allPoints[i].x, y: allPoints[i].y, z: allPoints[i].z }); } }
-        if (cleanPoints.length < 2) { notifyUser('Se requieren al menos 2 puntos distintos', true); return null; }
+        for (var i = 1; i < allPoints.length; i++) {
+            var prev = cleanPoints[cleanPoints.length - 1];
+            var dx = allPoints[i].x - prev.x;
+            var dy = allPoints[i].y - prev.y;
+            var dz = allPoints[i].z - prev.z;
+            if (Math.hypot(dx, dy, dz) > 10) {
+                cleanPoints.push({
+                    x: allPoints[i].x,
+                    y: allPoints[i].y,
+                    z: allPoints[i].z
+                });
+            }
+        }
+        
+        if (cleanPoints.length < 2) {
+            notifyUser('Se requieren al menos 2 puntos distintos', true);
+            return null;
+        }
+        
         var tag = generateUniqueLineTag();
+        
         var isFromEquip = fromObj.posX !== undefined || (fromObj.pos && fromObj.pos.x !== undefined);
         var isToEquip = toObj.posX !== undefined || (toObj.pos && toObj.pos.x !== undefined);
+        
         var nuevaLinea = {
-            tag: tag, diameter: diameter, material: material, spec: spec,
+            tag: tag,
+            diameter: diameter,
+            material: material,
+            spec: spec,
             origin: { objType: isFromEquip ? 'equipment' : 'line', equipTag: fromEquipTag, portId: fromPortId },
             destination: { objType: isToEquip ? 'equipment' : 'line', equipTag: toEquipTag, portId: toPortId },
-            waypoints: cleanPoints.slice(1, -1), _cachedPoints: cleanPoints.slice(),
-            points3D: cleanPoints.slice(), points: cleanPoints.slice(), components: []
+            waypoints: cleanPoints.slice(1, -1),
+            _cachedPoints: cleanPoints.slice(),
+            points3D: cleanPoints.slice(),
+            points: cleanPoints.slice(),
+            components: []
         };
+        
         _core.addLine(nuevaLinea);
+        
         var lineaRegistrada = db.lines.find(function(l) { return l.tag === tag; }) || nuevaLinea;
-        var fittingInfo = ensureFittings(lineaRegistrada, fromObj, fromPortId, toObj, toPortId, diameter, material);
+        
+        // ✅ CORREGIDO v3.4: Inyectar accesorios con spec correcto
+        var fittingInfo = ensureFittings(lineaRegistrada, fromObj, fromPortId, toObj, toPortId, diameter, material, spec);
+        
         if (_core.updateLine) { _core.updateLine(tag, lineaRegistrada); }
-        if (fromObj.puertos) { var pFrom = fromObj.puertos.find(function(p) { return p.id === fromPortId; }); if (pFrom) pFrom.connectedLine = tag; }
-        if (toObj.puertos) { var pTo = toObj.puertos.find(function(p) { return p.id === toPortId; }); if (pTo) pTo.connectedLine = tag; }
+        
+        if (fromObj.puertos) { 
+            var pFrom = fromObj.puertos.find(function(p) { return p.id === fromPortId; }); 
+            if (pFrom) pFrom.connectedLine = tag; 
+        }
+        if (toObj.puertos) { 
+            var pTo = toObj.puertos.find(function(p) { return p.id === toPortId; }); 
+            if (pTo) pTo.connectedLine = tag; 
+        }
+        
+        // Contar codos inyectados
         var codosInyectados = 0;
-        if (lineaRegistrada.components) { for (var c = 0; c < lineaRegistrada.components.length; c++) { if (lineaRegistrada.components[c].type && lineaRegistrada.components[c].type.toUpperCase().indexOf('ELBOW') !== -1) codosInyectados++; } }
-        notifyUser('✅ Ruta: ' + tag + ' (' + fromEquipTag + '.' + fromPortId + ' → ' + cleanPoints.length + ' pts → ' + toEquipTag + '.' + toPortId + ') | ' + material + ' ' + diameter + '" ' + spec + (fittingInfo.message || '') + (codosInyectados > 0 ? ' | 🔧 ' + codosInyectados + ' codo(s)' : ''), false);
+        if (lineaRegistrada.components) {
+            for (var c = 0; c < lineaRegistrada.components.length; c++) {
+                if (lineaRegistrada.components[c].type && 
+                    lineaRegistrada.components[c].type.toUpperCase().indexOf('ELBOW') !== -1) {
+                    codosInyectados++;
+                }
+            }
+        }
+        
+        notifyUser('✅ Ruta con waypoints: ' + tag + ' (' + fromEquipTag + '.' + fromPortId + ' → ' + 
+                   cleanPoints.length + ' pts → ' + toEquipTag + '.' + toPortId + ') | ' + 
+                   material + ' ' + diameter + '" ' + spec + 
+                   (fittingInfo.message || '') + 
+                   (codosInyectados > 0 ? ' | 🔧 ' + codosInyectados + ' codo(s) auto.' : ''),
+                   false);
+        
         if (_renderUI) _renderUI();
         return lineaRegistrada;
     }
@@ -725,9 +1023,9 @@ const SmartFlowRouter = (function() {
         necesitaReductor: necesitaReductor,
         generateUniqueLineTag: generateUniqueLineTag,
         handleSnapClick: handleSnapClick,
-        executeCommand: executeCommand
+        executeCommand: executeCommand,
+        getExpectedSpecForMaterial: getExpectedSpecForMaterial
     };
 })();
 
 if (typeof window !== 'undefined') window.SmartFlowRouter = SmartFlowRouter;
- 
