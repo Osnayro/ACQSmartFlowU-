@@ -1,5 +1,4 @@
 
-
 // ============================================================
 // SMARTFLOW ROUTER v3.3 - Enrutador de Tuberías Inteligente
 // Archivo: js/router.js
@@ -731,3 +730,4 @@ const SmartFlowRouter = (function() {
 })();
 
 if (typeof window !== 'undefined') window.SmartFlowRouter = SmartFlowRouter;
+ 
