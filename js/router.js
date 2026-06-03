@@ -10,6 +10,8 @@
 //   - ensureFittings recibe y propaga spec
 //   - findElbowForLine filtra por spec antes de ángulo
 //   - getPortPosition interpreta posiciones paramétricas (0 a 1)
+//   - Codo al final: solo se omite si se insertó Tee (posición paramétrica)
+//   - En extremos de línea (0, 1) y equipos, el codo se inyecta normalmente
 // ============================================================
 
 const SmartFlowRouter = (function() {
@@ -538,7 +540,7 @@ const SmartFlowRouter = (function() {
     }
 
     // ================================================================
-    //  ENSUREFITTINGS
+    //  ENSUREFITTINGS (CORREGIDO v3.5 FINAL)
     // ================================================================
 
     function ensureFittings(lineObj, fromObj, fromPortId, toObj, toPortId, diameter, material, spec) {
@@ -560,6 +562,7 @@ const SmartFlowRouter = (function() {
             });
         }
         
+        // --- REDUCTOR EN ORIGEN ---
         if (fromObj && fromPortId) {
             var diamPuertoOrigen = getPortDiameter(fromObj, fromPortId);
             var diamLinea = parseFloat(lineObj.diameter || diameter);
@@ -580,6 +583,7 @@ const SmartFlowRouter = (function() {
             }
         }
         
+        // --- REDUCTOR EN DESTINO ---
         if (toObj && toPortId) {
             var diamPuertoDestino = getPortDiameter(toObj, toPortId);
             var diamLinea2 = parseFloat(lineObj.diameter || diameter);
@@ -600,6 +604,7 @@ const SmartFlowRouter = (function() {
             }
         }
         
+        // --- CODO EN INICIO ---
         if (fromObj && fromPortId && puntos.length >= 2) {
             var dirPuerto = getPortDirection(fromObj, fromPortId);
             var vInicial = { x: puntos[1].x - puntos[0].x, y: puntos[1].y - puntos[0].y, z: puntos[1].z - puntos[0].z };
@@ -623,6 +628,7 @@ const SmartFlowRouter = (function() {
             }
         }
         
+        // --- CODOS INTERMEDIOS ---
         var totalLen = 0;
         for (var i = 0; i < puntos.length - 1; i++) { 
             totalLen += Math.hypot(puntos[i+1].x - puntos[i].x, puntos[i+1].y - puntos[i].y, puntos[i+1].z - puntos[i].z); 
@@ -660,7 +666,13 @@ const SmartFlowRouter = (function() {
             }
         }
         
-        if (toObj && toPortId && puntos.length >= 2) {
+        // --- CODO EN FIN (CORREGIDO v3.5 FINAL) ---
+        // Solo omitir codo si el destino es una linea y se inserto un accesorio (Tee)
+        // En todos los demas casos (extremo de linea, equipo), inyectar codo si hay angulo
+        var isToLine = toObj && !(toObj.posX !== undefined || (toObj.pos && toObj.pos.x !== undefined));
+        var hasInsertedFitting = isToLine && toPortId && isParametricPortId(toPortId);
+        
+        if (toObj && toPortId && puntos.length >= 2 && !hasInsertedFitting) {
             var dirPuertoDest = getPortDirection(toObj, toPortId);
             var dirLlegada = { 
                 x: puntos[puntos.length - 1].x - puntos[puntos.length - 2].x, 
@@ -881,7 +893,7 @@ const SmartFlowRouter = (function() {
     }
 
     // ================================================================
-    //  RUTEO CON WAYPOINTS (CORREGIDO v3.5)
+    //  RUTEO CON WAYPOINTS (CORREGIDO v3.5 FINAL)
     // ================================================================
 
     function routeWithWaypoints(fromEquipTag, fromPortId, toEquipTag, toPortId, waypoints, diameter, material, spec) {
@@ -927,11 +939,7 @@ const SmartFlowRouter = (function() {
             } else if (isParametricPortId(toPortId)) {
                 var paramValue = parseFloat(toPortId);
                 var puntoConexion = getPointAtParam(ptsTo, paramValue);
-                if (!puntoConexion) { notifyUser('No se pudo calcular punto en posición ' + toPortId, true); return null; }
-                
-                // ✅ CORREGIDO: necesitaReductor (con "c")
-                var diamLineaDestino = toObj.diameter || 4;
-                var diffDiam = necesitaReductor(diameter, diamLineaDestino);
+                if (!puntoConexion) { notifyUser('No se pudo calcular punto en posicion ' + toPortId, true); return null; }
                 
                 var puertoInsertado3 = insertarAccesorioEnLinea(toEquipTag, puntoConexion, diameter, true);
                 if (!puertoInsertado3) return null;
