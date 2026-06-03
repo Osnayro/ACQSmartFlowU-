@@ -2,7 +2,7 @@
 // ============================================================
 // SMARTFLOW ROUTER v3.5 - Enrutador de Tuberías Inteligente
 // Archivo: js/router.js
-// Compatible: SmartFlowCore v5.6 + SmartFlowCommands v3.2
+// Compatible: SmartFlowCore v5.6 + SmartFlowCommands v3.3
 // Correcciones v3.5: 
 //   - routeWithWaypoints ahora inserta accesorio en línea destino
 //     cuando toPortId es una posición paramétrica (ej: 0.1583)
@@ -10,8 +10,10 @@
 //   - ensureFittings recibe y propaga spec
 //   - findElbowForLine filtra por spec antes de ángulo
 //   - getPortPosition interpreta posiciones paramétricas (0 a 1)
-//   - Codo al final: solo se omite si se insertó Tee (posición paramétrica)
-//   - En extremos de línea (0, 1) y equipos, el codo se inyecta normalmente
+//   - Corregido: NO inyecta reductor duplicado cuando ya se insertó en destino
+//   - Corregido: NO inyecta codo al final cuando se insertó Tee en destino
+//   - Corregido: SÍ inyecta codo al final en extremos de línea con reductor
+//   - Corregido: SÍ inyecta codo al final en conexiones a equipos
 // ============================================================
 
 const SmartFlowRouter = (function() {
@@ -540,7 +542,7 @@ const SmartFlowRouter = (function() {
     }
 
     // ================================================================
-    //  ENSUREFITTINGS (CORREGIDO v3.5 FINAL)
+    //  ENSUREFITTINGS (v3.5 FINAL - Sin doble inyección)
     // ================================================================
 
     function ensureFittings(lineObj, fromObj, fromPortId, toObj, toPortId, diameter, material, spec) {
@@ -562,19 +564,27 @@ const SmartFlowRouter = (function() {
             });
         }
         
+        // Determinar si el destino es una línea y si ya se insertó un accesorio
+        var isToLine = toObj && !(toObj.posX !== undefined || (toObj.pos && toObj.pos.x !== undefined));
+        var diamPuertoDestino = toObj ? getPortDiameter(toObj, toPortId) : null;
+        var diamLinea = parseFloat(lineObj.diameter || diameter);
+        var destinoNecesitaReductor = toObj && toPortId && diamPuertoDestino && necesitaReductor(diamLinea, diamPuertoDestino);
+        var hasInsertedReducer = isToLine && toPortId && destinoNecesitaReductor;
+        var hasInsertedTee = isToLine && toPortId && isParametricPortId(toPortId);
+        
         // --- REDUCTOR EN ORIGEN ---
         if (fromObj && fromPortId) {
             var diamPuertoOrigen = getPortDiameter(fromObj, fromPortId);
-            var diamLinea = parseFloat(lineObj.diameter || diameter);
-            if (diamPuertoOrigen && necesitaReductor(diamPuertoOrigen, diamLinea)) {
-                var reducerType = findReducerForDiameters(Math.max(diamPuertoOrigen, diamLinea), Math.min(diamPuertoOrigen, diamLinea), material);
+            var diamLineaOrig = parseFloat(lineObj.diameter || diameter);
+            if (diamPuertoOrigen && necesitaReductor(diamPuertoOrigen, diamLineaOrig)) {
+                var reducerType = findReducerForDiameters(Math.max(diamPuertoOrigen, diamLineaOrig), Math.min(diamPuertoOrigen, diamLineaOrig), material);
                 if (reducerType && !existeComponenteSimilar('REDUCER', 0.0)) {
                     lineObj.components.push({ 
                         type: reducerType, 
                         tag: 'RED-' + lineObj.tag + '-START-' + Date.now().toString(36), 
                         param: 0.0, 
-                        diameterLarge: Math.max(diamPuertoOrigen, diamLinea), 
-                        diameterSmall: Math.min(diamPuertoOrigen, diamLinea), 
+                        diameterLarge: Math.max(diamPuertoOrigen, diamLineaOrig), 
+                        diameterSmall: Math.min(diamPuertoOrigen, diamLineaOrig), 
                         material: material || 'PPR',
                         spec: effectiveSpec
                     });
@@ -583,19 +593,17 @@ const SmartFlowRouter = (function() {
             }
         }
         
-        // --- REDUCTOR EN DESTINO ---
-        if (toObj && toPortId) {
-            var diamPuertoDestino = getPortDiameter(toObj, toPortId);
-            var diamLinea2 = parseFloat(lineObj.diameter || diameter);
-            if (diamPuertoDestino && necesitaReductor(diamLinea2, diamPuertoDestino)) {
-                var reducerType2 = findReducerForDiameters(Math.max(diamLinea2, diamPuertoDestino), Math.min(diamLinea2, diamPuertoDestino), material);
+        // --- REDUCTOR EN DESTINO (CORREGIDO - No duplicar) ---
+        if (toObj && toPortId && !hasInsertedReducer) {
+            if (diamPuertoDestino && necesitaReductor(diamLinea, diamPuertoDestino)) {
+                var reducerType2 = findReducerForDiameters(Math.max(diamLinea, diamPuertoDestino), Math.min(diamLinea, diamPuertoDestino), material);
                 if (reducerType2 && !existeComponenteSimilar('REDUCER', 1.0)) {
                     lineObj.components.push({ 
                         type: reducerType2, 
                         tag: 'RED-' + lineObj.tag + '-END-' + Date.now().toString(36), 
                         param: 1.0, 
-                        diameterLarge: Math.max(diamLinea2, diamPuertoDestino), 
-                        diameterSmall: Math.min(diamLinea2, diamPuertoDestino), 
+                        diameterLarge: Math.max(diamLinea, diamPuertoDestino), 
+                        diameterSmall: Math.min(diamLinea, diamPuertoDestino), 
                         material: material || 'PPR',
                         spec: effectiveSpec
                     });
@@ -667,12 +675,9 @@ const SmartFlowRouter = (function() {
         }
         
         // --- CODO EN FIN (CORREGIDO v3.5 FINAL) ---
-        // Solo omitir codo si el destino es una linea y se inserto un accesorio (Tee)
-        // En todos los demas casos (extremo de linea, equipo), inyectar codo si hay angulo
-        var isToLine = toObj && !(toObj.posX !== undefined || (toObj.pos && toObj.pos.x !== undefined));
-        var hasInsertedFitting = isToLine && toPortId && isParametricPortId(toPortId);
-        
-        if (toObj && toPortId && puntos.length >= 2 && !hasInsertedFitting) {
+        // Solo omitir codo si se insertó una Tee en posición paramétrica
+        // En todos los demás casos (equipo, extremo de línea con/sin reductor), inyectar codo
+        if (toObj && toPortId && puntos.length >= 2 && !hasInsertedTee) {
             var dirPuertoDest = getPortDirection(toObj, toPortId);
             var dirLlegada = { 
                 x: puntos[puntos.length - 1].x - puntos[puntos.length - 2].x, 
@@ -893,7 +898,7 @@ const SmartFlowRouter = (function() {
     }
 
     // ================================================================
-    //  RUTEO CON WAYPOINTS (CORREGIDO v3.5 FINAL)
+    //  RUTEO CON WAYPOINTS (v3.5 FINAL)
     // ================================================================
 
     function routeWithWaypoints(fromEquipTag, fromPortId, toEquipTag, toPortId, waypoints, diameter, material, spec) {
