@@ -11,9 +11,8 @@
 //   - findElbowForLine filtra por spec antes de ángulo
 //   - getPortPosition interpreta posiciones paramétricas (0 a 1)
 //   - Corregido: NO inyecta reductor duplicado cuando ya se insertó en destino
-//   - Corregido: NO inyecta codo al final cuando se insertó Tee en destino
-//   - Corregido: SÍ inyecta codo al final en extremos de línea con reductor
-//   - Corregido: SÍ inyecta codo al final en conexiones a equipos
+//   - Corregido: NO inyecta codo al final cuando se insertó Tee/Reductor en línea destino
+//   - Corregido: SÍ inyecta codo al final en extremos de línea (0, 1) y equipos
 // ============================================================
 
 const SmartFlowRouter = (function() {
@@ -542,7 +541,7 @@ const SmartFlowRouter = (function() {
     }
 
     // ================================================================
-    //  ENSUREFITTINGS (v3.5 FINAL - Sin doble inyección)
+    //  ENSUREFITTINGS (v3.5 FINAL - Corrección definitiva)
     // ================================================================
 
     function ensureFittings(lineObj, fromObj, fromPortId, toObj, toPortId, diameter, material, spec) {
@@ -564,13 +563,24 @@ const SmartFlowRouter = (function() {
             });
         }
         
-        // Determinar si el destino es una línea y si ya se insertó un accesorio
+        // Determinar si el destino es una línea
         var isToLine = toObj && !(toObj.posX !== undefined || (toObj.pos && toObj.pos.x !== undefined));
+        
+        // Verificar si el puerto de destino es un puerto estándar (0, 1, START, END)
+        var isStandardPort = toPortId === '0' || toPortId === '1' || toPortId === 0 || toPortId === 1 || 
+                             toPortId === 'START' || toPortId === 'END';
+        
+        // Verificar si el puerto es de un equipo
+        var isEquipmentPort = toObj && (toObj.posX !== undefined || (toObj.pos && toObj.pos.x !== undefined));
+        
+        // Se insertó un accesorio si el destino es línea y el puerto NO es estándar ni de equipo
+        var hasInsertedFitting = isToLine && toPortId && !isStandardPort && !isEquipmentPort;
+        
+        // Verificar si se necesita reductor en el destino
         var diamPuertoDestino = toObj ? getPortDiameter(toObj, toPortId) : null;
         var diamLinea = parseFloat(lineObj.diameter || diameter);
         var destinoNecesitaReductor = toObj && toPortId && diamPuertoDestino && necesitaReductor(diamLinea, diamPuertoDestino);
-        var hasInsertedReducer = isToLine && toPortId && destinoNecesitaReductor;
-        var hasInsertedTee = isToLine && toPortId && isParametricPortId(toPortId);
+        var hasInsertedReducer = isToLine && toPortId && destinoNecesitaReductor && hasInsertedFitting;
         
         // --- REDUCTOR EN ORIGEN ---
         if (fromObj && fromPortId) {
@@ -675,9 +685,9 @@ const SmartFlowRouter = (function() {
         }
         
         // --- CODO EN FIN (CORREGIDO v3.5 FINAL) ---
-        // Solo omitir codo si se insertó una Tee en posición paramétrica
-        // En todos los demás casos (equipo, extremo de línea con/sin reductor), inyectar codo
-        if (toObj && toPortId && puntos.length >= 2 && !hasInsertedTee) {
+        // NO inyectar codo si se insertó un accesorio (Tee o Reductor) en la línea destino
+        // SÍ inyectar codo en extremos (0, 1) y equipos
+        if (toObj && toPortId && puntos.length >= 2 && !hasInsertedFitting) {
             var dirPuertoDest = getPortDirection(toObj, toPortId);
             var dirLlegada = { 
                 x: puntos[puntos.length - 1].x - puntos[puntos.length - 2].x, 
