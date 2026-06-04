@@ -4,7 +4,9 @@
 // Archivo: js/commands.js
 // Compatible: SmartFlowCore v5.6 + SmartFlowRouter v3.5
 // Novedades v3.3: Corrección de spec para PPR y HDPE,
-//                 runFittingInjection propaga spec a ensureFittings
+//                 runFittingInjection propaga spec a ensureFittings,
+//                 parseCreate soporta diametro_succion, diametro_descarga,
+//                 diametro_entrada, diametro_salida, altura_salida_desde_base
 // ============================================================
 
 const SmartFlowCommands = (function() {
@@ -263,7 +265,6 @@ const SmartFlowCommands = (function() {
         return names[tipo] || tipo || 'Equipo';
     }
 
-    // ✅ v3.3: runFittingInjection ahora acepta y propaga spec
     function runFittingInjection(line, fromObj, fromPortId, toObj, toPortId, diameter, material, spec) {
         if (typeof SmartFlowRouter !== 'undefined' && typeof SmartFlowRouter.ensureFittings === 'function') {
             return SmartFlowRouter.ensureFittings(line, fromObj, fromPortId, toObj, toPortId, diameter, material, spec);
@@ -635,8 +636,9 @@ const SmartFlowCommands = (function() {
         
         return true;
     }
+
     // ================================================================
-    //  COMANDO CREATE EQUIPO
+    //  COMANDO CREATE EQUIPO (CORREGIDO v3.3)
     // ================================================================
 
     function parseCreate(cmd) {
@@ -658,16 +660,41 @@ const SmartFlowCommands = (function() {
         if (namedParams.spec) params.spec = namedParams.spec;
         if (namedParams.type) params.tipo = namedParams.type;
         
+        // ✅ CORREGIDO v3.3: Parsear TODOS los parámetros que createEquipment puede recibir
         for (let i = 5; i < parts.length; i++) {
             let key = parts[i];
-            if (key === 'diam' || key === 'diametro') params.diametro = params.diametro || parseFloat(parts[++i]);
+            
+            // Dimensiones principales
+            if (key === 'diam' || key === 'diametro') {
+                if (params.diametro === undefined) params.diametro = parseFloat(parts[++i]);
+                else i++; // Saltar si ya fue asignado por namedParams
+            }
             else if (key === 'height' || key === 'altura') params.altura = parseFloat(parts[++i]);
             else if (key === 'largo') params.largo = parseFloat(parts[++i]);
             else if (key === 'ancho') params.ancho = parseFloat(parts[++i]);
-            else if (key === 'material') params.material = params.material || parts[++i].toUpperCase();
-            else if (key === 'spec') params.spec = params.spec || parts[++i];
-            else if (key === 'baranda') { var v = parts[++i]; params.baranda = v.toLowerCase() === 'true' || v === 'si'; }
-            else if (key === 'escalera') { var v = parts[++i]; params.escalera = v.toLowerCase() === 'true' || v === 'si'; }
+            
+            // Diámetros de puertos específicos (NUEVOS v3.3)
+            else if (key === 'diametro_succion' || key === 'succion') params.diametro_succion = parseFloat(parts[++i]);
+            else if (key === 'diametro_descarga' || key === 'descarga') params.diametro_descarga = parseFloat(parts[++i]);
+            else if (key === 'diametro_entrada' || key === 'entrada') params.diametro_entrada = parseFloat(parts[++i]);
+            else if (key === 'diametro_salida' || key === 'salida') params.diametro_salida = parseFloat(parts[++i]);
+            
+            // Parámetros especiales para tanque_v (NUEVO v3.3)
+            else if (key === 'altura_salida_desde_base' || key === 'altura_salida') params.altura_salida_desde_base = parseFloat(parts[++i]);
+            
+            // Material y spec (solo si no fueron asignados por namedParams)
+            else if (key === 'material') {
+                if (params.material === undefined) params.material = parts[++i].toUpperCase();
+                else i++; // Saltar
+            }
+            else if (key === 'spec') {
+                if (params.spec === undefined) params.spec = parts[++i];
+                else i++; // Saltar
+            }
+            
+            // Opciones booleanas para plataforma
+            else if (key === 'baranda') { var v = parts[++i]; params.baranda = v === 'true' || v === 'si' || v === 'yes'; }
+            else if (key === 'escalera') { var v = parts[++i]; params.escalera = v === 'true' || v === 'si' || v === 'yes'; }
         }
         
         const equipoDef = _catalog.getEquipment(tipo);
@@ -986,7 +1013,7 @@ const SmartFlowCommands = (function() {
     }
 
     // ================================================================
-    //  COMANDO ROUTE (v3.2 - Soporta via waypoints)
+    //  COMANDO ROUTE
     // ================================================================
 
     function parseRoute(cmd) {
@@ -1174,7 +1201,7 @@ const SmartFlowCommands = (function() {
     }
 
     // ================================================================
-    //  COMANDO DELETE (v3.0 - Eliminación segura)
+    //  COMANDO DELETE
     // ================================================================
 
     function parseDelete(cmd) {
@@ -1609,8 +1636,9 @@ const SmartFlowCommands = (function() {
         if (_renderUI) _renderUI();
         return true;
     }
+
     // ================================================================
-    //  REGLAS DE ESPACIAMIENTO PARA ACCESORIOS (NUEVO v3.2)
+    //  REGLAS DE ESPACIAMIENTO PARA ACCESORIOS
     // ================================================================
 
     const SPACING_RULES = {
@@ -1749,7 +1777,7 @@ const SmartFlowCommands = (function() {
     }
 
     // ================================================================
-    //  COMANDO ACCESSORIES (NUEVO v3.2)
+    //  COMANDO ACCESSORIES
     // ================================================================
 
     function parseAccessoriesCommand(cmd) {
@@ -2050,7 +2078,7 @@ const SmartFlowCommands = (function() {
         ayuda += "  duplicate [tag] as [nuevo_tag] [offset (dx,dy,dz)]\n";
         ayuda += "  delete equipment|line [tag]\n";
         ayuda += "  split [línea] at (x,y,z) [type TEE_EQUAL]\n\n";
-        ayuda += "🔩 ACCESORIOS (NUEVO v3.2):\n";
+        ayuda += "🔩 ACCESORIOS:\n";
         ayuda += "  accessories [linea] add TIPO@pos TIPO@pos...\n";
         ayuda += "  accessories [linea] auto TIPO TIPO... at POS [diameter X]\n";
         ayuda += "  accessories [linea] transition from MAT1 to MAT2 [with COMP] at POS\n";
@@ -2404,4 +2432,3 @@ const SmartFlowCommands = (function() {
         clearHistory: function() { window._commandHistory = []; }
     };
 })();
-
