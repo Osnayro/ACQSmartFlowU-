@@ -10,9 +10,10 @@
 //   - ensureFittings recibe y propaga spec
 //   - findElbowForLine filtra por spec antes de ángulo
 //   - getPortPosition interpreta posiciones paramétricas (0 a 1)
-//   - Corregido: NO inyecta reductor duplicado cuando ya se insertó en destino
-//   - Corregido: NO inyecta codo al final cuando se insertó Tee/Reductor en línea destino
-//   - Corregido: SÍ inyecta codo al final en extremos de línea (0, 1) y equipos
+//   - NO inyecta reductor duplicado cuando ya se insertó en destino
+//   - NO inyecta codo al final cuando se insertó Tee en línea destino
+//   - Orienta el puerto BRANCH de la Tee hacia la dirección de llegada
+//   - SÍ inyecta codo al final en extremos (0, 1) y equipos
 // ============================================================
 
 const SmartFlowRouter = (function() {
@@ -541,7 +542,7 @@ const SmartFlowRouter = (function() {
     }
 
     // ================================================================
-    //  ENSUREFITTINGS (v3.5 FINAL - Corrección definitiva)
+    //  ENSUREFITTINGS (v3.5 FINAL)
     // ================================================================
 
     function ensureFittings(lineObj, fromObj, fromPortId, toObj, toPortId, diameter, material, spec) {
@@ -563,24 +564,11 @@ const SmartFlowRouter = (function() {
             });
         }
         
-        // Determinar si el destino es una línea
         var isToLine = toObj && !(toObj.posX !== undefined || (toObj.pos && toObj.pos.x !== undefined));
-        
-        // Verificar si el puerto de destino es un puerto estándar (0, 1, START, END)
-        var isStandardPort = toPortId === '0' || toPortId === '1' || toPortId === 0 || toPortId === 1 || 
-                             toPortId === 'START' || toPortId === 'END';
-        
-        // Verificar si el puerto es de un equipo
-        var isEquipmentPort = toObj && (toObj.posX !== undefined || (toObj.pos && toObj.pos.x !== undefined));
-        
-        // Se insertó un accesorio si el destino es línea y el puerto NO es estándar ni de equipo
-        var hasInsertedFitting = isToLine && toPortId && !isStandardPort && !isEquipmentPort;
-        
-        // Verificar si se necesita reductor en el destino
         var diamPuertoDestino = toObj ? getPortDiameter(toObj, toPortId) : null;
         var diamLinea = parseFloat(lineObj.diameter || diameter);
         var destinoNecesitaReductor = toObj && toPortId && diamPuertoDestino && necesitaReductor(diamLinea, diamPuertoDestino);
-        var hasInsertedReducer = isToLine && toPortId && destinoNecesitaReductor && hasInsertedFitting;
+        var hasInsertedReducer = isToLine && toPortId && destinoNecesitaReductor && lineObj._fittingInsertedAtDestination;
         
         // --- REDUCTOR EN ORIGEN ---
         if (fromObj && fromPortId) {
@@ -603,7 +591,7 @@ const SmartFlowRouter = (function() {
             }
         }
         
-        // --- REDUCTOR EN DESTINO (CORREGIDO - No duplicar) ---
+        // --- REDUCTOR EN DESTINO (No duplicar) ---
         if (toObj && toPortId && !hasInsertedReducer) {
             if (diamPuertoDestino && necesitaReductor(diamLinea, diamPuertoDestino)) {
                 var reducerType2 = findReducerForDiameters(Math.max(diamLinea, diamPuertoDestino), Math.min(diamLinea, diamPuertoDestino), material);
@@ -684,10 +672,8 @@ const SmartFlowRouter = (function() {
             }
         }
         
-        // --- CODO EN FIN (CORREGIDO v3.5 FINAL) ---
-        // NO inyectar codo si se insertó un accesorio (Tee o Reductor) en la línea destino
-        // SÍ inyectar codo en extremos (0, 1) y equipos
-        if (toObj && toPortId && puntos.length >= 2 && !hasInsertedFitting) {
+        // --- CODO EN FIN (v3.5 FINAL - Respeta flag _fittingInsertedAtDestination) ---
+        if (toObj && toPortId && puntos.length >= 2 && !lineObj._fittingInsertedAtDestination) {
             var dirPuertoDest = getPortDirection(toObj, toPortId);
             var dirLlegada = { 
                 x: puntos[puntos.length - 1].x - puntos[puntos.length - 2].x, 
@@ -908,7 +894,7 @@ const SmartFlowRouter = (function() {
     }
 
     // ================================================================
-    //  RUTEO CON WAYPOINTS (v3.5 FINAL)
+    //  RUTEO CON WAYPOINTS (v3.5 FINAL - Orienta puerto BRANCH)
     // ================================================================
 
     function routeWithWaypoints(fromEquipTag, fromPortId, toEquipTag, toPortId, waypoints, diameter, material, spec) {
@@ -938,6 +924,7 @@ const SmartFlowRouter = (function() {
         var endPos, nuevoPuertoId = toPortId;
         var ptsTo = _core.getLinePoints(toObj) || toObj._cachedPoints || toObj.points3D || toObj.points;
         var isToLine = ptsTo && ptsTo.length >= 2;
+        var fittingInserted = false;
         
         if (isToLine) {
             if (!toPortId || toPortId === '') {
@@ -950,6 +937,7 @@ const SmartFlowRouter = (function() {
                 if (!puertoInsertado) return null;
                 nuevoPuertoId = puertoInsertado; 
                 endPos = bestPoint;
+                fittingInserted = true;
                 toObj = _core.findObjectByTag(toEquipTag) || db.lines.find(function(l) { return l.tag === toEquipTag; });
             } else if (isParametricPortId(toPortId)) {
                 var paramValue = parseFloat(toPortId);
@@ -960,7 +948,37 @@ const SmartFlowRouter = (function() {
                 if (!puertoInsertado3) return null;
                 nuevoPuertoId = puertoInsertado3; 
                 endPos = puntoConexion;
+                fittingInserted = true;
                 toObj = _core.findObjectByTag(toEquipTag) || db.lines.find(function(l) { return l.tag === toEquipTag; });
+                
+                // ✅ v3.5: Orientar el puerto BRANCH de la Tee hacia la dirección de llegada
+                if (toObj && toObj.puertos) {
+                    var puertoTee = toObj.puertos.find(function(p) { return p.id === nuevoPuertoId; });
+                    if (puertoTee) {
+                        var lastPoint;
+                        if (waypoints && waypoints.length > 0) {
+                            lastPoint = waypoints[waypoints.length - 1];
+                        } else {
+                            lastPoint = startPos;
+                        }
+                        var dirLlegada = {
+                            dx: puntoConexion.x - lastPoint.x,
+                            dy: puntoConexion.y - lastPoint.y,
+                            dz: puntoConexion.z - lastPoint.z
+                        };
+                        var lenLlegada = Math.hypot(dirLlegada.dx, dirLlegada.dy, dirLlegada.dz);
+                        if (lenLlegada > 0) {
+                            puertoTee.orientacion = {
+                                dx: dirLlegada.dx / lenLlegada,
+                                dy: dirLlegada.dy / lenLlegada,
+                                dz: dirLlegada.dz / lenLlegada
+                            };
+                            puertoTee.dir = puertoTee.orientacion;
+                            puertoTee.vector = puertoTee.orientacion;
+                        }
+                    }
+                    _core.updateLine(toEquipTag, { puertos: toObj.puertos });
+                }
             } else {
                 var puntoConexion;
                 if (toPortId === '0') puntoConexion = ptsTo[0];
@@ -1048,6 +1066,11 @@ const SmartFlowRouter = (function() {
         };
         
         _core.addLine(nuevaLinea);
+        
+        // ✅ v3.5: Marcar que se insertó un accesorio en el destino
+        if (fittingInserted) {
+            nuevaLinea._fittingInsertedAtDestination = true;
+        }
         
         var lineaRegistrada = db.lines.find(function(l) { return l.tag === tag; }) || nuevaLinea;
         
