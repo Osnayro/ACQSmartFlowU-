@@ -1,10 +1,9 @@
-
-
 // ============================================================
-// SMARTFLOW ROUTER v3.6 - Enrutador de Tuberías Inteligente
+// SMARTFLOW ROUTER v3.6.1 - Enrutador de Tuberías Inteligente
 // Archivo: js/router.js
 // Compatible: SmartFlowCore v5.6 + SmartFlowCommands v3.5
-// Novedades v3.6:
+// Novedades v3.6.1:
+//   - CODO EN FIN: detecta llegada coaxial, NO inyecta codo innecesario
 //   - insertarAccesorioEnLinea recibe y aplica branchOrientation
 //   - routeBetweenPorts calcula dirección automática del BRANCH
 //   - routeWithWaypoints calcula dirección automática del BRANCH
@@ -218,9 +217,7 @@ const SmartFlowRouter = (function() {
     }
 
     // ================================================================
-    // ✅ NUEVO v3.6: calculateBranchDirection
-    // Calcula la dirección óptima para el BRANCH de una TEE
-    // basada en la posición de la TEE y el destino de la nueva línea
+    //  calculateBranchDirection
     // ================================================================
     function calculateBranchDirection(teePosition, targetPosition, waypoints) {
         var target;
@@ -229,7 +226,7 @@ const SmartFlowRouter = (function() {
         } else if (targetPosition) {
             target = targetPosition;
         } else {
-            return { dx: 0, dy: 1, dz: 0 }; // Default: arriba
+            return { dx: 0, dy: 1, dz: 0 };
         }
         
         var dx = target.x - teePosition.x;
@@ -572,7 +569,7 @@ const SmartFlowRouter = (function() {
     }
 
     // ================================================================
-    //  ENSUREFITTINGS
+    //  ENSUREFITTINGS (v3.6.1 - Codo final solo si no es coaxial)
     // ================================================================
 
     function ensureFittings(lineObj, fromObj, fromPortId, toObj, toPortId, diameter, material, spec) {
@@ -702,7 +699,7 @@ const SmartFlowRouter = (function() {
             }
         }
         
-        // --- CODO EN FIN (Respeta flag _fittingInsertedAtDestination) ---
+        // --- CODO EN FIN (v3.6.1 - Detecta llegada coaxial, NO inyecta codo innecesario) ---
         if (toObj && toPortId && puntos.length >= 2 && !lineObj._fittingInsertedAtDestination) {
             var dirPuertoDest = getPortDirection(toObj, toPortId);
             var dirLlegada = { 
@@ -711,22 +708,40 @@ const SmartFlowRouter = (function() {
                 z: puntos[puntos.length - 1].z - puntos[puntos.length - 2].z 
             };
             var lenLlegada = Math.hypot(dirLlegada.x, dirLlegada.y, dirLlegada.z) || 1;
-            var dirPuertoInv = { x: -dirPuertoDest.x, y: -dirPuertoDest.y, z: -dirPuertoDest.z };
-            var dotFin = (dirPuertoInv.x * dirLlegada.x + dirPuertoInv.y * dirLlegada.y + dirPuertoInv.z * dirLlegada.z) / lenLlegada;
-            var angleDegFin = Math.acos(Math.max(-1, Math.min(1, dotFin))) * 180 / Math.PI;
-            if (angleDegFin > MIN_ANGLE_FOR_ELBOW && !existeComponenteSimilar('ELBOW', 1.0, 0.05)) {
-                var elbowType3 = findElbowForLine(material, diameter, angleDegFin);
-                if (elbowType3) {
-                    lineObj.components.push({ 
-                        type: elbowType3, 
-                        tag: 'ELB-' + lineObj.tag + '-END-' + Date.now().toString(36), 
-                        param: 1.0, 
-                        diameter: diameter || 4, 
-                        material: material || 'PPR', 
-                        spec: effectiveSpec,
-                        angle: angleDegFin 
-                    });
-                    addedFittings.push(lineObj.components[lineObj.components.length - 1].tag);
+            
+            var dirLlegadaUnit = {
+                dx: dirLlegada.x / lenLlegada,
+                dy: dirLlegada.y / lenLlegada,
+                dz: dirLlegada.z / lenLlegada
+            };
+            
+            // Verificar si la dirección de llegada es coaxial con el puerto
+            var dotCoaxial = dirLlegadaUnit.dx * dirPuertoDest.dx + 
+                             dirLlegadaUnit.dy * dirPuertoDest.dy + 
+                             dirLlegadaUnit.dz * dirPuertoDest.dz;
+            
+            // Si el producto punto es cercano a 1 o -1, es coaxial → NO codo
+            var esCoaxial = Math.abs(Math.abs(dotCoaxial) - 1) < 0.001;
+            
+            if (!esCoaxial) {
+                var dirPuertoInv = { x: -dirPuertoDest.x, y: -dirPuertoDest.y, z: -dirPuertoDest.z };
+                var dotFin = (dirPuertoInv.x * dirLlegadaUnit.dx + dirPuertoInv.y * dirLlegadaUnit.dy + dirPuertoInv.z * dirLlegadaUnit.dz);
+                var angleDegFin = Math.acos(Math.max(-1, Math.min(1, dotFin))) * 180 / Math.PI;
+                
+                if (angleDegFin > MIN_ANGLE_FOR_ELBOW && !existeComponenteSimilar('ELBOW', 1.0, 0.05)) {
+                    var elbowType3 = findElbowForLine(material, diameter, angleDegFin);
+                    if (elbowType3) {
+                        lineObj.components.push({ 
+                            type: elbowType3, 
+                            tag: 'ELB-' + lineObj.tag + '-END-' + Date.now().toString(36), 
+                            param: 1.0, 
+                            diameter: diameter || 4, 
+                            material: material || 'PPR', 
+                            spec: effectiveSpec,
+                            angle: angleDegFin 
+                        });
+                        addedFittings.push(lineObj.components[lineObj.components.length - 1].tag);
+                    }
                 }
             }
         }
@@ -805,9 +820,8 @@ const SmartFlowRouter = (function() {
             return puertoExistente ? puertoExistente.id : null; 
         }
         
-        // ✅ v3.6: Normalizar branchOrientation
         if (!branchOrientation) {
-            branchOrientation = { dx: 0, dy: 1, dz: 0 }; // Default: arriba
+            branchOrientation = { dx: 0, dy: 1, dz: 0 };
         }
         var bLen = Math.hypot(branchOrientation.dx, branchOrientation.dy, branchOrientation.dz);
         if (bLen > 0) {
@@ -829,7 +843,6 @@ const SmartFlowRouter = (function() {
         };
         linea.components.push(comp);
         
-        // ✅ v3.6: Pasar orientación al generador de puertos del catálogo
         if (typeof _catalog !== 'undefined' && _catalog.getComponent) {
             var compDef = _catalog.getComponent(compEnCatalogo);
             if (compDef && compDef.generarPuertos) {
@@ -845,7 +858,6 @@ const SmartFlowRouter = (function() {
         _core.updateLine(lineTag, { components: linea.components, puertos: linea.puertos });
         notifyUser('✅ ' + descripcion + ' (' + compEnCatalogo + ') insertado en ' + lineTag + ' @' + param.toFixed(3), false);
         
-        // Buscar el puerto BRANCH creado
         var lineaActualizada = db.lines.find(function(l) { return l.tag === lineTag; });
         if (lineaActualizada && lineaActualizada.puertos && lineaActualizada.puertos.length > 0) { 
             var nuevoPuerto = lineaActualizada.puertos.find(function(p2) { return p2.id.indexOf(comp.tag) !== -1; }); 
@@ -939,9 +951,6 @@ const SmartFlowRouter = (function() {
         var isFromLine = _core.getLinePoints(fromObj) && _core.getLinePoints(fromObj).length >= 2;
         var fittingInserted = false;
         
-        // ================================================================
-        // ✅ v3.6: Calcular dirección del BRANCH para TEE en origen
-        // ================================================================
         var originBranchDirection = null;
         if (isFromLine && isParametricPortId(fromPortId)) {
             if (options.branchOrientation) {
@@ -953,9 +962,6 @@ const SmartFlowRouter = (function() {
             }
         }
         
-        // ================================================================
-        // ✅ v3.6: Calcular dirección del BRANCH para TEE en destino
-        // ================================================================
         var destBranchDirection = null;
         
         if (isToLine) {
@@ -963,7 +969,7 @@ const SmartFlowRouter = (function() {
                 var minDist = Infinity, bestPoint = ptsTo[0];
                 for (var i = 0; i < ptsTo.length - 1; i++) { var proj = projectPointOnSegment(startPos, ptsTo[i], ptsTo[i+1]); if (proj.distance < minDist) { minDist = proj.distance; bestPoint = proj.point; } }
                 endPos = bestPoint;
-                destBranchDirection = calculateBranchDirection(endPos, startPos); // Inverso
+                destBranchDirection = calculateBranchDirection(endPos, startPos);
             } else if (isParametricPortId(toPortId)) {
                 endPos = getPointAtParam(ptsTo, parseFloat(toPortId));
                 destBranchDirection = calculateBranchDirection(endPos, startPos);
@@ -978,7 +984,6 @@ const SmartFlowRouter = (function() {
         
         if (!endPos) { notifyUser('Puerto destino no encontrado', true); return null; }
         
-        // Si no se calculó antes (porque no era línea), calcular ahora
         if (!originBranchDirection && isFromLine && isParametricPortId(fromPortId)) {
             originBranchDirection = options.branchOrientation || calculateBranchDirection(startPos, endPos);
         }
@@ -988,7 +993,6 @@ const SmartFlowRouter = (function() {
                 calculateBranchDirection(endPos, startPos);
         }
         
-        // Insertar TEE en origen si es punto intermedio
         if (isFromLine && isParametricPortId(fromPortId)) {
             var puertoInsertado = insertarAccesorioEnLinea(fromEquipTag, startPos, diameter, true, originBranchDirection);
             if (!puertoInsertado) return null;
@@ -996,7 +1000,6 @@ const SmartFlowRouter = (function() {
             fromObj = _core.findObjectByTag(fromEquipTag) || db.lines.find(function(l) { return l.tag === fromEquipTag; });
         }
         
-        // Insertar TEE en destino si es punto intermedio
         if (isToLine && (isParametricPortId(toPortId) || !toPortId || toPortId === '')) {
             var puertoInsertado2 = insertarAccesorioEnLinea(toEquipTag, endPos, diameter, true, destBranchDirection);
             if (!puertoInsertado2) return null;
@@ -1005,7 +1008,6 @@ const SmartFlowRouter = (function() {
             fittingInserted = true;
         }
         
-        // Construir ruta
         var startDirRaw = getPortDirection(fromObj, fromPortId);
         var startDir = normalizeVector(startDirRaw);
         var orthoResultStart = calculateOrthogonalIntersection(startPos, startDir, endPos);
@@ -1077,22 +1079,15 @@ const SmartFlowRouter = (function() {
         var isFromLine = _core.getLinePoints(fromObj) && _core.getLinePoints(fromObj).length >= 2;
         var fittingInserted = false;
         
-        // ================================================================
-        // ✅ v3.6: Calcular dirección del BRANCH para TEE en origen
-        // ================================================================
         var originBranchDirection = null;
         if (isFromLine && isParametricPortId(fromPortId)) {
             if (options.branchOrientation) {
                 originBranchDirection = options.branchOrientation;
             } else {
-                // Calcular hacia el primer waypoint o hacia el destino
                 originBranchDirection = calculateBranchDirection(startPos, endPos, waypoints);
             }
         }
         
-        // ================================================================
-        // ✅ v3.6: Calcular dirección del BRANCH para TEE en destino
-        // ================================================================
         var destBranchDirection = null;
         
         if (isToLine) {
@@ -1122,7 +1117,6 @@ const SmartFlowRouter = (function() {
         
         if (!endPos) { notifyUser('Puerto destino no encontrado', true); return null; }
         
-        // Insertar TEE en origen
         if (isFromLine && isParametricPortId(fromPortId)) {
             var puertoInsertado = insertarAccesorioEnLinea(fromEquipTag, startPos, diameter, true, originBranchDirection);
             if (!puertoInsertado) return null;
@@ -1130,7 +1124,6 @@ const SmartFlowRouter = (function() {
             fromObj = _core.findObjectByTag(fromEquipTag) || db.lines.find(function(l) { return l.tag === fromEquipTag; });
         }
         
-        // Insertar TEE en destino
         if (isToLine && (isParametricPortId(toPortId) || !toPortId || toPortId === '')) {
             var puertoInsertado3 = insertarAccesorioEnLinea(toEquipTag, endPos, diameter, true, destBranchDirection);
             if (!puertoInsertado3) return null;
@@ -1138,7 +1131,6 @@ const SmartFlowRouter = (function() {
             toObj = _core.findObjectByTag(toEquipTag) || db.lines.find(function(l) { return l.tag === toEquipTag; });
             fittingInserted = true;
             
-            // ✅ v3.6: Orientar el puerto BRANCH de la Tee hacia la dirección de llegada
             if (toObj && toObj.puertos) {
                 var puertoTee = toObj.puertos.find(function(p) { return p.id === nuevoPuertoId; });
                 if (puertoTee && destBranchDirection) {
@@ -1154,7 +1146,6 @@ const SmartFlowRouter = (function() {
             }
         }
         
-        // Construir puntos
         var allPoints = [startPos];
         if (waypoints && Array.isArray(waypoints)) {
             for (var w = 0; w < waypoints.length; w++) {
@@ -1252,7 +1243,7 @@ const SmartFlowRouter = (function() {
     }
 
     // ================================================================
-    //  HANDLER DE SNAP
+    //  HANDLER DE SNAP / COMANDOS DIRECTOS / INIT / API
     // ================================================================
 
     function handleSnapClick(snapData) {
@@ -1261,10 +1252,6 @@ const SmartFlowRouter = (function() {
         _core.setSelected({ type: 'PUERTO', obj: snapData.port, parent: snapData.item });
         notifyUser('Puerto seleccionado: ' + snapData.item.tag + ' - ' + snapData.port.id);
     }
-
-    // ================================================================
-    //  COMANDOS DIRECTOS DEL ROUTER
-    // ================================================================
 
     function executeCommand(cmdLine) {
         ensureInitialized();
@@ -1279,10 +1266,6 @@ const SmartFlowRouter = (function() {
         }
     }
 
-    // ================================================================
-    //  INICIALIZACIÓN
-    // ================================================================
-
     function init(coreInstance, catalogInstance, notifyFn, renderFn) {
         _core = coreInstance;
         _catalog = catalogInstance;
@@ -1290,9 +1273,6 @@ const SmartFlowRouter = (function() {
         _renderUI = renderFn || _renderUI;
     }
 
-    // ================================================================
-    //  API PÚBLICA
-    // ================================================================
     return {
         init: init,
         routeBetweenPorts: routeBetweenPorts,
