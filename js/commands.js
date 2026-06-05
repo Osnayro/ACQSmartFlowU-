@@ -1,10 +1,11 @@
 
 // ============================================================
-// SMARTFLOW COMMANDS v3.3 - Intérprete de Comandos Unificado
+// SMARTFLOW COMMANDS v3.4 - Intérprete de Comandos Unificado
 // Archivo: js/commands.js
 // Compatible: SmartFlowCore v5.6 + SmartFlowRouter v3.5
-// Novedades v3.3: Corrección de spec para PPR y HDPE,
-//                 runFittingInjection propaga spec a ensureFittings,
+// Novedades v3.4: connect acepta orient (dx,dy,dz) para BRANCH de origen,
+//                 connect acepta via (x,y,z) para waypoints,
+//                 edit line add component acepta orient (dx,dy,dz) para BRANCH,
 //                 parseCreate soporta diametro_succion, diametro_descarga,
 //                 diametro_entrada, diametro_salida, altura_salida_desde_base
 // ============================================================
@@ -89,7 +90,7 @@ const SmartFlowCommands = (function() {
 
     function extractNamedParams(parts, startIndex) {
         const params = {};
-        const keywords = ['material', 'spec', 'diameter', 'diametro', 'type', 'tipo'];
+        const keywords = ['material', 'spec', 'diameter', 'diametro', 'type', 'tipo', 'orient', 'direccion', 'via'];
         const skipWords = ['to', 'from', 'at', 'in', 'on', 'by', 'with', 'and', 'route', 'ruta', 'via', 'as', 'like', 'auto', 'add', 'transition', 'transicion'];
         
         for (let i = startIndex || 0; i < parts.length; i++) {
@@ -108,6 +109,40 @@ const SmartFlowCommands = (function() {
             }
         }
         return params;
+    }
+
+    // ✅ NUEVO v3.4: Extraer waypoints de un comando
+    function extractWaypoints(parts, startIdx, endIdx) {
+        const waypoints = [];
+        for (let i = startIdx; i < endIdx; i++) {
+            const coordStr = parts[i];
+            const m = coordStr.match(/\((-?\d+(?:\.\d+)?),(-?\d+(?:\.\d+)?),(-?\d+(?:\.\d+)?)\)/);
+            if (m) {
+                waypoints.push({ 
+                    x: parseFloat(m[1]), 
+                    y: parseFloat(m[2]), 
+                    z: parseFloat(m[3]) 
+                });
+            }
+        }
+        return waypoints;
+    }
+
+    // ✅ NUEVO v3.4: Extraer orientación de un comando
+    function extractOrientation(parts) {
+        const orientIdx = parts.indexOf('orient') !== -1 ? parts.indexOf('orient') : parts.indexOf('direccion');
+        if (orientIdx !== -1 && orientIdx + 1 < parts.length) {
+            const orientStr = parts.slice(orientIdx + 1).join('');
+            const m = orientStr.match(/\((-?\d+\.?\d*),(-?\d+\.?\d*),(-?\d+\.?\d*)\)/);
+            if (m) {
+                return { 
+                    dx: parseFloat(m[1]), 
+                    dy: parseFloat(m[2]), 
+                    dz: parseFloat(m[3]) 
+                };
+            }
+        }
+        return null;
     }
 
     function resolveMaterialAndSpec(explicitParams, connectedObjects, defaults) {
@@ -660,39 +695,29 @@ const SmartFlowCommands = (function() {
         if (namedParams.spec) params.spec = namedParams.spec;
         if (namedParams.type) params.tipo = namedParams.type;
         
-        // ✅ CORREGIDO v3.3: Parsear TODOS los parámetros que createEquipment puede recibir
         for (let i = 5; i < parts.length; i++) {
             let key = parts[i];
             
-            // Dimensiones principales
             if (key === 'diam' || key === 'diametro') {
                 if (params.diametro === undefined) params.diametro = parseFloat(parts[++i]);
-                else i++; // Saltar si ya fue asignado por namedParams
+                else i++;
             }
             else if (key === 'height' || key === 'altura') params.altura = parseFloat(parts[++i]);
             else if (key === 'largo') params.largo = parseFloat(parts[++i]);
             else if (key === 'ancho') params.ancho = parseFloat(parts[++i]);
-            
-            // Diámetros de puertos específicos (NUEVOS v3.3)
             else if (key === 'diametro_succion' || key === 'succion') params.diametro_succion = parseFloat(parts[++i]);
             else if (key === 'diametro_descarga' || key === 'descarga') params.diametro_descarga = parseFloat(parts[++i]);
             else if (key === 'diametro_entrada' || key === 'entrada') params.diametro_entrada = parseFloat(parts[++i]);
             else if (key === 'diametro_salida' || key === 'salida') params.diametro_salida = parseFloat(parts[++i]);
-            
-            // Parámetros especiales para tanque_v (NUEVO v3.3)
             else if (key === 'altura_salida_desde_base' || key === 'altura_salida') params.altura_salida_desde_base = parseFloat(parts[++i]);
-            
-            // Material y spec (solo si no fueron asignados por namedParams)
             else if (key === 'material') {
                 if (params.material === undefined) params.material = parts[++i].toUpperCase();
-                else i++; // Saltar
+                else i++;
             }
             else if (key === 'spec') {
                 if (params.spec === undefined) params.spec = parts[++i];
-                else i++; // Saltar
+                else i++;
             }
-            
-            // Opciones booleanas para plataforma
             else if (key === 'baranda') { var v = parts[++i]; params.baranda = v === 'true' || v === 'si' || v === 'yes'; }
             else if (key === 'escalera') { var v = parts[++i]; params.escalera = v === 'true' || v === 'si' || v === 'yes'; }
         }
@@ -792,7 +817,7 @@ const SmartFlowCommands = (function() {
     }
 
     // ================================================================
-    //  COMANDO CONNECT (v3.3 - Propaga spec)
+    //  COMANDO CONNECT (v3.4 - Soporta orient y via)
     // ================================================================
 
     function parseConnect(cmd) {
@@ -806,10 +831,21 @@ const SmartFlowCommands = (function() {
         let toNozzleRaw = parts[5];
         let paramsStartIndex = 6;
         
-        const knownKeywords = ['material', 'spec', 'diameter', 'diametro', 'type', 'tipo'];
+        const knownKeywords = ['material', 'spec', 'diameter', 'diametro', 'type', 'tipo', 'orient', 'direccion', 'via'];
         if (toNozzleRaw && knownKeywords.indexOf(toNozzleRaw.toLowerCase()) !== -1) {
             toNozzleRaw = null;
             paramsStartIndex = 5;
+        }
+        
+        // ✅ NUEVO v3.4: Extraer orientación del BRANCH de origen
+        const branchOrientation = extractOrientation(parts);
+        
+        // ✅ NUEVO v3.4: Extraer waypoints (via)
+        const viaIdx = parts.indexOf('via');
+        const toIdx = parts.indexOf('to') !== -1 ? parts.indexOf('to') : parts.indexOf('a');
+        let waypoints = [];
+        if (viaIdx !== -1 && toIdx !== -1 && viaIdx < toIdx) {
+            waypoints = extractWaypoints(parts, viaIdx + 1, toIdx);
         }
         
         const namedParams = extractNamedParams(parts, paramsStartIndex);
@@ -871,7 +907,8 @@ const SmartFlowCommands = (function() {
             };
             
             if (typeof SmartFlowRouter !== 'undefined' && typeof SmartFlowRouter.insertarAccesorioEnLinea === 'function') {
-                const nuevoPuertoId = SmartFlowRouter.insertarAccesorioEnLinea(fromEquip, puntoConexion, diameter, true);
+                // ✅ v3.4: Pasar orientación si el usuario la especificó
+                const nuevoPuertoId = SmartFlowRouter.insertarAccesorioEnLinea(fromEquip, puntoConexion, diameter, true, branchOrientation);
                 if (nuevoPuertoId) {
                     effectiveFromNozzle = nuevoPuertoId;
                     startPos = puntoConexion;
@@ -991,11 +1028,20 @@ const SmartFlowCommands = (function() {
 
         if (!endPos) { notifyWithVoice("No se pudo determinar el punto de destino", true); return true; }
 
+        // ✅ NUEVO v3.4: Construir puntos con waypoints si se especificaron
+        let linePoints = [startPos];
+        if (waypoints.length > 0) {
+            for (let w = 0; w < waypoints.length; w++) {
+                linePoints.push(waypoints[w]);
+            }
+        }
+        linePoints.push(endPos);
+
         const nuevaLinea = {
             tag: newTag, diameter: diameter, material: material, spec: spec,
             origin: { objType: isFromLine ? 'line' : 'equipment', equipTag: fromEquip, portId: effectiveFromNozzle },
             destination: { objType: isToLine ? 'line' : 'equipment', equipTag: toEquip, portId: nuevoPuertoId },
-            waypoints: [], _cachedPoints: [startPos, endPos], components: []
+            waypoints: linePoints.slice(1, -1), _cachedPoints: linePoints.slice(), components: []
         };
 
         _core.addLine(nuevaLinea);
@@ -1047,23 +1093,13 @@ const SmartFlowCommands = (function() {
         let paramsStartIdx;
         
         if (viaIdx !== -1 && viaIdx < toIdx) {
-            for (let i = viaIdx + 1; i < toIdx; i++) {
-                const coordStr = parts[i];
-                const m = coordStr.match(/\((-?\d+(?:\.\d+)?),(-?\d+(?:\.\d+)?),(-?\d+(?:\.\d+)?)\)/);
-                if (m) {
-                    waypoints.push({ 
-                        x: parseFloat(m[1]), 
-                        y: parseFloat(m[2]), 
-                        z: parseFloat(m[3]) 
-                    });
-                }
-            }
+            waypoints = extractWaypoints(parts, viaIdx + 1, toIdx);
             paramsStartIdx = toIdx + 2;
         } else {
             paramsStartIdx = toIdx + 2;
         }
         
-        const knownKeywords = ['material', 'spec', 'diameter', 'diametro'];
+        const knownKeywords = ['material', 'spec', 'diameter', 'diametro', 'orient', 'direccion'];
         if (paramsStartIdx < parts.length && knownKeywords.indexOf((parts[paramsStartIdx] || '').toLowerCase()) === -1) {
             toNozzle = parts[paramsStartIdx];
             paramsStartIdx++;
@@ -1342,7 +1378,7 @@ const SmartFlowCommands = (function() {
     }
 
     // ================================================================
-    //  COMANDO EDIT
+    //  COMANDO EDIT (v3.4 - Soporta orient en add component)
     // ================================================================
 
     function parseEditCommand(cmd) {
@@ -1423,6 +1459,10 @@ const SmartFlowCommands = (function() {
                 let position = 0.5; 
                 const atIdx = parts.indexOf('at') !== -1 ? parts.indexOf('at') : parts.indexOf('en');
                 if (atIdx !== -1) position = parseFloat(parts[atIdx + 1]);
+                
+                // ✅ NUEVO v3.4: Extraer orientación del BRANCH
+                const branchOrientation = extractOrientation(parts);
+                
                 const line = _core.findObjectByTag(tag);
                 if (line && _core.getLines().includes(line)) {
                     const compDef = _catalog.getComponent(compType);
@@ -1442,10 +1482,19 @@ const SmartFlowCommands = (function() {
                     if (compDef.generarPuertos) {
                         const nuevosPuertos = compDef.generarPuertos(line, position, line.diameter);
                         if (!line.puertos) line.puertos = [];
-                        nuevosPuertos.forEach(function(p, idx) { p.id = comp.tag + "_" + idx; line.puertos.push(p); });
+                        nuevosPuertos.forEach(function(p, idx) { 
+                            p.id = comp.tag + "_" + idx; 
+                            // ✅ NUEVO v3.4: Si es BRANCH y hay orientación, aplicarla
+                            if (branchOrientation && (p.id.includes('BRANCH') || p.label === 'Derivación' || idx === 2)) {
+                                p.orientacion = branchOrientation;
+                                p.dir = branchOrientation;
+                                p.vector = branchOrientation;
+                            }
+                            line.puertos.push(p); 
+                        });
                     }
                     _core.updateLine(tag, { components: line.components, puertos: line.puertos });
-                    notifyWithVoice("✅ " + (compDef.nombre || compType) + " añadido a " + tag + " en posición " + position.toFixed(2), false);
+                    notifyWithVoice("✅ " + (compDef.nombre || compType) + " añadido a " + tag + " en posición " + position.toFixed(2) + (branchOrientation ? " con orientación personalizada" : ""), false);
                     return true;
                 }
             }
@@ -2063,13 +2112,15 @@ const SmartFlowCommands = (function() {
         const lower = cmd.toLowerCase(); 
         if (lower !== 'help' && lower !== 'ayuda') return false;
         let ayuda = "═══════════════════════════════════════════════════════════\n";
-        ayuda += "              SMARTFLOW PRO v3.3 - COMANDOS\n";
+        ayuda += "              SMARTFLOW PRO v3.4 - COMANDOS\n";
         ayuda += "═══════════════════════════════════════════════════════════\n\n";
         ayuda += "🏗️ CREACIÓN:\n";
         ayuda += "  create [tipo] [tag] at (x,y,z) [diam X] [height X] [material X]\n";
         ayuda += "  create line [tag] route (x,y,z) (x,y,z)... [diameter X] [material X] [spec X]\n\n";
         ayuda += "🔗 CONEXIÓN:\n";
         ayuda += "  connect [origen] [0.5|puerto] to [destino] [puerto] [material X] [diameter X]\n";
+        ayuda += "  connect ... orient (dx,dy,dz)  ← orienta el BRANCH de la Tee de origen\n";
+        ayuda += "  connect ... via (x,y,z) (x,y,z) ← waypoints intermedios\n";
         ayuda += "  route from [origen] [puerto] via (x,y,z)... to [destino] [puerto]\n";
         ayuda += "  tap [origen] [puerto] to [linea] [0.0-1.0] [material X] [diameter X]\n\n";
         ayuda += "✏️ EDICIÓN:\n";
@@ -2077,7 +2128,8 @@ const SmartFlowCommands = (function() {
         ayuda += "  rotate [tag] [angulo] [around X|Y|Z]\n";
         ayuda += "  duplicate [tag] as [nuevo_tag] [offset (dx,dy,dz)]\n";
         ayuda += "  delete equipment|line [tag]\n";
-        ayuda += "  split [línea] at (x,y,z) [type TEE_EQUAL]\n\n";
+        ayuda += "  split [línea] at (x,y,z) [type TEE_EQUAL]\n";
+        ayuda += "  edit line [tag] add component TIPO at POS [orient (dx,dy,dz)]\n\n";
         ayuda += "🔩 ACCESORIOS:\n";
         ayuda += "  accessories [linea] add TIPO@pos TIPO@pos...\n";
         ayuda += "  accessories [linea] auto TIPO TIPO... at POS [diameter X]\n";
