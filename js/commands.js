@@ -15,6 +15,8 @@
 //   - checkMaterialCompatibility: advertencias de incompatibilidad
 //   - Corrección: via extraído correctamente en todos los casos
 //   - Corrección: branchOrientation aplicado en todos los comandos
+//   - Corrección v3.5.1: normalizeCommand protege "set project"
+//   - Corrección v3.5.1: getProjectDefaultSpec usa spec configurado siempre
 // ============================================================
 
 const SmartFlowCommands = (function() {
@@ -38,8 +40,8 @@ const SmartFlowCommands = (function() {
         'eliminar': 'delete', 'borrar': 'delete', 'quitar': 'delete', 'suprimir': 'delete', 'quita': 'delete', 'elimina': 'delete', 'limpiar': 'delete',
         'delete': 'delete', 'remove': 'delete',
         'editar': 'edit', 'modificar': 'edit', 'cambiar': 'edit', 'ajustar': 'edit', 'cambia': 'edit',
-        'edit': 'edit', 'set': 'edit', 'update': 'edit', 'mover': 'move', 'move': 'move',
-        'establecer': 'edit', 'spec': 'edit', 'diametro': 'edit',
+        'edit': 'edit', 'update': 'edit', 'mover': 'move', 'move': 'move',
+        'establecer': 'edit', 'diametro': 'edit',
         'listar': 'list', 'lista': 'list', 'list': 'list', 'inventory': 'list', 'showall': 'list',
         'auditar': 'audit', 'revisar': 'audit', 'verificar': 'audit', 'validar': 'audit', 'audita': 'audit', 'status': 'audit',
         'audit': 'audit', 'check': 'audit',
@@ -76,6 +78,12 @@ const SmartFlowCommands = (function() {
     function normalizeCommand(cmd) {
         const parts = cmd.trim().split(/\s+/);
         if (parts.length === 0) return cmd;
+        
+        // ✅ Proteger comandos compuestos "set project"
+        if (parts.length >= 2 && parts[0].toLowerCase() === 'set' && parts[1].toLowerCase() === 'project') {
+            return cmd;
+        }
+        
         const intent = getIntent(parts[0]);
         if (intent) { parts[0] = intent; return parts.join(' '); }
         return cmd;
@@ -94,7 +102,8 @@ const SmartFlowCommands = (function() {
     }
 
     function getProjectDefaultSpec(material) {
-        if (_projectDefaults.spec && _projectDefaults.spec !== 'PPR_PN12_5') {
+        // ✅ Usar el spec configurado si existe
+        if (_projectDefaults.spec) {
             return _projectDefaults.spec;
         }
         const mat = (material || _projectDefaults.material || '').toUpperCase();
