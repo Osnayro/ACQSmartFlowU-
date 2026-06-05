@@ -1,19 +1,17 @@
 
+
 // ============================================================
-// SMARTFLOW ROUTER v3.5 - Enrutador de Tuberías Inteligente
+// SMARTFLOW ROUTER v3.6 - Enrutador de Tuberías Inteligente
 // Archivo: js/router.js
-// Compatible: SmartFlowCore v5.6 + SmartFlowCommands v3.3
-// Correcciones v3.5: 
-//   - routeWithWaypoints ahora inserta accesorio en línea destino
-//     cuando toPortId es una posición paramétrica (ej: 0.1583)
-//   - Búsqueda de accesorios por spec + material (bug HDPE-100)
-//   - ensureFittings recibe y propaga spec
-//   - findElbowForLine filtra por spec antes de ángulo
-//   - getPortPosition interpreta posiciones paramétricas (0 a 1)
-//   - NO inyecta reductor duplicado cuando ya se insertó en destino
-//   - NO inyecta codo al final cuando se insertó Tee en línea destino
-//   - Orienta el puerto BRANCH de la Tee hacia la dirección de llegada
-//   - SÍ inyecta codo al final en extremos (0, 1) y equipos
+// Compatible: SmartFlowCore v5.6 + SmartFlowCommands v3.5
+// Novedades v3.6:
+//   - insertarAccesorioEnLinea recibe y aplica branchOrientation
+//   - routeBetweenPorts calcula dirección automática del BRANCH
+//   - routeWithWaypoints calcula dirección automática del BRANCH
+//   - calculateBranchDirection: nueva función auxiliar
+//   - Corrección: NO inyecta codo al final cuando se insertó Tee
+//   - Corrección: NO inyecta reductor duplicado
+//   - Orienta el puerto BRANCH hacia la dirección de llegada
 // ============================================================
 
 const SmartFlowRouter = (function() {
@@ -216,6 +214,38 @@ const SmartFlowRouter = (function() {
             intersection: intersection, lateralVector: lateralVector, lateralDir: lateralDir,
             lateralDistance: lateralDistance, isOrthogonal: isOrthogonal, angleDeg: angleDeg,
             needsElbow: !isOrthogonal && (angleDeg > MIN_ANGLE_FOR_ELBOW)
+        };
+    }
+
+    // ================================================================
+    // ✅ NUEVO v3.6: calculateBranchDirection
+    // Calcula la dirección óptima para el BRANCH de una TEE
+    // basada en la posición de la TEE y el destino de la nueva línea
+    // ================================================================
+    function calculateBranchDirection(teePosition, targetPosition, waypoints) {
+        var target;
+        if (waypoints && waypoints.length > 0) {
+            target = waypoints[0];
+        } else if (targetPosition) {
+            target = targetPosition;
+        } else {
+            return { dx: 0, dy: 1, dz: 0 }; // Default: arriba
+        }
+        
+        var dx = target.x - teePosition.x;
+        var dy = target.y - teePosition.y;
+        var dz = target.z - teePosition.z;
+        
+        var len = Math.hypot(dx, dy, dz);
+        
+        if (len < 0.01) {
+            return { dx: 0, dy: 1, dz: 0 };
+        }
+        
+        return {
+            dx: dx / len,
+            dy: dy / len,
+            dz: dz / len
         };
     }
 
@@ -542,7 +572,7 @@ const SmartFlowRouter = (function() {
     }
 
     // ================================================================
-    //  ENSUREFITTINGS (v3.5 FINAL)
+    //  ENSUREFITTINGS
     // ================================================================
 
     function ensureFittings(lineObj, fromObj, fromPortId, toObj, toPortId, diameter, material, spec) {
@@ -672,7 +702,7 @@ const SmartFlowRouter = (function() {
             }
         }
         
-        // --- CODO EN FIN (v3.5 FINAL - Respeta flag _fittingInsertedAtDestination) ---
+        // --- CODO EN FIN (Respeta flag _fittingInsertedAtDestination) ---
         if (toObj && toPortId && puntos.length >= 2 && !lineObj._fittingInsertedAtDestination) {
             var dirPuertoDest = getPortDirection(toObj, toPortId);
             var dirLlegada = { 
@@ -717,10 +747,10 @@ const SmartFlowRouter = (function() {
     }
 
     // ================================================================
-    //  INSERTAR ACCESORIO EN LÍNEA
+    //  INSERTAR ACCESORIO EN LÍNEA (v3.6 - Soporta branchOrientation)
     // ================================================================
 
-    function insertarAccesorioEnLinea(lineTag, puntoConexion, diametroNuevaLinea, forzarTee) {
+    function insertarAccesorioEnLinea(lineTag, puntoConexion, diametroNuevaLinea, forzarTee, branchOrientation) {
         ensureInitialized();
         if (!_core) { notifyUser('Core no inicializado', true); return null; }
         forzarTee = forzarTee || false;
@@ -744,21 +774,84 @@ const SmartFlowRouter = (function() {
         var lineMaterial = linea.material || 'PPR';
         var lineSpec = linea.spec || getExpectedSpecForMaterial(lineMaterial) || 'PPR_PN12_5';
         var tipoAccesorio, descripcion;
-        if (esExtremo && diffDiam) { tipoAccesorio = 'CONCENTRIC_REDUCER'; descripcion = 'Reductor ' + Math.max(diamLinea, diametroNuevaLinea) + '"x' + Math.min(diamLinea, diametroNuevaLinea) + '"'; }
-        else if (!esExtremo && diffDiam) { tipoAccesorio = 'TEE_REDUCING'; descripcion = 'Tee reductora ' + Math.max(diamLinea, diametroNuevaLinea) + '"x' + Math.min(diamLinea, diametroNuevaLinea) + '"'; }
-        else if (!esExtremo) { tipoAccesorio = 'TEE'; descripcion = 'Tee igual ' + diamLinea + '"'; }
-        else { var puertoExtremo = linea.puertos ? linea.puertos.find(function(p) { return esInicio ? p.id === '0' : p.id === '1'; }) : null; if (puertoExtremo) { puertoExtremo.diametro = diametroNuevaLinea; puertoExtremo.status = 'connected'; } _core.updateLine(lineTag, { puertos: linea.puertos }); notifyUser('✅ Conexión directa en extremo de ' + lineTag, false); return puertoExtremo ? puertoExtremo.id : (esInicio ? '0' : '1'); }
+        
+        if (esExtremo && diffDiam) { 
+            tipoAccesorio = 'CONCENTRIC_REDUCER'; 
+            descripcion = 'Reductor ' + Math.max(diamLinea, diametroNuevaLinea) + '"x' + Math.min(diamLinea, diametroNuevaLinea) + '"'; 
+        }
+        else if (!esExtremo && diffDiam) { 
+            tipoAccesorio = 'TEE_REDUCING'; 
+            descripcion = 'Tee reductora ' + Math.max(diamLinea, diametroNuevaLinea) + '"x' + Math.min(diamLinea, diametroNuevaLinea) + '"'; 
+        }
+        else if (!esExtremo) { 
+            tipoAccesorio = 'TEE'; 
+            descripcion = 'Tee igual ' + diamLinea + '"'; 
+        }
+        else { 
+            var puertoExtremo = linea.puertos ? linea.puertos.find(function(p) { return esInicio ? p.id === '0' : p.id === '1'; }) : null; 
+            if (puertoExtremo) { puertoExtremo.diametro = diametroNuevaLinea; puertoExtremo.status = 'connected'; } 
+            _core.updateLine(lineTag, { puertos: linea.puertos }); 
+            notifyUser('✅ Conexión directa en extremo de ' + lineTag, false); 
+            return puertoExtremo ? puertoExtremo.id : (esInicio ? '0' : '1'); 
+        }
+        
         var compEnCatalogo = findComponentInCatalog(tipoAccesorio, lineMaterial, []);
         if (!compEnCatalogo) { notifyUser('Componente no encontrado: ' + tipoAccesorio + ' (' + lineMaterial + ')', true); return null; }
         if (!linea.components) linea.components = [];
         var existeDuplicado = linea.components.some(function(c) { return c.type === compEnCatalogo && Math.abs((c.param || 0) - param) < 0.02; });
-        if (existeDuplicado) { notifyUser('⚠️ Ya existe un ' + descripcion + ' en esa posición', false); var puertoExistente = linea.puertos ? linea.puertos.find(function(p) { return p.id.indexOf(compEnCatalogo) !== -1; }) : null; return puertoExistente ? puertoExistente.id : null; }
-        var comp = { type: compEnCatalogo, tag: compEnCatalogo + '-' + Date.now().toString(36) + '-' + Math.random().toString(36).substr(2, 4), param: param, diameter: diamLinea, material: lineMaterial, spec: lineSpec };
+        if (existeDuplicado) { 
+            notifyUser('⚠️ Ya existe un ' + descripcion + ' en esa posición', false); 
+            var puertoExistente = linea.puertos ? linea.puertos.find(function(p) { return p.id.indexOf(compEnCatalogo) !== -1; }) : null; 
+            return puertoExistente ? puertoExistente.id : null; 
+        }
+        
+        // ✅ v3.6: Normalizar branchOrientation
+        if (!branchOrientation) {
+            branchOrientation = { dx: 0, dy: 1, dz: 0 }; // Default: arriba
+        }
+        var bLen = Math.hypot(branchOrientation.dx, branchOrientation.dy, branchOrientation.dz);
+        if (bLen > 0) {
+            branchOrientation.dx /= bLen;
+            branchOrientation.dy /= bLen;
+            branchOrientation.dz /= bLen;
+        } else {
+            branchOrientation = { dx: 0, dy: 1, dz: 0 };
+        }
+        
+        var comp = { 
+            type: compEnCatalogo, 
+            tag: compEnCatalogo + '-' + Date.now().toString(36) + '-' + Math.random().toString(36).substr(2, 4), 
+            param: param, 
+            diameter: diamLinea, 
+            material: lineMaterial, 
+            spec: lineSpec,
+            branchOrientation: branchOrientation
+        };
         linea.components.push(comp);
+        
+        // ✅ v3.6: Pasar orientación al generador de puertos del catálogo
+        if (typeof _catalog !== 'undefined' && _catalog.getComponent) {
+            var compDef = _catalog.getComponent(compEnCatalogo);
+            if (compDef && compDef.generarPuertos) {
+                var nuevosPuertos = compDef.generarPuertos(linea, param, diamLinea, branchOrientation);
+                if (!linea.puertos) linea.puertos = [];
+                nuevosPuertos.forEach(function(p, idx) {
+                    p.id = comp.tag + '_' + idx;
+                    linea.puertos.push(p);
+                });
+            }
+        }
+        
         _core.updateLine(lineTag, { components: linea.components, puertos: linea.puertos });
         notifyUser('✅ ' + descripcion + ' (' + compEnCatalogo + ') insertado en ' + lineTag + ' @' + param.toFixed(3), false);
+        
+        // Buscar el puerto BRANCH creado
         var lineaActualizada = db.lines.find(function(l) { return l.tag === lineTag; });
-        if (lineaActualizada && lineaActualizada.puertos && lineaActualizada.puertos.length > 0) { var nuevoPuerto = lineaActualizada.puertos.find(function(p2) { return p2.id.indexOf(comp.tag) !== -1; }); if (nuevoPuerto) return nuevoPuerto.id; return lineaActualizada.puertos[lineaActualizada.puertos.length - 1].id; }
+        if (lineaActualizada && lineaActualizada.puertos && lineaActualizada.puertos.length > 0) { 
+            var nuevoPuerto = lineaActualizada.puertos.find(function(p2) { return p2.id.indexOf(comp.tag) !== -1; }); 
+            if (nuevoPuerto) return nuevoPuerto.id; 
+            return lineaActualizada.puertos[lineaActualizada.puertos.length - 1].id; 
+        }
         return null;
     }
 
@@ -823,12 +916,13 @@ const SmartFlowRouter = (function() {
     }
 
     // ================================================================
-    //  RUTEO ENTRE PUERTOS
+    //  RUTEO ENTRE PUERTOS (v3.6 - branchOrientation automático)
     // ================================================================
 
-    function routeBetweenPorts(fromEquipTag, fromPortId, toEquipTag, toPortId, diameter, material, spec) {
+    function routeBetweenPorts(fromEquipTag, fromPortId, toEquipTag, toPortId, diameter, material, spec, options) {
         ensureInitialized();
         if (!_core) { notifyUser('Core no inicializado', true); return null; }
+        options = options || {};
         diameter = diameter || 3; material = material || 'PPR'; spec = spec || 'PPR_PN12_5';
         if (material.toUpperCase().indexOf('PPR') !== -1) spec = 'PPR_PN12_5';
         var db = _core.getDb();
@@ -838,31 +932,80 @@ const SmartFlowRouter = (function() {
         if (!toObj) { notifyUser('Destino ' + toEquipTag + ' no encontrado', true); return null; }
         var startPos = getPortPosition(fromObj, fromPortId);
         if (!startPos) { notifyUser('Puerto origen ' + fromPortId + ' no encontrado', true); return null; }
+        
         var endPos, nuevoPuertoId = toPortId;
         var ptsTo = _core.getLinePoints(toObj) || toObj._cachedPoints || toObj.points3D || toObj.points;
         var isToLine = ptsTo && ptsTo.length >= 2;
+        var isFromLine = _core.getLinePoints(fromObj) && _core.getLinePoints(fromObj).length >= 2;
+        var fittingInserted = false;
+        
+        // ================================================================
+        // ✅ v3.6: Calcular dirección del BRANCH para TEE en origen
+        // ================================================================
+        var originBranchDirection = null;
+        if (isFromLine && isParametricPortId(fromPortId)) {
+            if (options.branchOrientation) {
+                originBranchDirection = options.branchOrientation;
+            } else if (endPos) {
+                originBranchDirection = calculateBranchDirection(startPos, endPos);
+            } else {
+                originBranchDirection = { dx: 0, dy: 1, dz: 0 };
+            }
+        }
+        
+        // ================================================================
+        // ✅ v3.6: Calcular dirección del BRANCH para TEE en destino
+        // ================================================================
+        var destBranchDirection = null;
+        
         if (isToLine) {
             if (!toPortId || toPortId === '') {
                 var minDist = Infinity, bestPoint = ptsTo[0];
                 for (var i = 0; i < ptsTo.length - 1; i++) { var proj = projectPointOnSegment(startPos, ptsTo[i], ptsTo[i+1]); if (proj.distance < minDist) { minDist = proj.distance; bestPoint = proj.point; } }
-                var puertoInsertado = insertarAccesorioEnLinea(toEquipTag, bestPoint, diameter, true);
-                if (!puertoInsertado) return null;
-                nuevoPuertoId = puertoInsertado; endPos = bestPoint;
-                toObj = _core.findObjectByTag(toEquipTag) || db.lines.find(function(l) { return l.tag === toEquipTag; });
+                endPos = bestPoint;
+                destBranchDirection = calculateBranchDirection(endPos, startPos); // Inverso
+            } else if (isParametricPortId(toPortId)) {
+                endPos = getPointAtParam(ptsTo, parseFloat(toPortId));
+                destBranchDirection = calculateBranchDirection(endPos, startPos);
+            } else if (toPortId === '0' || toPortId === '1') {
+                endPos = toPortId === '0' ? ptsTo[0] : ptsTo[ptsTo.length - 1];
             } else {
-                var puntoConexion;
-                if (toPortId === '0') puntoConexion = ptsTo[0];
-                else if (toPortId === '1') puntoConexion = ptsTo[ptsTo.length - 1];
-                else puntoConexion = getPortPosition(toObj, toPortId);
-                if (!puntoConexion) { notifyUser('Puerto destino no encontrado', true); return null; }
-                var esExtremo = (toPortId === '0' || toPortId === '1');
-                var diffDiam = necesitaReductor(diameter, (toObj.diameter || 4));
-                if (esExtremo && !diffDiam) { nuevoPuertoId = toPortId; endPos = puntoConexion; }
-                else if (esExtremo && diffDiam) { var puertoInsertado2 = insertarAccesorioEnLinea(toEquipTag, puntoConexion, diameter, false); if (puertoInsertado2) { nuevoPuertoId = puertoInsertado2; } endPos = puntoConexion; }
-                else { var puertoInsertado3 = insertarAccesorioEnLinea(toEquipTag, puntoConexion, diameter, true); if (!puertoInsertado3) return null; nuevoPuertoId = puertoInsertado3; endPos = puntoConexion; }
+                endPos = getPortPosition(toObj, toPortId);
             }
-        } else { endPos = getPortPosition(toObj, nuevoPuertoId); }
+        } else {
+            endPos = getPortPosition(toObj, toPortId);
+        }
+        
         if (!endPos) { notifyUser('Puerto destino no encontrado', true); return null; }
+        
+        // Si no se calculó antes (porque no era línea), calcular ahora
+        if (!originBranchDirection && isFromLine && isParametricPortId(fromPortId)) {
+            originBranchDirection = options.branchOrientation || calculateBranchDirection(startPos, endPos);
+        }
+        if (!destBranchDirection && isToLine && (isParametricPortId(toPortId) || !toPortId || toPortId === '')) {
+            destBranchDirection = options.branchOrientation ? 
+                { dx: -options.branchOrientation.dx, dy: -options.branchOrientation.dy, dz: -options.branchOrientation.dz } : 
+                calculateBranchDirection(endPos, startPos);
+        }
+        
+        // Insertar TEE en origen si es punto intermedio
+        if (isFromLine && isParametricPortId(fromPortId)) {
+            var puertoInsertado = insertarAccesorioEnLinea(fromEquipTag, startPos, diameter, true, originBranchDirection);
+            if (!puertoInsertado) return null;
+            fromPortId = puertoInsertado;
+            fromObj = _core.findObjectByTag(fromEquipTag) || db.lines.find(function(l) { return l.tag === fromEquipTag; });
+        }
+        
+        // Insertar TEE en destino si es punto intermedio
+        if (isToLine && (isParametricPortId(toPortId) || !toPortId || toPortId === '')) {
+            var puertoInsertado2 = insertarAccesorioEnLinea(toEquipTag, endPos, diameter, true, destBranchDirection);
+            if (!puertoInsertado2) return null;
+            nuevoPuertoId = puertoInsertado2;
+            toObj = _core.findObjectByTag(toEquipTag) || db.lines.find(function(l) { return l.tag === toEquipTag; });
+            fittingInserted = true;
+        }
+        
+        // Construir ruta
         var startDirRaw = getPortDirection(fromObj, fromPortId);
         var startDir = normalizeVector(startDirRaw);
         var orthoResultStart = calculateOrthogonalIntersection(startPos, startDir, endPos);
@@ -872,6 +1015,7 @@ const SmartFlowRouter = (function() {
         else { waypoints.push(extStart); waypoints.push(orthoResultStart.intersection); waypoints.push(endPos); }
         var uniqueWaypoints = waypoints.filter(function(pt, i, arr) { return i === 0 || distance(pt, arr[i-1]) > 1; });
         if (uniqueWaypoints.length < 2) uniqueWaypoints = [startPos, endPos];
+        
         var tag = generateUniqueLineTag();
         var isFromEquip = fromObj.posX !== undefined || (fromObj.pos && fromObj.pos.x !== undefined);
         var isToEquip = toObj.posX !== undefined || (toObj.pos && toObj.pos.x !== undefined);
@@ -882,6 +1026,11 @@ const SmartFlowRouter = (function() {
             waypoints: uniqueWaypoints.slice(1, -1), _cachedPoints: uniqueWaypoints.slice(),
             points3D: uniqueWaypoints.slice(), points: uniqueWaypoints.slice(), components: []
         };
+        
+        if (fittingInserted) {
+            nuevaLinea._fittingInsertedAtDestination = true;
+        }
+        
         _core.addLine(nuevaLinea);
         var lineaRegistrada = db.lines.find(function(l) { return l.tag === tag; }) || nuevaLinea;
         var fittingInfo = ensureFittings(lineaRegistrada, fromObj, fromPortId, toObj, nuevoPuertoId, diameter, material, spec);
@@ -894,13 +1043,14 @@ const SmartFlowRouter = (function() {
     }
 
     // ================================================================
-    //  RUTEO CON WAYPOINTS (v3.5 FINAL - Orienta puerto BRANCH)
+    //  RUTEO CON WAYPOINTS (v3.6 - branchOrientation automático)
     // ================================================================
 
-    function routeWithWaypoints(fromEquipTag, fromPortId, toEquipTag, toPortId, waypoints, diameter, material, spec) {
+    function routeWithWaypoints(fromEquipTag, fromPortId, toEquipTag, toPortId, waypoints, diameter, material, spec, options) {
         ensureInitialized();
         if (!_core) { notifyUser('Core no inicializado', true); return null; }
         
+        options = options || {};
         diameter = diameter || 3;
         material = material || 'PPR';
         spec = spec || 'PPR_PN12_5';
@@ -924,7 +1074,26 @@ const SmartFlowRouter = (function() {
         var endPos, nuevoPuertoId = toPortId;
         var ptsTo = _core.getLinePoints(toObj) || toObj._cachedPoints || toObj.points3D || toObj.points;
         var isToLine = ptsTo && ptsTo.length >= 2;
+        var isFromLine = _core.getLinePoints(fromObj) && _core.getLinePoints(fromObj).length >= 2;
         var fittingInserted = false;
+        
+        // ================================================================
+        // ✅ v3.6: Calcular dirección del BRANCH para TEE en origen
+        // ================================================================
+        var originBranchDirection = null;
+        if (isFromLine && isParametricPortId(fromPortId)) {
+            if (options.branchOrientation) {
+                originBranchDirection = options.branchOrientation;
+            } else {
+                // Calcular hacia el primer waypoint o hacia el destino
+                originBranchDirection = calculateBranchDirection(startPos, endPos, waypoints);
+            }
+        }
+        
+        // ================================================================
+        // ✅ v3.6: Calcular dirección del BRANCH para TEE en destino
+        // ================================================================
+        var destBranchDirection = null;
         
         if (isToLine) {
             if (!toPortId || toPortId === '') {
@@ -933,76 +1102,19 @@ const SmartFlowRouter = (function() {
                     var proj = projectPointOnSegment(startPos, ptsTo[i], ptsTo[i+1]); 
                     if (proj.distance < minDist) { minDist = proj.distance; bestPoint = proj.point; } 
                 }
-                var puertoInsertado = insertarAccesorioEnLinea(toEquipTag, bestPoint, diameter, true);
-                if (!puertoInsertado) return null;
-                nuevoPuertoId = puertoInsertado; 
                 endPos = bestPoint;
-                fittingInserted = true;
-                toObj = _core.findObjectByTag(toEquipTag) || db.lines.find(function(l) { return l.tag === toEquipTag; });
+                destBranchDirection = calculateBranchDirection(endPos, startPos);
             } else if (isParametricPortId(toPortId)) {
                 var paramValue = parseFloat(toPortId);
-                var puntoConexion = getPointAtParam(ptsTo, paramValue);
-                if (!puntoConexion) { notifyUser('No se pudo calcular punto en posicion ' + toPortId, true); return null; }
-                
-                var puertoInsertado3 = insertarAccesorioEnLinea(toEquipTag, puntoConexion, diameter, true);
-                if (!puertoInsertado3) return null;
-                nuevoPuertoId = puertoInsertado3; 
-                endPos = puntoConexion;
-                fittingInserted = true;
-                toObj = _core.findObjectByTag(toEquipTag) || db.lines.find(function(l) { return l.tag === toEquipTag; });
-                
-                // ✅ v3.5: Orientar el puerto BRANCH de la Tee hacia la dirección de llegada
-                if (toObj && toObj.puertos) {
-                    var puertoTee = toObj.puertos.find(function(p) { return p.id === nuevoPuertoId; });
-                    if (puertoTee) {
-                        var lastPoint;
-                        if (waypoints && waypoints.length > 0) {
-                            lastPoint = waypoints[waypoints.length - 1];
-                        } else {
-                            lastPoint = startPos;
-                        }
-                        var dirLlegada = {
-                            dx: puntoConexion.x - lastPoint.x,
-                            dy: puntoConexion.y - lastPoint.y,
-                            dz: puntoConexion.z - lastPoint.z
-                        };
-                        var lenLlegada = Math.hypot(dirLlegada.dx, dirLlegada.dy, dirLlegada.dz);
-                        if (lenLlegada > 0) {
-                            puertoTee.orientacion = {
-                                dx: dirLlegada.dx / lenLlegada,
-                                dy: dirLlegada.dy / lenLlegada,
-                                dz: dirLlegada.dz / lenLlegada
-                            };
-                            puertoTee.dir = puertoTee.orientacion;
-                            puertoTee.vector = puertoTee.orientacion;
-                        }
-                    }
-                    _core.updateLine(toEquipTag, { puertos: toObj.puertos });
-                }
+                endPos = getPointAtParam(ptsTo, paramValue);
+                if (!endPos) { notifyUser('No se pudo calcular punto en posicion ' + toPortId, true); return null; }
+                destBranchDirection = calculateBranchDirection(endPos, startPos);
+            } else if (toPortId === '0') {
+                endPos = ptsTo[0];
+            } else if (toPortId === '1') {
+                endPos = ptsTo[ptsTo.length - 1];
             } else {
-                var puntoConexion;
-                if (toPortId === '0') puntoConexion = ptsTo[0];
-                else if (toPortId === '1') puntoConexion = ptsTo[ptsTo.length - 1];
-                else puntoConexion = getPortPosition(toObj, toPortId);
-                
-                if (!puntoConexion) { notifyUser('Puerto destino no encontrado', true); return null; }
-                
-                var esExtremo = (toPortId === '0' || toPortId === '1');
-                var diffDiam = necesitaReductor(diameter, (toObj.diameter || 4));
-                
-                if (esExtremo && !diffDiam) { 
-                    nuevoPuertoId = toPortId; 
-                    endPos = puntoConexion; 
-                } else if (esExtremo && diffDiam) { 
-                    var puertoInsertado2 = insertarAccesorioEnLinea(toEquipTag, puntoConexion, diameter, false); 
-                    if (puertoInsertado2) { nuevoPuertoId = puertoInsertado2; } 
-                    endPos = puntoConexion; 
-                } else { 
-                    var puertoInsertado4 = insertarAccesorioEnLinea(toEquipTag, puntoConexion, diameter, true); 
-                    if (!puertoInsertado4) return null; 
-                    nuevoPuertoId = puertoInsertado4; 
-                    endPos = puntoConexion; 
-                }
+                endPos = getPortPosition(toObj, toPortId);
             }
         } else {
             endPos = getPortPosition(toObj, toPortId);
@@ -1010,6 +1122,39 @@ const SmartFlowRouter = (function() {
         
         if (!endPos) { notifyUser('Puerto destino no encontrado', true); return null; }
         
+        // Insertar TEE en origen
+        if (isFromLine && isParametricPortId(fromPortId)) {
+            var puertoInsertado = insertarAccesorioEnLinea(fromEquipTag, startPos, diameter, true, originBranchDirection);
+            if (!puertoInsertado) return null;
+            fromPortId = puertoInsertado;
+            fromObj = _core.findObjectByTag(fromEquipTag) || db.lines.find(function(l) { return l.tag === fromEquipTag; });
+        }
+        
+        // Insertar TEE en destino
+        if (isToLine && (isParametricPortId(toPortId) || !toPortId || toPortId === '')) {
+            var puertoInsertado3 = insertarAccesorioEnLinea(toEquipTag, endPos, diameter, true, destBranchDirection);
+            if (!puertoInsertado3) return null;
+            nuevoPuertoId = puertoInsertado3;
+            toObj = _core.findObjectByTag(toEquipTag) || db.lines.find(function(l) { return l.tag === toEquipTag; });
+            fittingInserted = true;
+            
+            // ✅ v3.6: Orientar el puerto BRANCH de la Tee hacia la dirección de llegada
+            if (toObj && toObj.puertos) {
+                var puertoTee = toObj.puertos.find(function(p) { return p.id === nuevoPuertoId; });
+                if (puertoTee && destBranchDirection) {
+                    puertoTee.orientacion = {
+                        dx: destBranchDirection.dx,
+                        dy: destBranchDirection.dy,
+                        dz: destBranchDirection.dz
+                    };
+                    puertoTee.dir = puertoTee.orientacion;
+                    puertoTee.vector = puertoTee.orientacion;
+                    _core.updateLine(toEquipTag, { puertos: toObj.puertos });
+                }
+            }
+        }
+        
+        // Construir puntos
         var allPoints = [startPos];
         if (waypoints && Array.isArray(waypoints)) {
             for (var w = 0; w < waypoints.length; w++) {
@@ -1047,7 +1192,6 @@ const SmartFlowRouter = (function() {
         }
         
         var tag = generateUniqueLineTag();
-        
         var isFromEquip = fromObj.posX !== undefined || (fromObj.pos && fromObj.pos.x !== undefined);
         var isToEquip = toObj.posX !== undefined || (toObj.pos && toObj.pos.x !== undefined);
         
@@ -1065,12 +1209,11 @@ const SmartFlowRouter = (function() {
             components: []
         };
         
-        _core.addLine(nuevaLinea);
-        
-        // ✅ v3.5: Marcar que se insertó un accesorio en el destino
         if (fittingInserted) {
             nuevaLinea._fittingInsertedAtDestination = true;
         }
+        
+        _core.addLine(nuevaLinea);
         
         var lineaRegistrada = db.lines.find(function(l) { return l.tag === tag; }) || nuevaLinea;
         
@@ -1164,6 +1307,7 @@ const SmartFlowRouter = (function() {
         findElbowForLine: findElbowForLine,
         findReducerForDiameters: findReducerForDiameters,
         calculateOrthogonalIntersection: calculateOrthogonalIntersection,
+        calculateBranchDirection: calculateBranchDirection,
         getFittingLength: getFittingLength,
         ensureFittings: ensureFittings,
         necesitaReductor: necesitaReductor,
