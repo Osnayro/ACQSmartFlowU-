@@ -1,9 +1,14 @@
 
 // ============================================================
-// SMARTFLOW CATALOG v4.1 - Catálogo Industrial Unificado
+// SMARTFLOW CATALOG v4.1.1 - Catálogo Industrial Unificado
 // Archivo: js/catalog.js
 // Industrias: Agua • Oil&Gas • Petroquímica • Química • Alimentos
-// Novedades v4.1: Soporte CONCRETO, ALUMINIO, MADERA + specs
+// Novedades v4.1.1:
+//   - getPerpendicularVector devuelve vectores horizontal y vertical
+//   - baseGenerators.TEE_EQUAL acepta orientacionSugerida
+//   - baseGenerators.TEE_REDUCING acepta orientacionSugerida
+//   - baseGenerators.CROSS usa nuevo getPerpendicularVector
+//   - Corrección: BRANCH se orienta hacia dirección de llegada
 // ============================================================
 
 const SmartFlowCatalog = (function() {
@@ -12,7 +17,6 @@ const SmartFlowCatalog = (function() {
     // 1. ESPECIFICACIONES DE MATERIALES
     // ================================================================
     const specs = {
-        // Originales v3.5.2
         "PPR_PN12_5": { material: "PPR", norma: "IRAM 13471", presion: "PN 12.5", color: 0x7c3aed, conexion: "TERMOFUSION" },
         "ACERO_SCH80": { material: "Acero al Carbono", norma: "ASTM A106 Gr. B", schedule: "SCH 80", color: 0x94a3b8, conexion: "NPT" },
         "ACERO_150_RF": { material: "Acero al Carbono", norma: "ASTM A105", clase: "150", cara: "RF", color: 0x64748b, conexion: "BRIDADA" },
@@ -22,8 +26,6 @@ const SmartFlowCatalog = (function() {
         "PTFE_LINED": { material: "Acero al Carbono Revestido PTFE", norma: "ASTM A395", color: 0xa78bfa, conexion: "BRIDADA" },
         "HDPE_PE100": { material: "HDPE", norma: "PE100", presion: "PN 10", color: 0x22c55e, conexion: "ELECTROFUSION" },
         "PVC_SCH80": { material: "PVC", norma: "ASTM D1785", schedule: "SCH 80", color: 0xeab308, conexion: "CEMENTADO" },
-        
-        // Nuevas especificaciones v4.0
         "CS_600_RF": { material: "Acero al Carbono", norma: "ASTM A105", clase: "600", cara: "RF", color: 0x334155, conexion: "BRIDADA" },
         "CS_900_RF": { material: "Acero al Carbono", norma: "ASTM A105", clase: "900", cara: "RF", color: 0x1e293b, conexion: "BRIDADA" },
         "CS_1500_RTJ": { material: "Acero al Carbono", norma: "ASTM A105", clase: "1500", cara: "RTJ", color: 0x0f172a, conexion: "BRIDADA" },
@@ -39,18 +41,15 @@ const SmartFlowCatalog = (function() {
         "FRP": { material: "Fibra de Vidrio (FRP)", norma: "ASTM D2996", color: 0x8b5cf6, conexion: "LAMINADO" },
         "RUBBER_LINED": { material: "Acero Revestido Goma", norma: "ASTM A395", color: 0xec4899, conexion: "BRIDADA" },
         "GLASS_LINED": { material: "Acero Revestido Vidrio", norma: "DIN 2873", color: 0xf0f9ff, conexion: "BRIDADA" },
-        
-        // Nuevas especificaciones v4.1 - Materiales estructurales y de construcción
         "HORMIGON_ESTRUCTURAL": { material: "Concreto Armado", norma: "ACI 318", resistencia: "f'c=28 MPa", color: 0x9ca3af, conexion: "ANCLADO" },
         "ALUMINIO_ESTRUCTURAL": { material: "Aluminio Estructural 6061-T6", norma: "ASTM B308", color: 0xd1d5db, conexion: "PERNADO" },
         "MADERA_ESTRUCTURAL": { material: "Madera Estructural", norma: "NDS 2018", color: 0x8b6914, conexion: "CLAVADO/PERNADO" }
     };
 
     // ================================================================
-    // 2. DEFINICIÓN DE EQUIPOS (COMPLETO v4.0 + v4.1)
+    // 2. DEFINICIÓN DE EQUIPOS (COMPLETO)
     // ================================================================
     const equipment = {
-        // ─── ORIGINALES v3.5.2 ───────────────────────────
         tanque_v: { 
             nombre: 'Tanque Vertical', categoria: 'almacenamiento', forma: 'cilindro',
             generarPuertos: (eq) => {
@@ -180,8 +179,6 @@ const SmartFlowCatalog = (function() {
             forma: 'rect',
             generarPuertos: (eq) => []
         },
-
-        // ─── TRATAMIENTO DE AGUA ─────────────────────────
         desgasificador: {
             nombre: 'Desgasificador', categoria: 'tratamiento', forma: 'cilindro',
             generarPuertos: (eq) => [
@@ -251,8 +248,6 @@ const SmartFlowCatalog = (function() {
                 { id: 'VENT', label: 'Venteo H2', relX: 0, relY: eq.altura/2, relZ: 0, diametro: 2, tipoConexion: 'NPT', orientacion: { dx: 0, dy: 1, dz: 0 } }
             ]
         },
-
-        // ─── OIL & GAS ────────────────────────────────────
         separador_trifasico: {
             nombre: 'Separador Trifásico', categoria: 'proceso', forma: 'cilindro_horizontal',
             generarPuertos: (eq) => [
@@ -300,8 +295,6 @@ const SmartFlowCatalog = (function() {
                 { id: 'OUT', label: 'Salida', relX: eq.largo/2, relY: 0, relZ: 0, diametro: 6, tipoConexion: 'BRIDADA', orientacion: { dx: 1, dy: 0, dz: 0 } }
             ]
         },
-
-        // ─── PETROQUÍMICA ────────────────────────────────
         columna_fraccionadora: {
             nombre: 'Columna Fraccionadora', categoria: 'proceso', forma: 'cilindro',
             generarPuertos: (eq) => [
@@ -362,8 +355,6 @@ const SmartFlowCatalog = (function() {
                 { id: 'BOT', label: 'Fondos', relX: eq.diametro/2, relY: -eq.altura/3, relZ: 0, diametro: 4, tipoConexion: 'BRIDADA', orientacion: { dx: 1, dy: 0, dz: 0 } }
             ]
         },
-
-        // ─── QUÍMICA ─────────────────────────────────────
         reactor_encamisado: {
             nombre: 'Reactor Encamisado', categoria: 'proceso', forma: 'cilindro',
             generarPuertos: (eq) => [
@@ -419,8 +410,6 @@ const SmartFlowCatalog = (function() {
                 { id: 'CAKE', label: 'Torta', relX: eq.largo/2, relY: 0, relZ: eq.diametro/2, diametro: 4, tipoConexion: 'ABIERTA', orientacion: { dx: 1, dy: 0, dz: 1 } }
             ]
         },
-
-        // ─── ALIMENTOS / LÁCTEOS ─────────────────────────
         tanque_aseptico: {
             nombre: 'Tanque Aséptico', categoria: 'almacenamiento', forma: 'cilindro',
             generarPuertos: (eq) => [
@@ -469,7 +458,7 @@ const SmartFlowCatalog = (function() {
     };
 
     // ================================================================
-    // 3. COMPONENTES DE TUBERÍA (COMPLETO v4.0)
+    // 3. COMPONENTES DE TUBERÍA
     // ================================================================
     const components = {
         TEE_EQUAL_CS: { tipo: 'TEE_EQUAL', nombre: 'Tee Recta Acero', abbr: 'TE', spec: 'ACERO_150_RF', norma: 'ASTM A234 WPB', material: 'Acero al Carbono' },
@@ -624,13 +613,8 @@ const SmartFlowCatalog = (function() {
     };
 
     // ================================================================
-    // 4-10. GENERADORES, DIMENSIONES, ALIAS, FACTORÍA, API (COMPLETO)
+    // 4. GENERADORES DE PUERTOS (CORREGIDO v4.1.1)
     // ================================================================
-    
-    // [ ... Todo el código de generadores, dimensiones, alias, factoría y API
-    //   se mantiene exactamente igual que en la versión v4.0 que ya tienes.
-    //   Solo se actualiza la función createEquipment para soportar
-    //   los nuevos materiales estructurales ... ]
 
     function calculateLineDirection(line, param) {
         if (!line) return { dx: 1, dy: 0, dz: 0 };
@@ -659,13 +643,26 @@ const SmartFlowCatalog = (function() {
         return { dx: dx/len, dy: dy/len, dz: dz/len };
     }
 
+    // ================================================================
+    // CORREGIDO v4.1.1: getPerpendicularVector devuelve 2 vectores
+    // ================================================================
     function getPerpendicularVector(dir) {
-        if (Math.abs(dir.dy) > 0.9) return { dx: 1, dy: 0, dz: 0 };
-        let perp = { dx: -dir.dy, dy: dir.dx, dz: 0 };
-        const len = Math.hypot(perp.dx, perp.dy, perp.dz);
-        if (len < 0.1) perp = { dx: 1, dy: 0, dz: 0 };
-        else { perp.dx /= len; perp.dy /= len; perp.dz /= len; }
-        return perp;
+        // Vector perpendicular en el plano XZ (horizontal)
+        let perp1 = { dx: -dir.dz, dy: 0, dz: dir.dx };
+        let len1 = Math.hypot(perp1.dx, perp1.dy, perp1.dz);
+        if (len1 < 0.1) perp1 = { dx: 1, dy: 0, dz: 0 };
+        else { perp1.dx /= len1; perp1.dy /= len1; perp1.dz /= len1; }
+        
+        // Vector perpendicular en el plano vertical (contiene Y)
+        let perp2 = { dx: -dir.dy * dir.dx, dy: dir.dx * dir.dx + dir.dz * dir.dz, dz: -dir.dy * dir.dz };
+        let len2 = Math.hypot(perp2.dx, perp2.dy, perp2.dz);
+        if (len2 < 0.1) perp2 = { dx: 0, dy: 1, dz: 0 };
+        else { perp2.dx /= len2; perp2.dy /= len2; perp2.dz /= len2; }
+        
+        return {
+            horizontal: perp1,
+            vertical: perp2
+        };
     }
 
     function getComponentOffset(tipo, diametro) {
@@ -673,21 +670,44 @@ const SmartFlowCatalog = (function() {
         return dim > 0 ? dim : 50;
     }
 
+    // ================================================================
+    // CORREGIDO v4.1.1: baseGenerators acepta orientacionSugerida
+    // ================================================================
     const baseGenerators = {
-        TEE_EQUAL: (line, param, diametro) => {
+        TEE_EQUAL: (line, param, diametro, orientacionSugerida) => {
             const dir = calculateLineDirection(line, param);
-            const perp = getPerpendicularVector(dir);
+            const perps = getPerpendicularVector(dir);
             const offset = getComponentOffset('TEE_EQUAL', diametro);
+            
+            let perp;
+            if (orientacionSugerida) {
+                perp = orientacionSugerida;
+                const len = Math.hypot(perp.dx, perp.dy, perp.dz) || 1;
+                perp = { dx: perp.dx/len, dy: perp.dy/len, dz: perp.dz/len };
+            } else {
+                perp = perps.vertical;
+            }
+            
             return [
                 { id: 'RUN1', label: 'Entrada', relX: -dir.dx*offset, relY: -dir.dy*offset, relZ: -dir.dz*offset, orientacion: dir, diametro },
                 { id: 'RUN2', label: 'Salida', relX: dir.dx*offset, relY: dir.dy*offset, relZ: dir.dz*offset, orientacion: dir, diametro },
                 { id: 'BRANCH', label: 'Derivación', relX: perp.dx*offset, relY: perp.dy*offset, relZ: perp.dz*offset, orientacion: perp, diametro }
             ];
         },
-        TEE_REDUCING: (line, param, diametro) => {
+        TEE_REDUCING: (line, param, diametro, orientacionSugerida) => {
             const dir = calculateLineDirection(line, param);
-            const perp = getPerpendicularVector(dir);
+            const perps = getPerpendicularVector(dir);
             const offset = getComponentOffset('TEE_REDUCING', diametro);
+            
+            let perp;
+            if (orientacionSugerida) {
+                perp = orientacionSugerida;
+                const len = Math.hypot(perp.dx, perp.dy, perp.dz) || 1;
+                perp = { dx: perp.dx/len, dy: perp.dy/len, dz: perp.dz/len };
+            } else {
+                perp = perps.vertical;
+            }
+            
             return [
                 { id: 'RUN1', label: 'Entrada', relX: -dir.dx*offset, relY: -dir.dy*offset, relZ: -dir.dz*offset, orientacion: dir, diametro },
                 { id: 'RUN2', label: 'Salida', relX: dir.dx*offset, relY: dir.dy*offset, relZ: dir.dz*offset, orientacion: dir, diametro },
@@ -696,8 +716,9 @@ const SmartFlowCatalog = (function() {
         },
         CROSS: (line, param, diametro) => {
             const dir = calculateLineDirection(line, param);
-            const perp1 = getPerpendicularVector(dir);
-            const perp2 = { dx: dir.dy * perp1.dz - dir.dz * perp1.dy, dy: dir.dz * perp1.dx - dir.dx * perp1.dz, dz: dir.dx * perp1.dy - dir.dy * perp1.dx };
+            const perps = getPerpendicularVector(dir);
+            const perp1 = perps.horizontal;
+            const perp2 = perps.vertical;
             const offset = getComponentOffset('CROSS', diametro);
             return [
                 { id: 'RUN1', label: 'Entrada', relX: -dir.dx*offset, relY: -dir.dy*offset, relZ: -dir.dz*offset, orientacion: dir, diametro },
@@ -744,6 +765,9 @@ const SmartFlowCatalog = (function() {
     }
     assignGenerators();
 
+    // ================================================================
+    // 5. DIMENSIONES
+    // ================================================================
     const dimensiones = {
         "codo_90": { 2: 152, 3: 229, 4: 305, 6: 457, 8: 610, 10: 762, 12: 914 },
         "codo_45": { 2: 80, 3: 110, 4: 150, 6: 230, 8: 305, 10: 381, 12: 457 },
@@ -788,6 +812,39 @@ const SmartFlowCatalog = (function() {
         return 0;
     }
 
+    function getComponentDimensionInterpolated(tipo, diametro) {
+        const exact = getComponentDimension(tipo, diametro);
+        if (exact > 0) return exact;
+        let lookupTipo = tipo;
+        const tipoUpper = (tipo || '').toUpperCase();
+        if (tipoUpper.includes('TEE_REDUCING')) lookupTipo = 'tee_reducing';
+        else if (tipoUpper.includes('TEE')) lookupTipo = 'tee';
+        else if (tipoUpper.includes('ELBOW_90')) lookupTipo = 'codo_90';
+        else if (tipoUpper.includes('ELBOW_45')) lookupTipo = 'codo_45';
+        else if (tipoUpper.includes('GATE_VALVE')) lookupTipo = 'valvula_compuerta';
+        else if (tipoUpper.includes('GLOBE_VALVE')) lookupTipo = 'valvula_globo';
+        else if (tipoUpper.includes('BALL_VALVE')) lookupTipo = 'valvula_bola';
+        else if (tipoUpper.includes('BUTTERFLY_VALVE')) lookupTipo = 'valvula_mariposa';
+        else if (tipoUpper.includes('UNION')) lookupTipo = 'union_universal';
+        else if (tipoUpper.includes('TRANSITION')) lookupTipo = 'adaptador_macho';
+        const dims = dimensiones[lookupTipo];
+        if (!dims || typeof dims !== 'object') return 50;
+        const diameters = Object.keys(dims).map(Number).sort((a, b) => a - b);
+        if (diameters.length === 0) return 50;
+        if (diametro <= diameters[0]) return dims[diameters[0]];
+        if (diametro >= diameters[diameters.length - 1]) return dims[diameters[diameters.length - 1]];
+        for (let i = 0; i < diameters.length - 1; i++) {
+            if (diametro >= diameters[i] && diametro <= diameters[i + 1]) {
+                const d1 = diameters[i], d2 = diameters[i + 1], v1 = dims[d1], v2 = dims[d2];
+                return Math.round(v1 + (v2 - v1) * (diametro - d1) / (d2 - d1));
+            }
+        }
+        return 50;
+    }
+
+    // ================================================================
+    // 6. ALIAS DE EQUIPOS
+    // ================================================================
     const _equipmentAliases = {
         'tanque_vertical': 'tanque_v', 'tanquevertical': 'tanque_v', 'tanque_horizontal': 'tanque_h', 'tanquehorizontal': 'tanque_h',
         'bomba_centrifuga': 'bomba', 'bombacentrifuga': 'bomba', 'bomba_dosificadora': 'bomba_dosificacion',
@@ -820,6 +877,21 @@ const SmartFlowCatalog = (function() {
         'filler': 'llenadora', 'hp_homogenizer': 'homogeneizador_ap'
     };
 
+    function resolveEquipmentAlias(tipo) {
+        if (!tipo) return null;
+        const key = tipo.toLowerCase().replace(/[\s-]+/g, '_');
+        if (_equipmentAliases[key]) return _equipmentAliases[key];
+        if (equipment[tipo]) return tipo;
+        if (equipment[key]) return key;
+        for (const eqKey of Object.keys(equipment)) {
+            if (eqKey.includes(key) || key.includes(eqKey)) return eqKey;
+        }
+        return null;
+    }
+
+    // ================================================================
+    // 7. CATEGORÍAS Y ALIAS DE COMPONENTES
+    // ================================================================
     const _componentCategories = {
         'TEE': ['TEE_EQUAL', 'TEE_REDUCING'], 'CROSS': ['CROSS'], 'PIPE': ['PIPE'],
         'ELBOW': ['ELBOW_90_LR', 'ELBOW_90_SR', 'ELBOW_45', 'ELBOW_90_PPR', 'ELBOW_45_PPR', 'ELBOW_90_HDPE', 'ELBOW_45_HDPE', 'ELBOW_90_PVC', 'ELBOW_45_PVC', 'ELBOW_90_LR_SS', 'ELBOW_45_SS', 'ELBOW_90_SANITARY'],
@@ -870,18 +942,6 @@ const SmartFlowCatalog = (function() {
         'spray_ball': 'SPRAY_BALL', 'disco_ruptura': 'RUPTURE_DISC'
     };
 
-    function resolveEquipmentAlias(tipo) {
-        if (!tipo) return null;
-        const key = tipo.toLowerCase().replace(/[\s-]+/g, '_');
-        if (_equipmentAliases[key]) return _equipmentAliases[key];
-        if (equipment[tipo]) return tipo;
-        if (equipment[key]) return key;
-        for (const eqKey of Object.keys(equipment)) {
-            if (eqKey.includes(key) || key.includes(eqKey)) return eqKey;
-        }
-        return null;
-    }
-
     function resolveComponentAlias(compName) {
         if (!compName) return null;
         const key = compName.toLowerCase().replace(/[\s-]+/g, '_');
@@ -894,6 +954,10 @@ const SmartFlowCatalog = (function() {
         }
         return null;
     }
+
+    // ================================================================
+    // 8. FACTORÍA
+    // ================================================================
 
     function findComponentByTypeAndSpec(tipo, specId) {
         const resolved = resolveComponentAlias(tipo);
@@ -927,36 +991,6 @@ const SmartFlowCatalog = (function() {
             if (comp.spec === specId) result.push({ key, ...comp });
         }
         return result;
-    }
-
-    function getComponentDimensionInterpolated(tipo, diametro) {
-        const exact = getComponentDimension(tipo, diametro);
-        if (exact > 0) return exact;
-        let lookupTipo = tipo;
-        const tipoUpper = (tipo || '').toUpperCase();
-        if (tipoUpper.includes('TEE_REDUCING')) lookupTipo = 'tee_reducing';
-        else if (tipoUpper.includes('TEE')) lookupTipo = 'tee';
-        else if (tipoUpper.includes('ELBOW_90')) lookupTipo = 'codo_90';
-        else if (tipoUpper.includes('ELBOW_45')) lookupTipo = 'codo_45';
-        else if (tipoUpper.includes('GATE_VALVE')) lookupTipo = 'valvula_compuerta';
-        else if (tipoUpper.includes('GLOBE_VALVE')) lookupTipo = 'valvula_globo';
-        else if (tipoUpper.includes('BALL_VALVE')) lookupTipo = 'valvula_bola';
-        else if (tipoUpper.includes('BUTTERFLY_VALVE')) lookupTipo = 'valvula_mariposa';
-        else if (tipoUpper.includes('UNION')) lookupTipo = 'union_universal';
-        else if (tipoUpper.includes('TRANSITION')) lookupTipo = 'adaptador_macho';
-        const dims = dimensiones[lookupTipo];
-        if (!dims || typeof dims !== 'object') return 50;
-        const diameters = Object.keys(dims).map(Number).sort((a, b) => a - b);
-        if (diameters.length === 0) return 50;
-        if (diametro <= diameters[0]) return dims[diameters[0]];
-        if (diametro >= diameters[diameters.length - 1]) return dims[diameters[diameters.length - 1]];
-        for (let i = 0; i < diameters.length - 1; i++) {
-            if (diametro >= diameters[i] && diametro <= diameters[i + 1]) {
-                const d1 = diameters[i], d2 = diameters[i + 1], v1 = dims[d1], v2 = dims[d2];
-                return Math.round(v1 + (v2 - v1) * (diametro - d1) / (d2 - d1));
-            }
-        }
-        return 50;
     }
 
     function validateSpec(specId) {
@@ -998,53 +1032,73 @@ const SmartFlowCatalog = (function() {
         return line;
     }
 
-    function createEquipmentMesh(eq) {
-        let geometry, material;
-        const spec = specs[eq.spec] || specs["ACERO_150_RF"];
-        const color = spec ? spec.color : 0x7c3aed;
-        const mat = new THREE.MeshStandardMaterial({ color: color, metalness: 0.6, roughness: 0.4 });
-        switch(eq.tipo) {
-            case 'tanque_v': case 'torre': case 'reactor': case 'desgasificador': case 'desmineralizador':
-            case 'suavizador': case 'filtro_carbon': case 'filtro_arena': case 'clarificador':
-            case 'columna_fraccionadora': case 'evaporador': case 'cristalizador':
-            case 'absorbedor': case 'stripper': case 'reactor_encamisado': case 'autoclave':
-            case 'agitador': case 'centrifuga_discos': case 'tanque_aseptico':
-                const radius = (eq.diametro || 1000) / 2;
-                const height = eq.altura || 1500;
-                geometry = new THREE.CylinderGeometry(radius, radius, height, 32);
-                break;
-            case 'tanque_h': case 'separador_trifasico': case 'slug_catcher':
-            case 'calentador_fuego_directo': case 'secador_rotativo': case 'centrifuga':
-            case 'filtro_tambor': case 'molino':
-                const rx = (eq.largo || 2000) / 2;
-                const ry = (eq.diametro || 1000) / 2;
-                geometry = new THREE.CylinderGeometry(ry, ry, rx*2, 32);
-                geometry.rotateZ(Math.PI / 2);
-                break;
-            case 'espesador':
-                const rTop = (eq.diametro || 3000) / 2;
-                geometry = new THREE.CylinderGeometry(rTop, 200, eq.altura || 4000, 32);
-                break;
-            default:
-                const width = eq.largo || 800;
-                const heightBox = eq.altura || 800;
-                const depth = eq.ancho || 800;
-                geometry = new THREE.BoxGeometry(width, heightBox, depth);
+    function createEquipment(tipo, tag, x, y, z, opciones = {}) {
+        const resolved = resolveEquipmentAlias(tipo);
+        if (!resolved) return null;
+        const def = equipment[resolved];
+        if (!def) return null;
+        
+        let defaultSpec = 'ACERO_150_RF';
+        let defaultMaterial = 'CS';
+        const material = (opciones.material || '').toUpperCase();
+        
+        if (material.includes('CONCRETO') || material.includes('CEMENTO') || material.includes('HORMIGON')) {
+            defaultSpec = 'HORMIGON_ESTRUCTURAL'; defaultMaterial = 'CONCRETO';
+        } else if (material.includes('PPR')) {
+            defaultSpec = 'PPR_PN12_5'; defaultMaterial = 'PPR';
+        } else if (material.includes('PE') || material.includes('HDPE')) {
+            defaultSpec = 'HDPE_PE100'; defaultMaterial = 'HDPE';
+        } else if (material.includes('PVC')) {
+            defaultSpec = 'PVC_SCH80'; defaultMaterial = 'PVC';
+        } else if (material.includes('CPVC')) {
+            defaultSpec = 'CPVC_SCH80'; defaultMaterial = 'CPVC';
+        } else if (material.includes('PVDF')) {
+            defaultSpec = 'PVDF_PN16'; defaultMaterial = 'PVDF';
+        } else if (material.includes('ACERO') || material.includes('CS') || material.includes('CARBONO') || material.includes('STEEL') || material.includes('METAL')) {
+            defaultSpec = 'ACERO_150_RF'; defaultMaterial = 'CS';
+        } else if (material.includes('INOX') || material.includes('STAINLESS')) {
+            defaultSpec = 'SS_150_RF'; defaultMaterial = 'SS';
+        } else if (material.includes('DUPLEX')) {
+            defaultSpec = 'DUPLEX_150_RF'; defaultMaterial = 'DUPLEX';
+        } else if (material.includes('HASTELLOY')) {
+            defaultSpec = 'HASTELLOY_150_RF'; defaultMaterial = 'HASTELLOY';
+        } else if (material.includes('ALUMINIO') || material.includes('ALUMINUM')) {
+            defaultSpec = 'ALUMINIO_ESTRUCTURAL'; defaultMaterial = 'ALUMINIO';
+        } else if (material.includes('FRP')) {
+            defaultSpec = 'FRP'; defaultMaterial = 'FRP';
+        } else if (material.includes('MADERA') || material.includes('WOOD')) {
+            defaultSpec = 'MADERA_ESTRUCTURAL'; defaultMaterial = 'MADERA';
         }
-        const mesh = new THREE.Mesh(geometry, mat);
-        mesh.position.set(eq.posX || 0, eq.posY || 0, eq.posZ || 0);
-        mesh.userData = { tag: eq.tag, type: 'equipment' };
-        return mesh;
-    }
+        
+        const specValidation = validateSpec(opciones.spec || defaultSpec);
+        const finalSpec = specValidation.valid ? (opciones.spec || defaultSpec) : defaultSpec;
+        
+        let base = {
+            tag, tipo: resolved, posX: x, posY: y, posZ: z,
+            diametro: opciones.diametro || 1000,
+            altura: opciones.altura || 1500,
+            material: opciones.material || defaultMaterial,
+            spec: finalSpec,
+            largo: opciones.largo || 1000,
+            ancho: opciones.ancho || 1000
+        };
 
-    function createLineMesh(lineData) {
-        if (typeof SmartFlowRouter !== 'undefined' && SmartFlowRouter.createLineMesh)
-            return SmartFlowRouter.createLineMesh(lineData);
-        return new THREE.Group();
+        if (resolved === 'plataforma') {
+            base.largo = opciones.largo || 6000;
+            base.ancho = opciones.ancho || 3000;
+            base.altura = opciones.altura || 400;
+            base.baranda = opciones.baranda !== undefined ? opciones.baranda : true;
+            base.escalera = opciones.escalera !== undefined ? opciones.escalera : true;
+        }
+
+        base.puertos = def.generarPuertos(base).map(p => ({
+            ...p, spec: base.spec, status: 'open', diametro: p.diametro || 3
+        }));
+        return base;
     }
 
     // ================================================================
-    // API PÚBLICA
+    // 9. API PÚBLICA
     // ================================================================
     return {
         getSpecs: () => specs,
@@ -1073,83 +1127,7 @@ const SmartFlowCatalog = (function() {
         validateSpec,
         listSpecs: () => Object.keys(specs),
         createLine,
-        createEquipment: function(tipo, tag, x, y, z, opciones = {}) {
-            const resolved = resolveEquipmentAlias(tipo);
-            if (!resolved) return null;
-            const def = equipment[resolved];
-            if (!def) return null;
-            
-            let defaultSpec = 'ACERO_150_RF';
-            let defaultMaterial = 'CS';
-            const material = (opciones.material || '').toUpperCase();
-            
-            if (material.includes('CONCRETO') || material.includes('CEMENTO') || material.includes('HORMIGON')) {
-                defaultSpec = 'HORMIGON_ESTRUCTURAL';
-                defaultMaterial = 'CONCRETO';
-            } else if (material.includes('PPR')) {
-                defaultSpec = 'PPR_PN12_5';
-                defaultMaterial = 'PPR';
-            } else if (material.includes('PE') || material.includes('HDPE')) {
-                defaultSpec = 'HDPE_PE100';
-                defaultMaterial = 'HDPE';
-            } else if (material.includes('PVC')) {
-                defaultSpec = 'PVC_SCH80';
-                defaultMaterial = 'PVC';
-            } else if (material.includes('CPVC')) {
-                defaultSpec = 'CPVC_SCH80';
-                defaultMaterial = 'CPVC';
-            } else if (material.includes('PVDF')) {
-                defaultSpec = 'PVDF_PN16';
-                defaultMaterial = 'PVDF';
-            } else if (material.includes('ACERO') || material.includes('CS') || material.includes('CARBONO') || material.includes('STEEL') || material.includes('METAL')) {
-                defaultSpec = 'ACERO_150_RF';
-                defaultMaterial = 'CS';
-            } else if (material.includes('INOX') || material.includes('STAINLESS')) {
-                defaultSpec = 'SS_150_RF';
-                defaultMaterial = 'SS';
-            } else if (material.includes('DUPLEX')) {
-                defaultSpec = 'DUPLEX_150_RF';
-                defaultMaterial = 'DUPLEX';
-            } else if (material.includes('HASTELLOY')) {
-                defaultSpec = 'HASTELLOY_150_RF';
-                defaultMaterial = 'HASTELLOY';
-            } else if (material.includes('ALUMINIO') || material.includes('ALUMINUM')) {
-                defaultSpec = 'ALUMINIO_ESTRUCTURAL';
-                defaultMaterial = 'ALUMINIO';
-            } else if (material.includes('FRP')) {
-                defaultSpec = 'FRP';
-                defaultMaterial = 'FRP';
-            } else if (material.includes('MADERA') || material.includes('WOOD')) {
-                defaultSpec = 'MADERA_ESTRUCTURAL';
-                defaultMaterial = 'MADERA';
-            }
-            
-            const specValidation = validateSpec(opciones.spec || defaultSpec);
-            const finalSpec = specValidation.valid ? (opciones.spec || defaultSpec) : defaultSpec;
-            
-            let base = {
-                tag, tipo: resolved, posX: x, posY: y, posZ: z,
-                diametro: opciones.diametro || 1000,
-                altura: opciones.altura || 1500,
-                material: opciones.material || defaultMaterial,
-                spec: finalSpec,
-                largo: opciones.largo || 1000,
-                ancho: opciones.ancho || 1000
-            };
-
-            if (resolved === 'plataforma') {
-                base.largo = opciones.largo || 6000;
-                base.ancho = opciones.ancho || 3000;
-                base.altura = opciones.altura || 400;
-                base.baranda = opciones.baranda !== undefined ? opciones.baranda : true;
-                base.escalera = opciones.escalera !== undefined ? opciones.escalera : true;
-            }
-
-            base.puertos = def.generarPuertos(base).map(p => ({
-                ...p, spec: base.spec, status: 'open', diametro: p.diametro || 3
-            }));
-            return base;
-        },
+        createEquipment,
         createComponent: (compId, opciones = {}) => {
             const def = components[compId] || null;
             if (!def) {
@@ -1190,8 +1168,8 @@ const SmartFlowCatalog = (function() {
             const toIsMetal = metalMaterials.some(m => to.includes(m));
             if (fromIsMetal && toIsMetal) return { left: 'UNION_CS_3000', right: 'UNION_CS_3000' };
             return null;
-        },
-        createEquipmentMesh,
-        createLineMesh
+        }
     };
 })();
+
+if (typeof window !== 'undefined') window.SmartFlowCatalog = SmartFlowCatalog;
