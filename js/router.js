@@ -1,15 +1,18 @@
+
 // ============================================================
-// SMARTFLOW ROUTER v3.6.1 - Enrutador de Tuberías Inteligente
+// SMARTFLOW ROUTER v3.6.3 - Enrutador de Tuberías Inteligente
 // Archivo: js/router.js
 // Compatible: SmartFlowCore v5.6 + SmartFlowCommands v3.5
-// Novedades v3.6.1:
+// Novedades v3.6.3:
+//   - ensureFittings respeta _fittingInsertedAtOrigin (no inyecta codo/reductor en origen)
+//   - ensureFittings respeta _fittingInsertedAtDestination (no inyecta codo/reductor en destino)
 //   - CODO EN FIN: detecta llegada coaxial, NO inyecta codo innecesario
+//   - REDUCTOR EN ORIGEN: no inyecta si _fittingInsertedAtOrigin
+//   - REDUCTOR EN DESTINO: no inyecta si _fittingInsertedAtDestination
 //   - insertarAccesorioEnLinea recibe y aplica branchOrientation
 //   - routeBetweenPorts calcula dirección automática del BRANCH
 //   - routeWithWaypoints calcula dirección automática del BRANCH
-//   - calculateBranchDirection: nueva función auxiliar
-//   - Corrección: NO inyecta codo al final cuando se insertó Tee
-//   - Corrección: NO inyecta reductor duplicado
+//   - calculateBranchDirection: función auxiliar
 //   - Orienta el puerto BRANCH hacia la dirección de llegada
 // ============================================================
 
@@ -569,7 +572,9 @@ const SmartFlowRouter = (function() {
     }
 
     // ================================================================
-    //  ENSUREFITTINGS (v3.6.1 - Codo final solo si no es coaxial)
+    //  ENSUREFITTINGS v3.6.3
+    //  Respeta _fittingInsertedAtOrigin y _fittingInsertedAtDestination
+    //  NO inyecta fittings donde ya se insertó TEE o el destino es equipo/extremo
     // ================================================================
 
     function ensureFittings(lineObj, fromObj, fromPortId, toObj, toPortId, diameter, material, spec) {
@@ -595,10 +600,13 @@ const SmartFlowRouter = (function() {
         var diamPuertoDestino = toObj ? getPortDiameter(toObj, toPortId) : null;
         var diamLinea = parseFloat(lineObj.diameter || diameter);
         var destinoNecesitaReductor = toObj && toPortId && diamPuertoDestino && necesitaReductor(diamLinea, diamPuertoDestino);
-        var hasInsertedReducer = isToLine && toPortId && destinoNecesitaReductor && lineObj._fittingInsertedAtDestination;
         
-        // --- REDUCTOR EN ORIGEN ---
-        if (fromObj && fromPortId) {
+        // ✅ v3.6.3: Respetar banderas de origen
+        var skipOriginFittings = lineObj._fittingInsertedAtOrigin === true;
+        var skipDestFittings = lineObj._fittingInsertedAtDestination === true;
+        
+        // --- REDUCTOR EN ORIGEN (v3.6.3 - Respeta _fittingInsertedAtOrigin) ---
+        if (fromObj && fromPortId && !skipOriginFittings) {
             var diamPuertoOrigen = getPortDiameter(fromObj, fromPortId);
             var diamLineaOrig = parseFloat(lineObj.diameter || diameter);
             if (diamPuertoOrigen && necesitaReductor(diamPuertoOrigen, diamLineaOrig)) {
@@ -618,8 +626,8 @@ const SmartFlowRouter = (function() {
             }
         }
         
-        // --- REDUCTOR EN DESTINO (No duplicar) ---
-        if (toObj && toPortId && !hasInsertedReducer) {
+        // --- REDUCTOR EN DESTINO (v3.6.3 - Respeta _fittingInsertedAtDestination) ---
+        if (toObj && toPortId && !skipDestFittings) {
             if (diamPuertoDestino && necesitaReductor(diamLinea, diamPuertoDestino)) {
                 var reducerType2 = findReducerForDiameters(Math.max(diamLinea, diamPuertoDestino), Math.min(diamLinea, diamPuertoDestino), material);
                 if (reducerType2 && !existeComponenteSimilar('REDUCER', 1.0)) {
@@ -637,8 +645,8 @@ const SmartFlowRouter = (function() {
             }
         }
         
-        // --- CODO EN INICIO ---
-        if (fromObj && fromPortId && puntos.length >= 2) {
+        // --- CODO EN INICIO (v3.6.3 - Respeta _fittingInsertedAtOrigin) ---
+        if (fromObj && fromPortId && puntos.length >= 2 && !skipOriginFittings) {
             var dirPuerto = getPortDirection(fromObj, fromPortId);
             var vInicial = { x: puntos[1].x - puntos[0].x, y: puntos[1].y - puntos[0].y, z: puntos[1].z - puntos[0].z };
             var lenInic = Math.hypot(vInicial.x, vInicial.y, vInicial.z) || 1;
@@ -699,8 +707,8 @@ const SmartFlowRouter = (function() {
             }
         }
         
-        // --- CODO EN FIN (v3.6.1 - Detecta llegada coaxial, NO inyecta codo innecesario) ---
-        if (toObj && toPortId && puntos.length >= 2 && !lineObj._fittingInsertedAtDestination) {
+        // --- CODO EN FIN (v3.6.3 - Respeta _fittingInsertedAtDestination + detección coaxial) ---
+        if (toObj && toPortId && puntos.length >= 2 && !skipDestFittings) {
             var dirPuertoDest = getPortDirection(toObj, toPortId);
             var dirLlegada = { 
                 x: puntos[puntos.length - 1].x - puntos[puntos.length - 2].x, 
@@ -715,12 +723,10 @@ const SmartFlowRouter = (function() {
                 dz: dirLlegada.z / lenLlegada
             };
             
-            // Verificar si la dirección de llegada es coaxial con el puerto
             var dotCoaxial = dirLlegadaUnit.dx * dirPuertoDest.dx + 
                              dirLlegadaUnit.dy * dirPuertoDest.dy + 
                              dirLlegadaUnit.dz * dirPuertoDest.dz;
             
-            // Si el producto punto es cercano a 1 o -1, es coaxial → NO codo
             var esCoaxial = Math.abs(Math.abs(dotCoaxial) - 1) < 0.001;
             
             if (!esCoaxial) {
@@ -762,7 +768,7 @@ const SmartFlowRouter = (function() {
     }
 
     // ================================================================
-    //  INSERTAR ACCESORIO EN LÍNEA (v3.6 - Soporta branchOrientation)
+    //  INSERTAR ACCESORIO EN LÍNEA
     // ================================================================
 
     function insertarAccesorioEnLinea(lineTag, puntoConexion, diametroNuevaLinea, forzarTee, branchOrientation) {
@@ -928,7 +934,7 @@ const SmartFlowRouter = (function() {
     }
 
     // ================================================================
-    //  RUTEO ENTRE PUERTOS (v3.6 - branchOrientation automático)
+    //  RUTEO ENTRE PUERTOS
     // ================================================================
 
     function routeBetweenPorts(fromEquipTag, fromPortId, toEquipTag, toPortId, diameter, material, spec, options) {
@@ -1026,12 +1032,10 @@ const SmartFlowRouter = (function() {
             origin: { objType: isFromEquip ? 'equipment' : 'line', equipTag: fromEquipTag, portId: fromPortId },
             destination: { objType: isToEquip ? 'equipment' : 'line', equipTag: toEquipTag, portId: nuevoPuertoId },
             waypoints: uniqueWaypoints.slice(1, -1), _cachedPoints: uniqueWaypoints.slice(),
-            points3D: uniqueWaypoints.slice(), points: uniqueWaypoints.slice(), components: []
+            points3D: uniqueWaypoints.slice(), points: uniqueWaypoints.slice(), components: [],
+            _fittingInsertedAtOrigin: isFromLine && isParametricPortId(fromPortId),
+            _fittingInsertedAtDestination: fittingInserted || isToEquip
         };
-        
-        if (fittingInserted) {
-            nuevaLinea._fittingInsertedAtDestination = true;
-        }
         
         _core.addLine(nuevaLinea);
         var lineaRegistrada = db.lines.find(function(l) { return l.tag === tag; }) || nuevaLinea;
@@ -1045,7 +1049,7 @@ const SmartFlowRouter = (function() {
     }
 
     // ================================================================
-    //  RUTEO CON WAYPOINTS (v3.6 - branchOrientation automático)
+    //  RUTEO CON WAYPOINTS
     // ================================================================
 
     function routeWithWaypoints(fromEquipTag, fromPortId, toEquipTag, toPortId, waypoints, diameter, material, spec, options) {
@@ -1197,12 +1201,10 @@ const SmartFlowRouter = (function() {
             _cachedPoints: cleanPoints.slice(),
             points3D: cleanPoints.slice(),
             points: cleanPoints.slice(),
-            components: []
+            components: [],
+            _fittingInsertedAtOrigin: isFromLine && isParametricPortId(fromPortId),
+            _fittingInsertedAtDestination: fittingInserted || isToEquip
         };
-        
-        if (fittingInserted) {
-            nuevaLinea._fittingInsertedAtDestination = true;
-        }
         
         _core.addLine(nuevaLinea);
         
