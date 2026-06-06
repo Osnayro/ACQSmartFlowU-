@@ -1,12 +1,12 @@
 
 // ============================================================
-// SMARTFLOW COMMANDS v3.7 - Intérprete de Comandos Unificado
+// SMARTFLOW COMMANDS v3.6 - Intérprete de Comandos Unificado
 // Archivo: js/commands.js
-// Compatible: SmartFlowCore v5.6 + SmartFlowRouter v3.6.4 + SmartFlowCatalog v4.1
-// Novedades v3.7:
-//   - fittingInsertedAtOrigin/Destination en parseConnect
+// Compatible: SmartFlowCore v5.6 + SmartFlowRouter v3.6 + SmartFlowCatalog v4.1
+// Novedades v3.6:
 //   - parseNodes MEJORADO: coordenadas, iconos 🟢/🔴, puertos TEE
 //   - parseNodosAbiertos: puertos disponibles con nombre completo
+//   - Nombres de puerto listos para copiar y pegar (L-1.TEE_xyz_P3)
 //   - parseLineFromTo: creación de línea en un solo paso
 //   - parseExtendLine: extender línea existente
 //   - parseOptimizeRoute: eliminar puntos colineales
@@ -17,6 +17,10 @@
 //   - validateTeeSpace: validar espacio para inserción
 //   - resolveMaterialAndSpec: NO hereda material sin confirmación
 //   - checkMaterialCompatibility: advertencias de incompatibilidad
+//   - Corrección: via extraído correctamente en todos los casos
+//   - Corrección: branchOrientation aplicado en todos los comandos
+//   - Corrección v3.5.1: normalizeCommand protege "set project"
+//   - Corrección v3.5.1: getProjectDefaultSpec usa spec configurado siempre
 // ============================================================
 
 const SmartFlowCommands = (function() {
@@ -78,16 +82,19 @@ const SmartFlowCommands = (function() {
     function normalizeCommand(cmd) {
         const parts = cmd.trim().split(/\s+/);
         if (parts.length === 0) return cmd;
+        
+        // ✅ Proteger comandos compuestos "set project"
         if (parts.length >= 2 && parts[0].toLowerCase() === 'set' && parts[1].toLowerCase() === 'project') {
             return cmd;
         }
+        
         const intent = getIntent(parts[0]);
         if (intent) { parts[0] = intent; return parts.join(' '); }
         return cmd;
     }
 
     // ================================================================
-    //  DEFAULTS DEL PROYECTO
+    //  DEFAULTS DEL PROYECTO (Configurables)
     // ================================================================
     let _projectDefaults = {
         material: 'PPR',
@@ -99,6 +106,7 @@ const SmartFlowCommands = (function() {
     }
 
     function getProjectDefaultSpec(material) {
+        // ✅ Usar el spec configurado si existe
         if (_projectDefaults.spec) {
             return _projectDefaults.spec;
         }
@@ -222,41 +230,79 @@ const SmartFlowCommands = (function() {
         options = options || {};
         const inheritFromConnected = options.inheritFromConnected === true;
         
-        const result = { material: null, spec: null };
+        const result = {
+            material: null,
+            spec: null
+        };
         
-        if (explicitParams.material) { result.material = explicitParams.material; }
-        if (explicitParams.spec) { result.spec = explicitParams.spec; }
+        // PRIORIDAD 1: Usuario especificó explícitamente
+        if (explicitParams.material) {
+            result.material = explicitParams.material;
+        }
+        if (explicitParams.spec) {
+            result.spec = explicitParams.spec;
+        }
         
+        // PRIORIDAD 2: Heredar SOLO si está explícitamente permitido
         if (!result.material && inheritFromConnected && connectedObjects && connectedObjects.length > 0) {
             for (let i = 0; i < connectedObjects.length; i++) {
-                if (connectedObjects[i] && connectedObjects[i].material) { result.material = connectedObjects[i].material; break; }
+                if (connectedObjects[i] && connectedObjects[i].material) {
+                    result.material = connectedObjects[i].material;
+                    break;
+                }
             }
         }
         
         if (!result.spec && inheritFromConnected && connectedObjects && connectedObjects.length > 0) {
             for (let i = 0; i < connectedObjects.length; i++) {
-                if (connectedObjects[i] && connectedObjects[i].spec) { result.spec = connectedObjects[i].spec; break; }
+                if (connectedObjects[i] && connectedObjects[i].spec) {
+                    result.spec = connectedObjects[i].spec;
+                    break;
+                }
             }
         }
         
-        if (!result.material) { result.material = (defaults && defaults.material) || getProjectDefaultMaterial(); }
-        if (!result.spec) { result.spec = (defaults && defaults.spec) || getProjectDefaultSpec(result.material); }
+        // PRIORIDAD 3: Defaults del proyecto
+        if (!result.material) {
+            result.material = (defaults && defaults.material) || getProjectDefaultMaterial();
+        }
+        
+        if (!result.spec) {
+            if (defaults && defaults.spec) {
+                result.spec = defaults.spec;
+            } else {
+                result.spec = getProjectDefaultSpec(result.material);
+            }
+        }
         
         return result;
     }
 
     function calculateBranchDirection(teePosition, targetPosition, waypoints) {
         let target;
-        if (waypoints && waypoints.length > 0) { target = waypoints[0]; }
-        else if (targetPosition) { target = targetPosition; }
-        else { return { dx: 0, dy: 1, dz: 0 }; }
+        if (waypoints && waypoints.length > 0) {
+            target = waypoints[0];
+        } else if (targetPosition) {
+            target = targetPosition;
+        } else {
+            return { dx: 0, dy: 1, dz: 0 };
+        }
         
         const dx = target.x - teePosition.x;
         const dy = target.y - teePosition.y;
         const dz = target.z - teePosition.z;
+        
         const len = Math.hypot(dx, dy, dz);
-        if (len < 0.01) { return { dx: 0, dy: 1, dz: 0 }; }
-        return { dx: dx / len, dy: dy / len, dz: dz / len };
+        
+        if (len < 0.01) {
+            return { dx: 0, dy: 1, dz: 0 };
+        }
+        
+        return {
+            dx: dx / len,
+            dy: dy / len,
+            dz: dz / len
+        };
     }
 
     function validateTeeSpace(line, position, diameter) {
@@ -271,15 +317,18 @@ const SmartFlowCommands = (function() {
         const insertDist = totalLen * position;
         const diamMM = (diameter || 4) * 25.4;
         const minSpace = diamMM * 2;
+        
         const warnings = [];
         
         if (insertDist < minSpace && position > 0.02) {
             warnings.push("Espacio antes de TEE: " + insertDist.toFixed(0) + "mm (mín: " + minSpace.toFixed(0) + "mm)");
         }
+        
         const spaceAfter = totalLen - insertDist;
         if (spaceAfter < minSpace && position < 0.98) {
             warnings.push("Espacio después de TEE: " + spaceAfter.toFixed(0) + "mm (mín: " + minSpace.toFixed(0) + "mm)");
         }
+        
         if (line.components) {
             const nearby = line.components.filter(function(c) { 
                 return Math.abs((c.param || 0) - position) < 0.04; 
@@ -288,17 +337,25 @@ const SmartFlowCommands = (function() {
                 warnings.push("Componente(s) cercano(s): " + nearby.map(function(c) { return c.type || '?'; }).join(', '));
             }
         }
-        return { valid: warnings.length === 0, warnings: warnings, minSpace: minSpace };
+        
+        return {
+            valid: warnings.length === 0,
+            warnings: warnings,
+            minSpace: minSpace
+        };
     }
 
     function checkMaterialCompatibility(newLineMaterial, fromObj, toObj) {
         const warnings = [];
+        
         if (fromObj && fromObj.material && fromObj.material.toUpperCase() !== newLineMaterial.toUpperCase()) {
             warnings.push("⚠️ Material diferente al origen: " + fromObj.material + " → " + newLineMaterial);
         }
+        
         if (toObj && toObj.material && toObj.material.toUpperCase() !== newLineMaterial.toUpperCase()) {
             warnings.push("⚠️ Material diferente al destino: " + toObj.material + " → " + newLineMaterial);
         }
+        
         return warnings;
     }
 
@@ -330,7 +387,9 @@ const SmartFlowCommands = (function() {
         const pts = getPoints(obj);
         if (pts && pts.length >= 2) {
             let pA = pts[0], pB = pts[1];
-            if (portId === '1' || portId === String(pts.length - 1)) { pA = pts[pts.length - 2]; pB = pts[pts.length - 1]; }
+            if (portId === '1' || portId === String(pts.length - 1)) {
+                pA = pts[pts.length - 2]; pB = pts[pts.length - 1];
+            }
             const dx = pB.x - pA.x, dy = pB.y - pA.y, dz = pB.z - pA.z;
             const len = Math.hypot(dx, dy, dz) || 1;
             return { dx: dx/len, dy: dy/len, dz: dz/len };
@@ -403,7 +462,11 @@ const SmartFlowCommands = (function() {
         const base = getBasePosition(obj);
         const puerto = obj.puertos && obj.puertos.find(function(p) { return p.id === portId; });
         if (puerto) {
-            return { x: base.x + (puerto.relX || 0), y: base.y + (puerto.relY || 0), z: base.z + (puerto.relZ || 0) };
+            return {
+                x: base.x + (puerto.relX || 0),
+                y: base.y + (puerto.relY || 0),
+                z: base.z + (puerto.relZ || 0)
+            };
         }
         return base;
     }
@@ -412,7 +475,10 @@ const SmartFlowCommands = (function() {
         isError = isError || false;
         if (typeof _notifyUI === 'function') _notifyUI(message, isError);
         const statusEl = document.getElementById('statusMsg');
-        if (statusEl) { statusEl.innerText = message; statusEl.style.color = isError ? '#ef4444' : '#00f2ff'; }
+        if (statusEl) {
+            statusEl.innerText = message;
+            statusEl.style.color = isError ? '#ef4444' : '#00f2ff';
+        }
         if (typeof _voiceFn === 'function') { _voiceFn(message); }
     }
 
@@ -420,7 +486,10 @@ const SmartFlowCommands = (function() {
         if (_core && _core._saveState) {
             _core._saveState();
         } else if (_core && _core.getDb) {
-            const state = JSON.parse(JSON.stringify({ equipos: _core.getDb().equipos, lines: _core.getDb().lines }));
+            const state = JSON.parse(JSON.stringify({
+                equipos: _core.getDb().equipos,
+                lines: _core.getDb().lines
+            }));
             if (!window._manualUndoStack) window._manualUndoStack = [];
             window._manualUndoStack.push(state);
         }
@@ -465,16 +534,35 @@ const SmartFlowCommands = (function() {
         if (!compDef) {
             if (typeof SmartFlowRouter !== 'undefined' && SmartFlowRouter.findComponentInCatalog) {
                 const found = SmartFlowRouter.findComponentInCatalog(compType, line.material || 'PPR', []);
-                if (!found) { notifyWithVoice("⚠️ Componente no encontrado: " + compType, true); return false; }
+                if (!found) {
+                    notifyWithVoice("⚠️ Componente no encontrado: " + compType, true);
+                    return false;
+                }
                 finalType = found;
-            } else { notifyWithVoice("⚠️ Componente no encontrado: " + compType, true); return false; }
+            } else {
+                notifyWithVoice("⚠️ Componente no encontrado: " + compType, true);
+                return false;
+            }
         }
+        
         const existe = line.components && line.components.some(function(c) { 
-            return c.type && c.type.toUpperCase().indexOf(finalType.toUpperCase()) !== -1 && Math.abs((c.param || 0) - position) < 0.01; 
+            return c.type && c.type.toUpperCase().indexOf(finalType.toUpperCase()) !== -1 && 
+                   Math.abs((c.param || 0) - position) < 0.01; 
         });
-        if (existe) { notifyWithVoice("⚠️ Ya existe " + finalType + " en pos " + position.toFixed(2), false); return false; }
+        
+        if (existe) {
+            notifyWithVoice("⚠️ Ya existe " + finalType + " en pos " + position.toFixed(2), false);
+            return false;
+        }
+        
         if (!line.components) line.components = [];
-        line.components.push({ type: finalType, tag: finalType + '-' + Date.now().toString(36) + '-' + Math.random().toString(36).substr(2, 4), param: position });
+        
+        line.components.push({
+            type: finalType,
+            tag: finalType + '-' + Date.now().toString(36) + '-' + Math.random().toString(36).substr(2, 4),
+            param: position
+        });
+        
         return true;
     }
 
@@ -515,7 +603,9 @@ const SmartFlowCommands = (function() {
         if (SPACING_RULES[typeUpper]) return SPACING_RULES[typeUpper];
         const keys = Object.keys(SPACING_RULES);
         for (let i = 0; i < keys.length; i++) {
-            if (typeUpper.indexOf(keys[i]) !== -1 || keys[i].indexOf(typeUpper) !== -1) return SPACING_RULES[keys[i]];
+            if (typeUpper.indexOf(keys[i]) !== -1 || keys[i].indexOf(typeUpper) !== -1) {
+                return SPACING_RULES[keys[i]];
+            }
         }
         if (typeUpper.indexOf('VALVE') !== -1) return SPACING_RULES['VALVE'];
         if (typeUpper.indexOf('FLANGE') !== -1) return SPACING_RULES['FLANGE'];
@@ -528,22 +618,40 @@ const SmartFlowCommands = (function() {
     function calculateAccessoryPositions(componentTypes, startPosition, totalLength, diameter) {
         const positions = [];
         let currentPos = startPosition;
+        
         for (let i = 0; i < componentTypes.length; i++) {
             const compType = componentTypes[i];
             const rules = getSpacingRules(compType);
             let spaceBefore = rules.spaceBefore;
+            
             if (diameter > 6) spaceBefore *= 1.5;
             if (diameter > 12) spaceBefore *= 2.0;
+            
             if (i > 0) {
                 const prevRules = getSpacingRules(componentTypes[i - 1]);
-                if (prevRules.category === 'connection' && rules.category === 'inline') spaceBefore = Math.max(spaceBefore, 50);
-                if (prevRules.category === 'inline' && rules.category === 'inline') spaceBefore *= 1.5;
+                if (prevRules.category === 'connection' && rules.category === 'inline') {
+                    spaceBefore = Math.max(spaceBefore, 50);
+                }
+                if (prevRules.category === 'inline' && rules.category === 'inline') {
+                    spaceBefore *= 1.5;
+                }
             }
+            
             const spaceParam = spaceBefore / totalLength;
             currentPos += spaceParam;
-            if (currentPos > 0.99) currentPos = 0.99;
-            positions.push({ type: compType, position: currentPos, spaceBeforeMM: spaceBefore, category: rules.category });
+            
+            if (currentPos > 0.99) {
+                currentPos = 0.99;
+            }
+            
+            positions.push({
+                type: compType,
+                position: currentPos,
+                spaceBeforeMM: spaceBefore,
+                category: rules.category
+            });
         }
+        
         return positions;
     }
 
@@ -582,12 +690,16 @@ const SmartFlowCommands = (function() {
         }
         let totalLen = 0;
         for (let i = 0; i < pts.length - 1; i++) totalLen += Math.hypot(pts[i+1].x - pts[i].x, pts[i+1].y - pts[i].y, pts[i+1].z - pts[i].z);
+        
         let compInfo = '';
         if (line.components && line.components.length > 0) {
             const sorted = line.components.slice().sort(function(a, b) { return (a.param || 0) - (b.param || 0); });
             compInfo = '\n🔩 Componentes (' + sorted.length + '):';
-            sorted.forEach(function(c) { compInfo += '\n   ' + (c.type || '?') + ' @' + (c.param ? c.param.toFixed(3) : '?') + ' [' + (c.tag || '') + ']'; });
+            sorted.forEach(function(c) {
+                compInfo += '\n   ' + (c.type || '?') + ' @' + (c.param ? c.param.toFixed(3) : '?') + ' [' + (c.tag || '') + ']';
+            });
         }
+        
         const msg = "📋 Línea " + tag + " | ⌀" + (line.diameter || '?') + "\" | " + (line.material || 'N/D') + " | Spec: " + (line.spec || 'N/D') + " | Puntos: " + numPuntos + " | Long: " + (totalLen/1000).toFixed(2) + "m | Componentes: " + (line.components ? line.components.length : 0) + " | Origen: " + origen + " | Destino: " + destino + compInfo;
         notifyWithVoice(msg, false);
         return true;
@@ -597,6 +709,7 @@ const SmartFlowCommands = (function() {
         if (!_core) { notifyWithVoice("Error: Core no inicializado", true); return true; }
         const eq = _core.findObjectByTag(tag);
         if (!eq || !_core.getEquipos().includes(eq)) { notifyWithVoice("Equipo " + tag + " no encontrado", true); return true; }
+        
         const tipo = eq.tipo || 'Desconocido';
         const material = eq.material || 'N/D';
         const spec = eq.spec || 'N/D';
@@ -605,8 +718,10 @@ const SmartFlowCommands = (function() {
         const diametro = eq.diametro || 0;
         const largo = eq.largo || 0;
         const ancho = eq.ancho || 0;
+        
         const baseElevation = pos.y - (altura / 2);
         const topElevation = pos.y + (altura / 2);
+        
         let msg = '═══════════════════════════════════\n';
         msg += '📋 ' + tag + ' — ' + getEquipmentTypeName(tipo) + '\n';
         msg += '═══════════════════════════════════\n\n';
@@ -629,7 +744,9 @@ const SmartFlowCommands = (function() {
                 const status = p.status === 'open' ? 'DISPONIBLE' : (p.connectedTo ? 'CONECTADO a ' + p.connectedTo.tag : 'CONECTADO');
                 msg += '   ' + p.id + ': ⌀' + (p.diametro || '?') + '" | EL ' + (portElevation/1000 >= 0 ? '+' : '') + (portElevation/1000).toFixed(3) + 'm | ' + status + '\n';
             });
-        } else { msg += '   Sin puertos definidos\n'; }
+        } else {
+            msg += '   Sin puertos definidos\n';
+        }
         msg += '\n═══════════════════════════════════';
         notifyWithVoice(msg, false);
         return true;
@@ -744,13 +861,14 @@ const SmartFlowCommands = (function() {
     }
 
     // ================================================================
-    //  COMANDO NODES / NODOS (MEJORADO v3.7)
+    //  COMANDO NODES / NODOS (MEJORADO v3.6)
+    //  Muestra nombres completos listos para copiar y pegar
     // ================================================================
 
     function parseNodes(cmd) {
         const parts = cmd.trim().split(/\s+/);
         if (parts[0] !== 'nodes' && parts[0] !== 'nodos') return false;
-        if (parts.length < 2) { notifyWithVoice('Uso: nodos TAG', true); return true; }
+        if (parts.length < 2) { notifyWithVoice('Uso: nodos TAG | nodos TAG free', true); return true; }
         const tag = parts[1];
         if (!_core) { notifyWithVoice("Error: Core no inicializado", true); return true; }
         const obj = _core.findObjectByTag(tag);
@@ -763,38 +881,57 @@ const SmartFlowCommands = (function() {
         msg += '═══════════════════════════════════\n';
         
         if (isEquipment) {
+            // EQUIPO
             msg += 'Tipo: EQUIPO | Puertos: ' + (obj.puertos ? obj.puertos.length : 0) + '\n\n';
+            
             let freeCount = 0, totalCount = 0;
+            
             if (obj.puertos && obj.puertos.length > 0) {
                 obj.puertos.forEach(function(p) {
                     totalCount++;
                     const isFree = !p.connectedTo || p.status === 'open';
                     if (isFree) freeCount++;
+                    
                     const icon = isFree ? '🟢' : '🔴';
                     const posX = (obj.posX || 0) + (p.relX || 0);
                     const posY = (obj.posY || 0) + (p.relY || 0);
                     const posZ = (obj.posZ || 0) + (p.relZ || 0);
+                    
+                    // ✅ Nombre completo para copiar y pegar: TAG.PUERTO
                     const fullName = tag + '.' + p.id;
-                    msg += icon + ' ' + fullName + ': ⌀' + (p.diametro || '?') + '" | (' + posX.toFixed(0) + ', ' + posY.toFixed(0) + ', ' + posZ.toFixed(0) + ')';
-                    if (isFree) { msg += ' → DISPONIBLE'; }
-                    else if (p.connectedTo) { msg += ' → ' + (p.connectedTo.tag || 'Conectado'); }
+                    
+                    msg += icon + ' ' + fullName + ': ⌀' + (p.diametro || '?') + '" | (' + 
+                           posX.toFixed(0) + ', ' + posY.toFixed(0) + ', ' + posZ.toFixed(0) + ')';
+                    if (isFree) {
+                        msg += ' → DISPONIBLE';
+                    } else if (p.connectedTo) {
+                        msg += ' → ' + (p.connectedTo.tag || 'Conectado');
+                    }
                     msg += '\n';
                 });
-            } else { msg += '⚠️ Sin puertos definidos\n'; }
+            } else {
+                msg += '⚠️ Sin puertos definidos\n';
+            }
+            
             msg += '\n📊 Total: ' + totalCount + ' | 🟢 ' + freeCount + ' libres | 🔴 ' + (totalCount - freeCount) + ' conectados';
+            
         } else {
+            // LÍNEA
             const pts = getPoints(obj);
-            if (pts.length < 2) { msg += '⚠️ Línea sin geometría\n'; }
-            else {
+            if (pts.length < 2) {
+                msg += '⚠️ Línea sin geometría\n';
+            } else {
                 let totalLen = 0, lengths = [];
                 for (let i = 0; i < pts.length - 1; i++) {
                     const d = Math.hypot(pts[i+1].x - pts[i].x, pts[i+1].y - pts[i].y, pts[i+1].z - pts[i].z);
                     lengths.push(d); totalLen += d;
                 }
+                
                 msg += 'Tipo: LÍNEA | Long: ' + (totalLen/1000).toFixed(2) + ' m | Componentes: ' + (obj.components ? obj.components.length : 0) + '\n\n';
                 
                 let freeCount = 0, totalCount = 0;
                 
+                // START (0)
                 totalCount++;
                 const p0 = obj.puertos ? obj.puertos.find(function(p) { return p.id === '0'; }) : null;
                 const isFree0 = p0 ? (p0.status === 'open') : false;
@@ -803,43 +940,65 @@ const SmartFlowCommands = (function() {
                 msg += icon0 + ' ' + tag + '.0 (START): (' + pts[0].x.toFixed(0) + ', ' + pts[0].y.toFixed(0) + ', ' + pts[0].z.toFixed(0) + ')';
                 if (isFree0) { msg += ' → DISPONIBLE'; }
                 else if (obj.origin) { msg += ' → ' + (obj.origin.equipTag || '?') + ':' + (obj.origin.portId || '?'); }
-                if (p0 && p0.diametro) msg += ' | ⌀' + p0.diametro + '"';
                 msg += '\n';
                 
-                if (obj.puertos && obj.puertos.length > 0) {
-                    obj.puertos.forEach(function(p) {
-                        if (p.id === '0' || p.id === '1') return;
-                        totalCount++;
-                        const isFree = !p.connectedTo || p.status === 'open';
-                        if (isFree) freeCount++;
-                        const icon = isFree ? '🟢' : '🔴';
-                        let associatedComp = null;
-                        if (obj.components) {
-                            for (let c = 0; c < obj.components.length; c++) {
-                                const comp = obj.components[c];
-                                if (p.id.indexOf(comp.tag) !== -1 || (comp.tag && p.id.indexOf(comp.tag.replace(/[^a-zA-Z0-9_]/g, '')) !== -1)) {
-                                    associatedComp = comp; break;
+                // Puertos de componentes (TEEs)
+                if (obj.components && obj.components.length > 0) {
+                    const sortedComps = obj.components.slice().sort(function(a, b) { 
+                        return (a.param || 0) - (b.param || 0); 
+                    });
+                    
+                    sortedComps.forEach(function(comp) {
+                        const compType = (comp.type || '').toUpperCase();
+                        const generaPuertos = compType.indexOf('TEE') !== -1 || compType.indexOf('CROSS') !== -1;
+                        
+                        if (generaPuertos && obj.puertos) {
+                            obj.puertos.forEach(function(p) {
+                                // Solo puertos que NO son 0, 1, S1, S2
+                                if (p.id === '0' || p.id === '1') return;
+                                if (p.id.indexOf('S1') !== -1 || p.id.indexOf('S2') !== -1) return;
+                                
+                                totalCount++;
+                                const isFree = !p.connectedTo || p.status === 'open';
+                                if (isFree) freeCount++;
+                                
+                                const icon = isFree ? '🟢' : '🔴';
+                                
+                                // Calcular posición del puerto
+                                const param = comp.param || 0.5;
+                                const targetLen = totalLen * param;
+                                let accum = 0, segIdx = 0, t = 0;
+                                for (let j = 0; j < lengths.length; j++) {
+                                    if (accum + lengths[j] >= targetLen || j === lengths.length - 1) {
+                                        segIdx = j; t = (targetLen - accum) / (lengths[j] || 1); break;
+                                    }
+                                    accum += lengths[j];
                                 }
-                            }
+                                const pA = pts[segIdx], pB = pts[segIdx + 1];
+                                const portPoint = {
+                                    x: pA.x + (pB.x - pA.x) * t + (p.relX || 0),
+                                    y: pA.y + (pB.y - pA.y) * t + (p.relY || 0),
+                                    z: pA.z + (pB.z - pA.z) * t + (p.relZ || 0)
+                                };
+                                
+                                // ✅ Nombre completo: L-1.TEE_xyz_P3
+                                const fullName = tag + '.' + p.id;
+                                
+                                msg += icon + ' ' + fullName + ' @' + (comp.param ? comp.param.toFixed(3) : '?') + 
+                                       ' | (' + portPoint.x.toFixed(0) + ', ' + portPoint.y.toFixed(0) + ', ' + portPoint.z.toFixed(0) + ')';
+                                if (isFree) {
+                                    msg += ' → DISPONIBLE';
+                                    if (p.diametro) msg += ' | ⌀' + p.diametro + '"';
+                                } else if (p.connectedTo) {
+                                    msg += ' → ' + (p.connectedTo.tag || 'Conectado');
+                                }
+                                msg += '\n';
+                            });
                         }
-                        const param = associatedComp ? (associatedComp.param || 0.5) : 0.5;
-                        const targetLen = totalLen * param;
-                        let accum = 0, segIdx = 0, t = 0;
-                        for (let j = 0; j < lengths.length; j++) {
-                            if (accum + lengths[j] >= targetLen || j === lengths.length - 1) { segIdx = j; t = (targetLen - accum) / (lengths[j] || 1); break; }
-                            accum += lengths[j];
-                        }
-                        const pA = pts[segIdx], pB = pts[segIdx + 1];
-                        const portPoint = { x: pA.x + (pB.x - pA.x) * t + (p.relX || 0), y: pA.y + (pB.y - pA.y) * t + (p.relY || 0), z: pA.z + (pB.z - pA.z) * t + (p.relZ || 0) };
-                        const fullName = tag + '.' + p.id;
-                        const compType = associatedComp ? (associatedComp.type || 'ACC') : 'ACC';
-                        msg += icon + ' ' + fullName + ' (' + compType + ') @' + param.toFixed(3) + ' | (' + portPoint.x.toFixed(0) + ', ' + portPoint.y.toFixed(0) + ', ' + portPoint.z.toFixed(0) + ')';
-                        if (isFree) { msg += ' → DISPONIBLE'; if (p.diametro) msg += ' | ⌀' + p.diametro + '"'; }
-                        else if (p.connectedTo) { msg += ' → ' + (p.connectedTo.tag || 'Conectado'); }
-                        msg += '\n';
                     });
                 }
                 
+                // END (1)
                 totalCount++;
                 const p1 = obj.puertos ? obj.puertos.find(function(p) { return p.id === '1'; }) : null;
                 const isFree1 = p1 ? (p1.status === 'open') : false;
@@ -849,37 +1008,52 @@ const SmartFlowCommands = (function() {
                 msg += icon1 + ' ' + tag + '.1 (END): (' + pts[lastIdx].x.toFixed(0) + ', ' + pts[lastIdx].y.toFixed(0) + ', ' + pts[lastIdx].z.toFixed(0) + ')';
                 if (isFree1) { msg += ' → DISPONIBLE'; }
                 else if (obj.destination) { msg += ' → ' + (obj.destination.equipTag || '?') + ':' + (obj.destination.portId || '?'); }
-                if (p1 && p1.diametro) msg += ' | ⌀' + p1.diametro + '"';
                 msg += '\n';
                 
                 msg += '\n📊 Total: ' + totalCount + ' | 🟢 ' + freeCount + ' libres | 🔴 ' + (totalCount - freeCount) + ' conectados';
             }
         }
+        
         msg += '\n═══════════════════════════════════';
-        msg += '\n💡 Usa el nombre completo (ej: L-1.TEE_xyz_P3) en connect';
         notifyWithVoice(msg, false);
         return true;
     }
 
     // ================================================================
-    //  COMANDO NODOS ABIERTOS (v3.7)
+    //  COMANDO NODOS ABIERTOS (NUEVO v3.6)
+    //  Muestra solo puertos DISPONIBLES con nombre completo
     // ================================================================
 
     function parseNodosAbiertos(cmd) {
         const parts = cmd.trim().split(/\s+/);
         if (parts[0] !== 'nodos' && parts[0] !== 'nodes') return false;
         if (parts[1] !== 'abiertos' && parts[1] !== 'open' && parts[1] !== 'libres') return false;
+        
         let tag;
-        if (parts[2] === 'de') { tag = parts[3]; } else { tag = parts[2]; }
-        if (!tag) { notifyWithVoice("Uso: nodos abiertos [TAG] | nodos abiertos de [TAG]", true); return true; }
+        if (parts[2] === 'de') {
+            tag = parts[3];
+        } else {
+            tag = parts[2];
+        }
+        
+        if (!tag) { 
+            notifyWithVoice("Uso: nodos abiertos [TAG] | nodos abiertos de [TAG]", true); 
+            return true; 
+        }
+        
         if (!_core) { notifyWithVoice("Core no inicializado", true); return true; }
+        
         const obj = _core.findObjectByTag(tag);
         if (!obj) { notifyWithVoice('❌ "' + tag + '" no encontrado', true); return true; }
+        
         const isEquipment = obj.posX !== undefined || (obj.pos && obj.pos.x !== undefined);
+        
         let msg = '═══════════════════════════════════\n';
         msg += '🟢 NODOS ABIERTOS DE ' + tag + '\n';
         msg += '═══════════════════════════════════\n';
+        
         let openCount = 0;
+        
         if (isEquipment) {
             if (obj.puertos && obj.puertos.length > 0) {
                 obj.puertos.forEach(function(p) {
@@ -889,22 +1063,32 @@ const SmartFlowCommands = (function() {
                         const posX = (obj.posX || 0) + (p.relX || 0);
                         const posY = (obj.posY || 0) + (p.relY || 0);
                         const posZ = (obj.posZ || 0) + (p.relZ || 0);
+                        
+                        // ✅ Nombre completo para copiar y pegar
                         const fullName = tag + '.' + p.id;
-                        msg += '• ' + fullName + ': ⌀' + (p.diametro || '?') + '" | (' + posX.toFixed(0) + ', ' + posY.toFixed(0) + ', ' + posZ.toFixed(0) + ')';
-                        if (p.orientacion) { msg += ' | Dir: (' + (p.orientacion.dx || 0).toFixed(1) + ', ' + (p.orientacion.dy || 0).toFixed(1) + ', ' + (p.orientacion.dz || 0).toFixed(1) + ')'; }
+                        
+                        msg += '• ' + fullName + ': ⌀' + (p.diametro || '?') + '" | (' + 
+                               posX.toFixed(0) + ', ' + posY.toFixed(0) + ', ' + posZ.toFixed(0) + ')';
+                        if (p.orientacion) {
+                            msg += ' | Dir: (' + (p.orientacion.dx || 0).toFixed(1) + ', ' + 
+                                   (p.orientacion.dy || 0).toFixed(1) + ', ' + (p.orientacion.dz || 0).toFixed(1) + ')';
+                        }
                         msg += '\n';
                     }
                 });
             }
         } else {
             const pts = getPoints(obj);
-            if (pts.length < 2) { msg += '⚠️ Línea sin geometría\n'; }
-            else {
+            if (pts.length < 2) {
+                msg += '⚠️ Línea sin geometría\n';
+            } else {
                 let totalLen = 0, lengths = [];
                 for (let i = 0; i < pts.length - 1; i++) {
                     const d = Math.hypot(pts[i+1].x - pts[i].x, pts[i+1].y - pts[i].y, pts[i+1].z - pts[i].z);
                     lengths.push(d); totalLen += d;
                 }
+                
+                // START (0)
                 const p0 = obj.puertos ? obj.puertos.find(function(p) { return p.id === '0'; }) : null;
                 if (p0 && p0.status === 'open') {
                     openCount++;
@@ -912,38 +1096,55 @@ const SmartFlowCommands = (function() {
                     if (p0.diametro) msg += ' | ⌀' + p0.diametro + '"';
                     msg += '\n';
                 }
-                if (obj.puertos && obj.puertos.length > 0) {
+                
+                // Puertos de TEEs disponibles
+                if (obj.components && obj.puertos) {
                     obj.puertos.forEach(function(p) {
                         if (p.id === '0' || p.id === '1') return;
+                        if (p.id.indexOf('S1') !== -1 || p.id.indexOf('S2') !== -1) return;
+                        
                         const isOpen = !p.connectedTo || p.status === 'open';
                         if (isOpen) {
                             openCount++;
-                            let associatedComp = null;
+                            
+                            // Encontrar el componente asociado
+                            let compParam = 0.5;
                             if (obj.components) {
                                 for (let c = 0; c < obj.components.length; c++) {
-                                    const comp = obj.components[c];
-                                    if (p.id.indexOf(comp.tag) !== -1 || (comp.tag && p.id.indexOf(comp.tag.replace(/[^a-zA-Z0-9_]/g, '')) !== -1)) {
-                                        associatedComp = comp; break;
+                                    if (p.id.indexOf(obj.components[c].tag) !== -1) {
+                                        compParam = obj.components[c].param || 0.5;
+                                        break;
                                     }
                                 }
                             }
-                            const param = associatedComp ? (associatedComp.param || 0.5) : 0.5;
-                            const targetLen = totalLen * param;
+                            
+                            const targetLen = totalLen * compParam;
                             let accum = 0, segIdx = 0, t = 0;
                             for (let j = 0; j < lengths.length; j++) {
-                                if (accum + lengths[j] >= targetLen || j === lengths.length - 1) { segIdx = j; t = (targetLen - accum) / (lengths[j] || 1); break; }
+                                if (accum + lengths[j] >= targetLen || j === lengths.length - 1) {
+                                    segIdx = j; t = (targetLen - accum) / (lengths[j] || 1); break;
+                                }
                                 accum += lengths[j];
                             }
                             const pA = pts[segIdx], pB = pts[segIdx + 1];
-                            const portPoint = { x: pA.x + (pB.x - pA.x) * t + (p.relX || 0), y: pA.y + (pB.y - pA.y) * t + (p.relY || 0), z: pA.z + (pB.z - pA.z) * t + (p.relZ || 0) };
+                            const portPoint = {
+                                x: pA.x + (pB.x - pA.x) * t + (p.relX || 0),
+                                y: pA.y + (pB.y - pA.y) * t + (p.relY || 0),
+                                z: pA.z + (pB.z - pA.z) * t + (p.relZ || 0)
+                            };
+                            
+                            // ✅ Nombre completo: L-1.TEE_xyz_P3
                             const fullName = tag + '.' + p.id;
-                            const compType = associatedComp ? (associatedComp.type || 'ACC') : 'ACC';
-                            msg += '• ' + fullName + ' (' + compType + ') @' + param.toFixed(3) + ': (' + portPoint.x.toFixed(0) + ', ' + portPoint.y.toFixed(0) + ', ' + portPoint.z.toFixed(0) + ')';
+                            
+                            msg += '• ' + fullName + ' @' + compParam.toFixed(3) + 
+                                   ': (' + portPoint.x.toFixed(0) + ', ' + portPoint.y.toFixed(0) + ', ' + portPoint.z.toFixed(0) + ')';
                             if (p.diametro) msg += ' | ⌀' + p.diametro + '"';
                             msg += '\n';
                         }
                     });
                 }
+                
+                // END (1)
                 const p1 = obj.puertos ? obj.puertos.find(function(p) { return p.id === '1'; }) : null;
                 if (p1 && p1.status === 'open') {
                     openCount++;
@@ -954,10 +1155,15 @@ const SmartFlowCommands = (function() {
                 }
             }
         }
-        if (openCount === 0) { msg += '⚠️ No hay nodos disponibles.\n'; }
+        
+        if (openCount === 0) {
+            msg += '⚠️ No hay nodos disponibles. Todos están conectados.\n';
+        }
+        
         msg += '\n📊 ' + openCount + ' nodo(s) disponible(s)';
         msg += '\n═══════════════════════════════════';
         msg += '\n💡 Copia el nombre completo (ej: L-1.TEE_xyz_P3) para usar en:\n   connect L-1.TEE_xyz_P3 to EQUIPO PUERTO';
+        
         notifyWithVoice(msg, false);
         return true;
     }
@@ -965,6 +1171,35 @@ const SmartFlowCommands = (function() {
     // ================================================================
     //  FIN PARTE 1 - CONTINÚA EN PARTE 2
     // ================================================================
+    // ================================================================
+    //  La Parte 2 contiene:
+    //  - COMANDO LISTAR
+    //  - COMANDO MEASURE
+    //  - COMANDO PLACE
+    //  - COMANDO CREATE EQUIPO
+    //  - COMANDO CREATE LINE
+    //  - COMANDO CONNECT (versión corregida completa)
+    //  - COMANDO ROUTE
+    //  - COMANDO TAP
+    //  - COMANDO SPLIT
+    //  - COMANDO DELETE
+    //  - COMANDO EDIT
+    //  - COMANDO MOVE
+    //  - COMANDO ROTATE
+    //  - COMANDO DUPLICATE
+    //  - COMANDO ALIGN
+    //  - COMANDO ACCESSORIES
+    //  - COMANDO BOM / AUDIT / HELP
+    //  - COMANDO MACRO / EXPORT / VIEW
+    //  - parseLineFromTo (NUEVO v3.5)
+    //  - parseExtendLine (NUEVO v3.5)
+    //  - parseOptimizeRoute (NUEVO v3.5)
+    //  - parseRerouteLine (NUEVO v3.5)
+    //  - parseSetProject (NUEVO v3.5)
+    //  - executeCommand / executeBatch
+    //  - init / API pública
+    // ============================================================
+
     // ================================================================
     //  COMANDO LISTAR
     // ================================================================
@@ -1045,31 +1280,45 @@ const SmartFlowCommands = (function() {
     function parsePlace(cmd) {
         const parts = cmd.trim().split(/\s+/);
         if (parts[0] !== 'place' && parts[0] !== 'apoyar' && parts[0] !== 'posar' && parts[0] !== 'poner' && parts[0] !== 'colocar') return false;
+        
         const tag = parts[1];
         if (!tag) { notifyWithVoice('Uso: place EQUIPO on SUPERFICIE | place EQUIPO on ground | place EQUIPO on suelo', true); return true; }
+        
         const onIdx = parts.indexOf('on') !== -1 ? parts.indexOf('on') : parts.indexOf('sobre');
         if (onIdx === -1 || onIdx + 1 >= parts.length) { 
             notifyWithVoice('Uso: place EQUIPO on SUPERFICIE | place EQUIPO on ground', true); 
             return true; 
         }
+        
         let superficieTag = parts[onIdx + 1];
+        
         if (!_core) { notifyWithVoice("Error: Core no inicializado", true); return true; }
+        
         const equipo = _core.findObjectByTag(tag);
         if (!equipo) { notifyWithVoice('❌ Equipo "' + tag + '" no encontrado', true); return true; }
+        
         let superficieY = 0;
         let superficieNombre = 'suelo (EL ±0.000m)';
+        
         if (superficieTag && superficieTag.toLowerCase() !== 'ground' && superficieTag.toLowerCase() !== 'suelo') {
             const superficie = _core.findObjectByTag(superficieTag);
             if (!superficie) { notifyWithVoice('❌ Superficie "' + superficieTag + '" no encontrada', true); return true; }
+            
             const alturaSuperficie = superficie.altura || 0;
             superficieY = (superficie.posY || 0) + (alturaSuperficie / 2);
             superficieNombre = superficieTag + ' (EL ' + (superficieY/1000 >= 0 ? '+' : '') + (superficieY/1000).toFixed(3) + 'm)';
         }
+        
         const alturaEquipo = equipo.altura || 0;
         const nuevoPosY = superficieY + (alturaEquipo / 2);
+        
         saveStateBeforeMutation();
+        
         if (equipo.posX !== undefined) {
-            _core.updateEquipment(tag, { posY: nuevoPosY, elevacion: superficieY });
+            _core.updateEquipment(tag, { 
+                posY: nuevoPosY,
+                elevacion: superficieY
+            });
         } else {
             const pts = getPoints(equipo);
             if (pts.length > 0) {
@@ -1078,10 +1327,13 @@ const SmartFlowCommands = (function() {
                 _core.updateLine(tag, { _cachedPoints: newPts });
             }
         }
+        
         _core.syncPhysicalData();
         if (_renderUI) _renderUI();
+        
         const baseElev = nuevoPosY - (alturaEquipo / 2);
         notifyWithVoice('✅ ' + tag + ' apoyado sobre ' + superficieNombre + '\n   Centro Y=' + nuevoPosY.toFixed(0) + 'mm | Base EL ' + (baseElev/1000 >= 0 ? '+' : '') + (baseElev/1000).toFixed(3) + 'm', false);
+        
         return true;
     }
 
@@ -1099,28 +1351,50 @@ const SmartFlowCommands = (function() {
         const coords = coordStr.match(/\((-?\d+(?:\.\d+)?),(-?\d+(?:\.\d+)?),(-?\d+(?:\.\d+)?)\)/);
         if (!coords) return false;
         const x = parseFloat(coords[1]), y = parseFloat(coords[2]), z = parseFloat(coords[3]);
+        
         const namedParams = extractNamedParams(parts, 5);
+        
         let params = {};
         if (namedParams.diameter) params.diametro = namedParams.diameter;
         if (namedParams.material) params.material = namedParams.material;
         if (namedParams.spec) params.spec = namedParams.spec;
         if (namedParams.type) params.tipo = namedParams.type;
+        
         for (let i = 5; i < parts.length; i++) {
             let key = parts[i];
-            if (key === 'diam' || key === 'diametro') { if (params.diametro === undefined) params.diametro = parseFloat(parts[++i]); else i++; }
+            
+            if (key === 'diam' || key === 'diametro') {
+                if (params.diametro === undefined) params.diametro = parseFloat(parts[++i]);
+                else i++;
+            }
             else if (key === 'height' || key === 'altura') params.altura = parseFloat(parts[++i]);
             else if (key === 'largo') params.largo = parseFloat(parts[++i]);
             else if (key === 'ancho') params.ancho = parseFloat(parts[++i]);
             else if (key === 'diametro_succion' || key === 'succion') params.diametro_succion = parseFloat(parts[++i]);
             else if (key === 'diametro_descarga' || key === 'descarga') params.diametro_descarga = parseFloat(parts[++i]);
-            else if (key === 'material') { if (params.material === undefined) params.material = parts[++i].toUpperCase(); else i++; }
-            else if (key === 'spec') { if (params.spec === undefined) params.spec = parts[++i]; else i++; }
+            else if (key === 'diametro_entrada' || key === 'entrada') params.diametro_entrada = parseFloat(parts[++i]);
+            else if (key === 'diametro_salida' || key === 'salida') params.diametro_salida = parseFloat(parts[++i]);
+            else if (key === 'altura_salida_desde_base' || key === 'altura_salida') params.altura_salida_desde_base = parseFloat(parts[++i]);
+            else if (key === 'material') {
+                if (params.material === undefined) params.material = parts[++i].toUpperCase();
+                else i++;
+            }
+            else if (key === 'spec') {
+                if (params.spec === undefined) params.spec = parts[++i];
+                else i++;
+            }
             else if (key === 'baranda') { var v = parts[++i]; params.baranda = v === 'true' || v === 'si' || v === 'yes'; }
             else if (key === 'escalera') { var v = parts[++i]; params.escalera = v === 'true' || v === 'si' || v === 'yes'; }
         }
+        
         const equipoDef = _catalog.getEquipment(tipo);
         if (!equipoDef) { notifyWithVoice("Tipo de equipo desconocido: " + tipo, true); return true; }
-        if (_core && _core.findObjectByTag(tag)) { notifyWithVoice("❌ Error: El tag " + tag + " ya existe", true); return true; }
+        
+        if (_core && _core.findObjectByTag(tag)) {
+            notifyWithVoice("❌ Error: El tag " + tag + " ya existe", true);
+            return true;
+        }
+        
         const equipo = _catalog.createEquipment(tipo, tag, x, y, z, params);
         if (equipo) {
             _core.addEquipment(equipo);
@@ -1139,13 +1413,20 @@ const SmartFlowCommands = (function() {
         if (parts[0] !== 'create' || parts[1] !== 'line') return false;
         const tag = parts[2];
         if (!tag) { notifyWithVoice("Error: Tag de línea requerido", true); return true; }
-        if (_core && _core.findObjectByTag(tag)) { notifyWithVoice("❌ Error: El tag " + tag + " ya existe", true); return true; }
+        
+        if (_core && _core.findObjectByTag(tag)) {
+            notifyWithVoice("❌ Error: El tag " + tag + " ya existe", true);
+            return true;
+        }
+        
         const namedParams = extractNamedParams(parts, 3);
         const resolved = resolveMaterialAndSpec(namedParams, [], null, { inheritFromConnected: false });
+        
         let diameter = namedParams.diameter || 4;
         let material = resolved.material;
         let spec = resolved.spec;
         let points = [];
+        
         let i = 3;
         while (i < parts.length) {
             if (parts[i] === 'route' || parts[i] === 'ruta') {
@@ -1153,103 +1434,184 @@ const SmartFlowCommands = (function() {
                 while (i < parts.length) {
                     const coordStr = parts[i];
                     const m = coordStr.match(/\((-?\d+(?:\.\d+)?),(-?\d+(?:\.\d+)?),(-?\d+(?:\.\d+)?)\)/);
-                    if (m) { points.push({ x: parseFloat(m[1]), y: parseFloat(m[2]), z: parseFloat(m[3]) }); i++; }
-                    else { const lower = (parts[i] || '').toLowerCase(); if (['material', 'spec', 'diameter', 'diametro'].indexOf(lower) !== -1) { i += 2; } else { i++; } }
+                    if (m) {
+                        points.push({ x: parseFloat(m[1]), y: parseFloat(m[2]), z: parseFloat(m[3]) });
+                        i++;
+                    } else {
+                        const lower = (parts[i] || '').toLowerCase();
+                        if (['material', 'spec', 'diameter', 'diametro'].indexOf(lower) !== -1) {
+                            i += 2;
+                        } else {
+                            i++;
+                        }
+                    }
                 }
                 break;
             }
             i++;
         }
-        if (points.length < 2) { notifyWithVoice("Error: Se requieren al menos 2 puntos para la ruta", true); return true; }
-        const nuevaLinea = { tag: tag, diameter: diameter, material: material, spec: spec, _cachedPoints: points, waypoints: points.slice(1, -1), components: [] };
+        
+        if (points.length < 2) { 
+            notifyWithVoice("Error: Se requieren al menos 2 puntos para la ruta", true); 
+            return true; 
+        }
+        
+        const nuevaLinea = { 
+            tag: tag, 
+            diameter: diameter, 
+            material: material, 
+            spec: spec, 
+            _cachedPoints: points, 
+            waypoints: points.slice(1, -1), 
+            components: [] 
+        };
+        
         _core.addLine(nuevaLinea);
+        
         const db = _core.getDb();
         const lineaRegistrada = db.lines.find(function(l) { return l.tag === tag; }) || nuevaLinea;
         const fittingInfo = runFittingInjection(lineaRegistrada, null, null, null, null, diameter, material, spec);
-        if (_core.updateLine) { _core.updateLine(tag, lineaRegistrada); }
+        
+        if (_core.updateLine) { 
+            _core.updateLine(tag, lineaRegistrada); 
+        }
+        
         if (_core.setSelected) _core.setSelected({ type: 'line', obj: lineaRegistrada });
         notifyWithVoice("✅ Línea " + tag + " creada: " + material + " " + diameter + "\" " + spec + (fittingInfo.message || ''), false);
         return true;
     }
 
     // ================================================================
-    //  COMANDO CONNECT (v3.7 - Con banderas fittingInserted)
+    //  COMANDO CONNECT (v3.6 - con fittingInserted flags)
     // ================================================================
 
     function parseConnect(cmd) {
         const parts = cmd.split(/\s+/);
         if (parts[0] !== 'connect' && parts[0] !== 'conectar') return false;
+        
         const fromEquip = parts[1], fromNozzle = parts[2];
         if (parts[3] !== 'to' && parts[3] !== 'a') return false;
         const toEquip = parts[4];
+        
         const viaIdx = parts.indexOf('via');
         let waypoints = [];
+        
         if (viaIdx !== -1) {
             const endKeywords = ['to', 'a', 'diameter', 'diametro', 'material', 'spec', 'orient', 'direccion', 'branchup', 'branchdown', 'branchnorth', 'branchsouth', 'brancheast', 'branchwest', 'up', 'down', 'north', 'south', 'east', 'west'];
             let endIdx = parts.length;
-            for (let i = viaIdx + 1; i < parts.length; i++) { if (endKeywords.includes(parts[i].toLowerCase())) { endIdx = i; break; } }
+            for (let i = viaIdx + 1; i < parts.length; i++) {
+                if (endKeywords.includes(parts[i].toLowerCase())) {
+                    endIdx = i;
+                    break;
+                }
+            }
             waypoints = extractWaypoints(parts, viaIdx + 1, endIdx);
         }
+        
         let toNozzleRaw = parts[5];
         const knownKeywords = ['material', 'spec', 'diameter', 'diametro', 'type', 'tipo', 'orient', 'direccion', 'via'];
-        if (toNozzleRaw && knownKeywords.indexOf(toNozzleRaw.toLowerCase()) !== -1) { toNozzleRaw = null; }
-        if (toNozzleRaw && toNozzleRaw.startsWith('(')) { toNozzleRaw = null; }
+        
+        if (toNozzleRaw && knownKeywords.indexOf(toNozzleRaw.toLowerCase()) !== -1) {
+            toNozzleRaw = null;
+        }
+        if (toNozzleRaw && toNozzleRaw.startsWith('(')) {
+            toNozzleRaw = null;
+        }
+        
         let branchOrientation = extractOrientation(parts);
-        if (!branchOrientation) { branchOrientation = extractBranchOrientation(parts, 5); }
+        if (!branchOrientation) {
+            branchOrientation = extractBranchOrientation(parts, 5);
+        }
+        
         let paramsStartIndex = 5;
         if (toNozzleRaw) paramsStartIndex = 6;
+        
         if (viaIdx !== -1 && viaIdx >= paramsStartIndex) {
             paramsStartIndex = viaIdx;
             let skipCount = 1;
-            for (let i = viaIdx + 1; i < parts.length; i++) { if (parts[i].startsWith('(')) skipCount++; else break; }
+            for (let i = viaIdx + 1; i < parts.length; i++) {
+                if (parts[i].startsWith('(')) skipCount++;
+                else break;
+            }
             paramsStartIndex += skipCount;
         }
+        
         const namedParams = extractNamedParams(parts, paramsStartIndex);
+        
         if (!_core) { notifyWithVoice("Core no inicializado", true); return true; }
+        
         const fromObj = _core.findObjectByTag(fromEquip);
         const toObj = _core.findObjectByTag(toEquip);
         if (!fromObj || !toObj) { notifyWithVoice("Objeto no encontrado", true); return true; }
+        
         const resolved = resolveMaterialAndSpec(namedParams, [fromObj, toObj], null, { inheritFromConnected: false });
         let diameter = namedParams.diameter || 4;
         let material = resolved.material;
         let spec = resolved.spec;
+        
         for (let i = paramsStartIndex; i < parts.length; i++) {
             if (parts[i] === 'diameter' || parts[i] === 'diametro') diameter = parseFloat(parts[++i]);
             else if (parts[i] === 'material') material = parts[++i].toUpperCase();
             else if (parts[i] === 'spec') spec = parts[++i];
         }
+
         const numPosFrom = parseFloat(fromNozzle);
         const isNumericFrom = !isNaN(numPosFrom) && isFinite(numPosFrom) && numPosFrom >= 0 && numPosFrom <= 1;
         const isFromLine = _core.getLinePoints(fromObj) ? true : false;
         const isToLine = _core.getLinePoints(toObj) ? true : false;
         const db = _core.getDb();
+        
         let startPos = null, fromDiameter = 4;
         let effectiveFromNozzle = fromNozzle;
+        
         if (isFromLine && isNumericFrom && numPosFrom > 0.01 && numPosFrom < 0.99) {
             const pts = _core.getLinePoints(fromObj);
-            if (!pts || pts.length < 2) { notifyWithVoice("La línea origen no tiene geometría válida", true); return true; }
+            if (!pts || pts.length < 2) { 
+                notifyWithVoice("La línea origen no tiene geometría válida", true); 
+                return true; 
+            }
+            
             let totalLen = 0, lengths = [];
-            for (let i = 0; i < pts.length - 1; i++) { const d = Math.hypot(pts[i+1].x - pts[i].x, pts[i+1].y - pts[i].y, pts[i+1].z - pts[i].z); lengths.push(d); totalLen += d; }
+            for (let i = 0; i < pts.length - 1; i++) {
+                const d = Math.hypot(pts[i+1].x - pts[i].x, pts[i+1].y - pts[i].y, pts[i+1].z - pts[i].z);
+                lengths.push(d); totalLen += d;
+            }
             const targetLen = totalLen * numPosFrom;
             let accum = 0, segIdx = 0, t = 0;
-            for (let i = 0; i < lengths.length; i++) { if (accum + lengths[i] >= targetLen || i === lengths.length - 1) { segIdx = i; t = (targetLen - accum) / (lengths[i] || 1); break; } accum += lengths[i]; }
+            for (let i = 0; i < lengths.length; i++) {
+                if (accum + lengths[i] >= targetLen || i === lengths.length - 1) {
+                    segIdx = i; t = (targetLen - accum) / (lengths[i] || 1); break;
+                }
+                accum += lengths[i];
+            }
             const pA = pts[segIdx], pB = pts[segIdx + 1];
             startPos = { x: pA.x + (pB.x - pA.x) * t, y: pA.y + (pB.y - pA.y) * t, z: pA.z + (pB.z - pA.z) * t };
             fromDiameter = fromObj.diameter || 4;
+            
         } else if (_core.getLinePoints(fromObj) && (fromNozzle === '0' || fromNozzle === '1')) {
             const pts = _core.getLinePoints(fromObj);
-            if (pts && pts.length >= 2) { startPos = fromNozzle === '0' ? { x: pts[0].x, y: pts[0].y, z: pts[0].z } : { x: pts[pts.length - 1].x, y: pts[pts.length - 1].y, z: pts[pts.length - 1].z }; fromDiameter = fromObj.diameter || 4; }
+            if (pts && pts.length >= 2) {
+                startPos = fromNozzle === '0' ? { x: pts[0].x, y: pts[0].y, z: pts[0].z } : { x: pts[pts.length - 1].x, y: pts[pts.length - 1].y, z: pts[pts.length - 1].z };
+                fromDiameter = fromObj.diameter || 4;
+            }
         } else {
             const nzFrom = fromObj.puertos && fromObj.puertos.find(function(n) { return n.id === fromNozzle; });
             if (!nzFrom) { notifyWithVoice("Puerto origen '" + fromNozzle + "' no encontrado", true); return true; }
             fromDiameter = nzFrom.diametro || 4;
-            if (typeof SmartFlowRouter !== 'undefined' && SmartFlowRouter.getPortPosition) { startPos = SmartFlowRouter.getPortPosition(fromObj, fromNozzle); }
-            else { const basePos = getBasePosition(fromObj); startPos = { x: basePos.x + (nzFrom.relX || 0), y: basePos.y + (nzFrom.relY || 0), z: basePos.z + (nzFrom.relZ || 0) }; }
+            if (typeof SmartFlowRouter !== 'undefined' && SmartFlowRouter.getPortPosition) {
+                startPos = SmartFlowRouter.getPortPosition(fromObj, fromNozzle);
+            } else {
+                const basePos = getBasePosition(fromObj);
+                startPos = { x: basePos.x + (nzFrom.relX || 0), y: basePos.y + (nzFrom.relY || 0), z: basePos.z + (nzFrom.relZ || 0) };
+            }
         }
+        
         if (!startPos) { notifyWithVoice("No se pudo obtener la posición del puerto origen", true); return true; }
+        
         let endPos = null, nuevoPuertoId = toNozzleRaw;
         let nzTo = null;
         let destBranchDirection = null;
+        
         if (isToLine && (!toNozzleRaw || toNozzleRaw === '')) {
             const pts = _core.getLinePoints(toObj);
             if (!pts || pts.length < 2) { notifyWithVoice("La línea destino no tiene geometría", true); return true; }
@@ -1266,6 +1628,7 @@ const SmartFlowCommands = (function() {
             }
             endPos = bestPoint;
             destBranchDirection = calculateBranchDirection(endPos, startPos);
+            
         } else if (isToLine && isParametricPortId(toNozzleRaw)) {
             const pts = _core.getLinePoints(toObj);
             if (!pts || pts.length < 2) { notifyWithVoice("Geometría inválida", true); return true; }
@@ -1273,6 +1636,7 @@ const SmartFlowCommands = (function() {
             endPos = getPointAtParam(pts, paramValue);
             if (!endPos) { notifyWithVoice("No se pudo calcular punto en posición " + toNozzleRaw, true); return true; }
             destBranchDirection = calculateBranchDirection(endPos, startPos);
+            
         } else if (isToLine && (toNozzleRaw === '0' || toNozzleRaw === '1')) {
             const pts = _core.getLinePoints(toObj);
             if (!pts || pts.length < 2) { notifyWithVoice("La línea destino no tiene geometría", true); return true; }
@@ -1281,21 +1645,35 @@ const SmartFlowCommands = (function() {
             if (!toObj.puertos) toObj.puertos = [];
             nzTo = toObj.puertos && toObj.puertos.find(function(n) { return n.id === toNozzleRaw; });
             if (!nzTo) { notifyWithVoice("Puerto destino '" + toNozzleRaw + "' no encontrado", true); return true; }
-            if (typeof SmartFlowRouter !== 'undefined' && SmartFlowRouter.getPortPosition) { endPos = SmartFlowRouter.getPortPosition(toObj, toNozzleRaw); }
-            else { const basePos = getBasePosition(toObj); endPos = { x: basePos.x + (nzTo.relX || 0), y: basePos.y + (nzTo.relY || 0), z: basePos.z + (nzTo.relZ || 0) }; }
+            if (typeof SmartFlowRouter !== 'undefined' && SmartFlowRouter.getPortPosition) {
+                endPos = SmartFlowRouter.getPortPosition(toObj, toNozzleRaw);
+            } else {
+                const basePos = getBasePosition(toObj);
+                endPos = { x: basePos.x + (nzTo.relX || 0), y: basePos.y + (nzTo.relY || 0), z: basePos.z + (nzTo.relZ || 0) };
+            }
         }
+        
         if (!endPos) { notifyWithVoice("No se pudo determinar el punto de destino", true); return true; }
+        
         let originBranchDirection = null;
         if (isFromLine && isNumericFrom && numPosFrom > 0.01 && numPosFrom < 0.99) {
-            if (branchOrientation) { originBranchDirection = branchOrientation; const oLen = Math.hypot(originBranchDirection.dx, originBranchDirection.dy, originBranchDirection.dz); if (oLen > 0) { originBranchDirection.dx /= oLen; originBranchDirection.dy /= oLen; originBranchDirection.dz /= oLen; } }
-            else { originBranchDirection = calculateBranchDirection(startPos, endPos, waypoints); }
+            if (branchOrientation) {
+                originBranchDirection = branchOrientation;
+                const oLen = Math.hypot(originBranchDirection.dx, originBranchDirection.dy, originBranchDirection.dz);
+                if (oLen > 0) { originBranchDirection.dx /= oLen; originBranchDirection.dy /= oLen; originBranchDirection.dz /= oLen; }
+            } else {
+                originBranchDirection = calculateBranchDirection(startPos, endPos, waypoints);
+            }
         }
+        
         if (isFromLine && isNumericFrom && numPosFrom > 0.01 && numPosFrom < 0.99) {
             if (typeof SmartFlowRouter !== 'undefined' && typeof SmartFlowRouter.insertarAccesorioEnLinea === 'function') {
                 const nuevoPuertoId = SmartFlowRouter.insertarAccesorioEnLinea(fromEquip, startPos, diameter, true, originBranchDirection);
-                if (nuevoPuertoId) { effectiveFromNozzle = nuevoPuertoId; } else { notifyWithVoice("No se pudo insertar TEE en la línea origen", true); return true; }
+                if (nuevoPuertoId) { effectiveFromNozzle = nuevoPuertoId; }
+                else { notifyWithVoice("No se pudo insertar TEE en la línea origen", true); return true; }
             }
         }
+        
         if (isToLine && (isParametricPortId(toNozzleRaw) || !toNozzleRaw || toNozzleRaw === '')) {
             if (typeof SmartFlowRouter !== 'undefined' && typeof SmartFlowRouter.insertarAccesorioEnLinea === 'function') {
                 const puertoId = SmartFlowRouter.insertarAccesorioEnLinea(toEquip, endPos, diameter, true, destBranchDirection);
@@ -1303,15 +1681,16 @@ const SmartFlowCommands = (function() {
                 nuevoPuertoId = puertoId;
             }
         }
+        
         let newTag;
         let counter = 1;
         const existingTags = new Set(db.lines.map(function(l) { return l.tag; }));
         do { newTag = 'L-' + counter; counter++; } while (existingTags.has(newTag) && counter < 10000);
+        
         let linePoints = [startPos];
         if (waypoints.length > 0) { for (let w = 0; w < waypoints.length; w++) { linePoints.push(waypoints[w]); } }
         linePoints.push(endPos);
         
-        // ✅ v3.7: Banderas fittingInserted para evitar doble inyección
         const nuevaLinea = {
             tag: newTag, diameter: diameter, material: material, spec: spec,
             origin: { objType: isFromLine ? 'line' : 'equipment', equipTag: fromEquip, portId: effectiveFromNozzle },
@@ -1326,13 +1705,16 @@ const SmartFlowCommands = (function() {
         const fittingInfo = runFittingInjection(lineaRegistrada, fromObj, effectiveFromNozzle, toObj, nuevoPuertoId, diameter, material, spec);
         if (_core.updateLine) { _core.updateLine(newTag, lineaRegistrada); }
         if (_core.setSelected) _core.setSelected({ type: 'line', obj: lineaRegistrada });
+        
         const nzFrom = fromObj.puertos && fromObj.puertos.find(function(n) { return n.id === effectiveFromNozzle; });
         if (nzFrom) nzFrom.connectedLine = newTag;
         if (nzTo) nzTo.connectedLine = newTag;
+        
         const matWarnings = checkMaterialCompatibility(material, fromObj, toObj);
         const viaMsg = waypoints.length > 0 ? " vía " + waypoints.length + " waypoint(s)" : "";
         const orientMsg = branchOrientation ? " [orientación manual]" : " [orientación auto]";
         notifyWithVoice("✅ Conectado " + fromEquip + "." + effectiveFromNozzle + " a " + toEquip + "." + nuevoPuertoId + " | " + material + " " + diameter + "\" " + spec + viaMsg + orientMsg + (fittingInfo.message || '') + (matWarnings.length > 0 ? '\n' + matWarnings.join('\n') : ''), matWarnings.length > 0);
+        
         return true;
     }
 
@@ -1343,6 +1725,7 @@ const SmartFlowCommands = (function() {
     function parseRoute(cmd) {
         const parts = cmd.split(/\s+/);
         if (parts[0] !== 'route' && parts[0] !== 'ruta') return false;
+        
         let fromIdx = -1, toIdx = -1, viaIdx = -1;
         for (let i = 1; i < parts.length; i++) {
             const w = parts[i].toLowerCase();
@@ -1350,36 +1733,61 @@ const SmartFlowCommands = (function() {
             if ((w === 'to' || w === 'a' || w === 'hasta') && toIdx === -1) toIdx = i;
             if (w === 'via' && viaIdx === -1) viaIdx = i;
         }
-        if (fromIdx === -1 || toIdx === -1) { notifyWithVoice("Uso: route from [origen] [puerto] [via (x,y,z)...] to [destino] [puerto] [diameter X] [material X]", true); return true; }
+        
+        if (fromIdx === -1 || toIdx === -1) {
+            notifyWithVoice("Uso: route from [origen] [puerto] [via (x,y,z)...] to [destino] [puerto] [diameter X] [material X]", true);
+            return true;
+        }
+        
         const fromEquip = parts[fromIdx + 1];
         const fromNozzle = parts[fromIdx + 2];
         const toEquip = parts[toIdx + 1];
-        if (!fromEquip || !fromNozzle || !toEquip) { notifyWithVoice("❌ Faltan parámetros", true); return true; }
+        
+        if (!fromEquip || !fromNozzle || !toEquip) {
+            notifyWithVoice("❌ Faltan parámetros", true);
+            return true;
+        }
+        
         let waypoints = [];
         let toNozzle = null;
         let paramsStartIdx;
-        if (viaIdx !== -1 && viaIdx < toIdx) { waypoints = extractWaypoints(parts, viaIdx + 1, toIdx); paramsStartIdx = toIdx + 2; }
-        else { paramsStartIdx = toIdx + 2; }
-        if (paramsStartIdx < parts.length && ['material', 'spec', 'diameter', 'diametro', 'orient', 'direccion'].indexOf((parts[paramsStartIdx] || '').toLowerCase()) === -1) { toNozzle = parts[paramsStartIdx]; paramsStartIdx++; }
+        
+        if (viaIdx !== -1 && viaIdx < toIdx) {
+            waypoints = extractWaypoints(parts, viaIdx + 1, toIdx);
+            paramsStartIdx = toIdx + 2;
+        } else {
+            paramsStartIdx = toIdx + 2;
+        }
+        
+        if (paramsStartIdx < parts.length && ['material', 'spec', 'diameter', 'diametro', 'orient', 'direccion'].indexOf((parts[paramsStartIdx] || '').toLowerCase()) === -1) {
+            toNozzle = parts[paramsStartIdx];
+            paramsStartIdx++;
+        }
+        
         const namedParams = extractNamedParams(parts, paramsStartIdx);
         const fromObj = _core ? _core.findObjectByTag(fromEquip) : null;
         const toObj = _core ? _core.findObjectByTag(toEquip) : null;
         const resolved = resolveMaterialAndSpec(namedParams, [fromObj, toObj].filter(Boolean), null, { inheritFromConnected: false });
+        
         let diameter = namedParams.diameter || 3;
         let material = resolved.material;
         let spec = resolved.spec;
+        
         for (let i = paramsStartIdx; i < parts.length; i++) {
             if (parts[i] === 'diameter' || parts[i] === 'diametro') diameter = parseFloat(parts[++i]);
             else if (parts[i] === 'material') material = parts[++i].toUpperCase();
             else if (parts[i] === 'spec') spec = parts[++i];
         }
+        
         if (typeof SmartFlowRouter !== 'undefined') {
             if (waypoints.length > 0 && typeof SmartFlowRouter.routeWithWaypoints === 'function') {
                 SmartFlowRouter.routeWithWaypoints(fromEquip, fromNozzle, toEquip, toNozzle, waypoints, diameter, material, spec);
             } else {
                 SmartFlowRouter.routeBetweenPorts(fromEquip, fromNozzle, toEquip, toNozzle, diameter, material, spec);
             }
-        } else { notifyWithVoice("Módulo Router no disponible.", true); }
+        } else { 
+            notifyWithVoice("Módulo Router no disponible.", true); 
+        }
         return true;
     }
 
@@ -1390,44 +1798,70 @@ const SmartFlowCommands = (function() {
     function parseTap(cmd) {
         const parts = cmd.trim().split(/\s+/);
         if (parts[0] !== 'tap') return false;
-        if (parts.length < 6 || parts[3] !== 'to') { notifyWithVoice("Uso: tap [Equipo] [Puerto] to [Línea] [Posición 0-1] [material X] [diameter X] [spec X] [orient (dx,dy,dz)]", true); return true; }
+        if (parts.length < 6 || parts[3] !== 'to') { 
+            notifyWithVoice("Uso: tap [Equipo] [Puerto] to [Línea] [Posición 0-1] [material X] [diameter X] [spec X] [orient (dx,dy,dz)]", true); 
+            return true; 
+        }
         const fromEquip = parts[1], fromNozzle = parts[2], toLine = parts[4];
         const pos = parseFloat(parts[5]);
-        if (isNaN(pos) || pos < 0 || pos > 1) { notifyWithVoice("Posición debe ser 0-1", true); return true; }
+        if (isNaN(pos) || pos < 0 || pos > 1) { 
+            notifyWithVoice("Posición debe ser 0-1", true); 
+            return true; 
+        }
+        
         const namedParams = extractNamedParams(parts, 6);
         const branchOrientation = extractBranchOrientation(parts, 6);
+        
         if (!_core) { notifyWithVoice("Core no inicializado", true); return true; }
         const fromObj = _core.findObjectByTag(fromEquip);
         if (!fromObj || !_core.getEquipos().includes(fromObj)) { notifyWithVoice('Equipo "' + fromEquip + '" no encontrado', true); return true; }
         const nzFrom = fromObj.puertos && fromObj.puertos.find(function(n) { return n.id === fromNozzle; });
         if (!nzFrom) { notifyWithVoice('Puerto "' + fromNozzle + '" no encontrado', true); return true; }
+        
         const toObj = _core.findObjectByTag(toLine);
         if (!toObj || !_core.getLines().includes(toObj) || !getPoints(toObj).length) { notifyWithVoice('Línea "' + toLine + '" no encontrada', true); return true; }
+        
         const resolved = resolveMaterialAndSpec(namedParams, [fromObj, toObj], null, { inheritFromConnected: false });
         let diameter = namedParams.diameter || toObj.diameter || 4;
         let material = resolved.material;
         let spec = resolved.spec;
+        
         for (let i = 6; i < parts.length; i++) {
             if (parts[i] === 'diameter' || parts[i] === 'diametro') diameter = parseFloat(parts[++i]);
             else if (parts[i] === 'material') material = parts[++i].toUpperCase();
             else if (parts[i] === 'spec') spec = parts[++i];
         }
+        
         let startPos = null;
         if (typeof SmartFlowRouter !== 'undefined' && SmartFlowRouter.getPortPosition) startPos = SmartFlowRouter.getPortPosition(fromObj, fromNozzle);
         else startPos = { x: (fromObj.posX||0) + (nzFrom.relX||0), y: (fromObj.posY||0) + (nzFrom.relY||0), z: (fromObj.posZ||0) + (nzFrom.relZ||0) };
         if (!startPos) { notifyWithVoice("No se pudo obtener posición origen", true); return true; }
-        if (typeof SmartFlowRouter === 'undefined' || typeof SmartFlowRouter.insertarAccesorioEnLinea !== 'function') { notifyWithVoice("Router no disponible", true); return true; }
+        
+        if (typeof SmartFlowRouter === 'undefined' || typeof SmartFlowRouter.insertarAccesorioEnLinea !== 'function') { 
+            notifyWithVoice("Router no disponible", true); 
+            return true; 
+        }
+        
         const resultado = calcularPuntoParametrico(toObj, pos);
         if (!resultado) { notifyWithVoice("No se pudo calcular punto de conexión", true); return true; }
         const puntoConexion = { x: resultado.x, y: resultado.y, z: resultado.z };
+        
         const tapBranchDir = branchOrientation || calculateBranchDirection(puntoConexion, startPos);
+        
         const puertoId = SmartFlowRouter.insertarAccesorioEnLinea(toLine, puntoConexion, diameter, true, tapBranchDir);
         if (!puertoId) { notifyWithVoice("No se pudo insertar el accesorio", true); return true; }
+        
         const db = _core.getDb();
         const existingTags = new Set(db.lines.map(function(l) { return l.tag; }));
         let newTag, counter = 1;
         do { newTag = 'L-' + counter; counter++; } while (existingTags.has(newTag) && counter < 10000);
-        const nuevaLinea = { tag: newTag, diameter: diameter, material: material, spec: spec, origin: { objType: 'equipment', equipTag: fromEquip, portId: fromNozzle }, destination: { objType: 'line', equipTag: toLine, portId: puertoId }, waypoints: [], _cachedPoints: [startPos, puntoConexion], components: [] };
+        
+        const nuevaLinea = { 
+            tag: newTag, diameter: diameter, material: material, spec: spec, 
+            origin: { objType: 'equipment', equipTag: fromEquip, portId: fromNozzle }, 
+            destination: { objType: 'line', equipTag: toLine, portId: puertoId }, 
+            waypoints: [], _cachedPoints: [startPos, puntoConexion], components: []
+        };
         _core.addLine(nuevaLinea);
         const lineaRegistrada = db.lines.find(function(l) { return l.tag === newTag; }) || nuevaLinea;
         const fittingInfo = runFittingInjection(lineaRegistrada, fromObj, fromNozzle, toObj, puertoId, diameter, material, spec);
@@ -1435,7 +1869,10 @@ const SmartFlowCommands = (function() {
         if (_core.setSelected) _core.setSelected({ type: 'line', obj: lineaRegistrada });
         nzFrom.connectedLine = newTag;
         const toObjUpd = _core.findObjectByTag(toLine);
-        if (toObjUpd && toObjUpd.puertos) { const p = toObjUpd.puertos.find(function(p) { return p.id === puertoId; }); if (p) p.connectedLine = newTag; }
+        if (toObjUpd && toObjUpd.puertos) { 
+            const p = toObjUpd.puertos.find(function(p) { return p.id === puertoId; }); 
+            if (p) p.connectedLine = newTag; 
+        }
         notifyWithVoice("✅ Derivación: " + newTag + " (" + fromEquip + "." + fromNozzle + " → " + toLine + " @" + pos.toFixed(2) + ") | " + material + " " + diameter + "\" " + spec + (fittingInfo.message || ''), false);
         return true;
     }
@@ -1456,7 +1893,9 @@ const SmartFlowCommands = (function() {
         if (result) {
             if (_core.setSelected) _core.setSelected({ type: 'COMPONENTE', obj: result.componente, parent: result.linea });
             notifyWithVoice("✅ Línea " + lineTag + " dividida con " + type, false);
-        } else { notifyWithVoice("Error: Punto fuera de la línea " + lineTag, true); }
+        } else {
+            notifyWithVoice("Error: Punto fuera de la línea " + lineTag, true);
+        }
         return true;
     }
 
@@ -1467,74 +1906,136 @@ const SmartFlowCommands = (function() {
     function parseDelete(cmd) {
         const parts = cmd.split(/\s+/);
         if (parts[0] !== 'delete' && parts[0] !== 'eliminar') return false;
+        
         const type = parts[1] ? parts[1].toLowerCase() : null;
         const tag = parts[2];
-        if (!type || !tag) { notifyWithVoice("❌ Uso: delete equipment [TAG] | delete line [TAG]", true); return true; }
+        
+        if (!type || !tag) {
+            notifyWithVoice("❌ Uso: delete equipment [TAG] | delete line [TAG]", true);
+            return true;
+        }
+        
         if (!_core) { notifyWithVoice("Core no inicializado", true); return true; }
+        
         saveStateBeforeMutation();
+        
         if (type === 'equipment' || type === 'equipo' || type === 'eq') {
-            if (_core.removeEquipment) { _core.removeEquipment(tag); if (_renderUI) _renderUI(); }
-            else {
+            if (_core.removeEquipment) {
+                _core.removeEquipment(tag);
+                if (_renderUI) _renderUI();
+            } else {
                 const db = _core.getDb();
                 const equipo = _core.findObjectByTag(tag);
-                if (!equipo || !_core.getEquipos().includes(equipo)) { notifyWithVoice("❌ Equipo \"" + tag + "\" no encontrado", true); return true; }
-                const lineasConectadas = db.lines.filter(function(line) { return (line.origin && (line.origin.equipTag === tag || line.origin.objTag === tag)) || (line.destination && (line.destination.equipTag === tag || line.destination.objTag === tag)); });
+                if (!equipo || !_core.getEquipos().includes(equipo)) {
+                    notifyWithVoice("❌ Equipo \"" + tag + "\" no encontrado", true);
+                    return true;
+                }
+                
+                const lineasConectadas = db.lines.filter(function(line) {
+                    return (line.origin && (line.origin.equipTag === tag || line.origin.objTag === tag)) ||
+                           (line.destination && (line.destination.equipTag === tag || line.destination.objTag === tag));
+                });
+                
                 lineasConectadas.forEach(function(linea) {
                     var otroExtremo = null;
-                    if (linea.origin && (linea.origin.equipTag === tag || linea.origin.objTag === tag)) { otroExtremo = linea.destination; }
-                    else if (linea.destination) { otroExtremo = linea.origin; }
+                    if (linea.origin && (linea.origin.equipTag === tag || linea.origin.objTag === tag)) {
+                        otroExtremo = linea.destination;
+                    } else if (linea.destination) {
+                        otroExtremo = linea.origin;
+                    }
                     if (otroExtremo && (otroExtremo.equipTag || otroExtremo.objTag)) {
                         var otroTag = otroExtremo.equipTag || otroExtremo.objTag;
                         var otroObj = _core.findObjectByTag(otroTag);
                         if (otroObj && otroObj.puertos) {
                             var puerto = otroObj.puertos.find(function(p) { return p.id === otroExtremo.portId; });
-                            if (puerto) { puerto.status = 'open'; puerto.flow = 'bi'; delete puerto.connectedTo; delete puerto.connectedLine; }
+                            if (puerto) {
+                                puerto.status = 'open';
+                                puerto.flow = 'bi';
+                                delete puerto.connectedTo;
+                                delete puerto.connectedLine;
+                            }
                         }
                     }
                 });
-                db.lines = db.lines.filter(function(line) { return lineasConectadas.indexOf(line) === -1; });
+                
+                db.lines = db.lines.filter(function(line) {
+                    return lineasConectadas.indexOf(line) === -1;
+                });
+                
                 db.equipos = db.equipos.filter(function(e) { return e.tag !== tag; });
+                
                 if (_core.rebuildIndexes) _core.rebuildIndexes();
                 if (_core.syncPhysicalData) _core.syncPhysicalData();
                 if (_renderUI) _renderUI();
+                
                 notifyWithVoice("✅ Equipo \"" + tag + "\" eliminado" + (lineasConectadas.length > 0 ? " + " + lineasConectadas.length + " línea(s)" : ""), false);
             }
             return true;
         }
+        
         if (type === 'line' || type === 'línea' || type === 'linea' || type === 'pipe') {
-            if (_core.removeLine) { _core.removeLine(tag); if (_renderUI) _renderUI(); }
-            else {
+            if (_core.removeLine) {
+                _core.removeLine(tag);
+                if (_renderUI) _renderUI();
+            } else {
                 const db = _core.getDb();
                 const linea = _core.findObjectByTag(tag);
-                if (!linea || !_core.getLines().includes(linea)) { notifyWithVoice("❌ Línea \"" + tag + "\" no encontrada", true); return true; }
+                if (!linea || !_core.getLines().includes(linea)) {
+                    notifyWithVoice("❌ Línea \"" + tag + "\" no encontrada", true);
+                    return true;
+                }
+                
                 if (linea.origin && (linea.origin.equipTag || linea.origin.objTag)) {
                     var origTag = linea.origin.equipTag || linea.origin.objTag;
                     var objOrigen = _core.findObjectByTag(origTag);
                     if (objOrigen && objOrigen.puertos) {
                         var puerto = objOrigen.puertos.find(function(p) { return p.id === linea.origin.portId; });
-                        if (puerto) { puerto.status = 'open'; puerto.flow = 'bi'; delete puerto.connectedTo; delete puerto.connectedLine; }
+                        if (puerto) {
+                            puerto.status = 'open';
+                            puerto.flow = 'bi';
+                            delete puerto.connectedTo;
+                            delete puerto.connectedLine;
+                        }
                     }
                 }
+                
                 if (linea.destination && (linea.destination.equipTag || linea.destination.objTag)) {
                     var destTag = linea.destination.equipTag || linea.destination.objTag;
                     var objDestino = _core.findObjectByTag(destTag);
                     if (objDestino && objDestino.puertos) {
                         var puerto = objDestino.puertos.find(function(p) { return p.id === linea.destination.portId; });
-                        if (puerto) { puerto.status = 'open'; puerto.flow = 'bi'; delete puerto.connectedTo; delete puerto.connectedLine; }
+                        if (puerto) {
+                            puerto.status = 'open';
+                            puerto.flow = 'bi';
+                            delete puerto.connectedTo;
+                            delete puerto.connectedLine;
+                        }
                     }
                 }
+                
                 db.lines = db.lines.filter(function(l) { return l.tag !== tag; });
+                
                 if (_core.rebuildIndexes) _core.rebuildIndexes();
                 if (_core.syncPhysicalData) _core.syncPhysicalData();
                 if (_renderUI) _renderUI();
+                
                 notifyWithVoice("✅ Línea \"" + tag + "\" eliminada. Puertos liberados.", false);
             }
             return true;
         }
+        
         const obj = _core.findObjectByTag(tag);
-        if (!obj) { notifyWithVoice("❌ \"" + tag + "\" no encontrado", true); return true; }
-        if (_core.getEquipos().includes(obj)) { return parseDelete("delete equipment " + tag); }
-        else if (_core.getLines().includes(obj)) { return parseDelete("delete line " + tag); }
+        if (!obj) {
+            notifyWithVoice("❌ \"" + tag + "\" no encontrado", true);
+            return true;
+        }
+        
+        if (_core.getEquipos().includes(obj)) {
+            return parseDelete("delete equipment " + tag);
+        } else if (_core.getLines().includes(obj)) {
+            return parseDelete("delete line " + tag);
+        }
+        
         notifyWithVoice("❌ No se pudo determinar el tipo de \"" + tag + "\". Use: delete equipment/line [TAG]", true);
         return true;
     }
@@ -1546,48 +2047,112 @@ const SmartFlowCommands = (function() {
     function parseEditCommand(cmd) {
         const parts = cmd.split(/\s+/);
         if (parts[0] !== 'edit' && parts[0] !== 'editar') return false;
+        
         saveStateBeforeMutation();
+        
         if (parts[1] === 'equipment' || parts[1] === 'equipo') {
             const tag = parts[2], action = parts[3];
             if (action === 'move' || action === 'mover') {
                 let coordStr = '';
                 for (let i = 4; i < parts.length; i++) { coordStr += parts[i]; if (parts[i].includes(')')) break; }
                 const m = coordStr.match(/\((-?\d+(?:\.\d+)?),(-?\d+(?:\.\d+)?),(-?\d+(?:\.\d+)?)\)/);
-                if (m) { const x = parseFloat(m[1]), y = parseFloat(m[2]), z = parseFloat(m[3]); _core.updateEquipment(tag, { posX: x, posY: y, posZ: z }); notifyWithVoice("✅ Equipo " + tag + " movido a (" + x + "," + y + "," + z + ")", false); return true; }
+                if (m) { 
+                    const x = parseFloat(m[1]), y = parseFloat(m[2]), z = parseFloat(m[3]); 
+                    _core.updateEquipment(tag, { posX: x, posY: y, posZ: z }); 
+                    notifyWithVoice("✅ Equipo " + tag + " movido a (" + x + "," + y + "," + z + ")", false); 
+                    return true; 
+                }
             } else if (action === 'set' || action === 'establecer') {
                 if (parts[4] === 'puerto') {
                     const puertoId = parts[5], subParam = parts[6];
-                    if (subParam === 'diam' || subParam === 'diametro') { const nuevoDiam = parseFloat(parts[7]); if (!isNaN(nuevoDiam)) { _core.updatePuerto(tag, puertoId, { diametro: nuevoDiam }); notifyWithVoice("✅ Puerto " + puertoId + " diámetro " + nuevoDiam + "\"", false); return true; } }
-                    else if (subParam === 'pos' || subParam === 'posicion') { let cs = ''; for (let i = 7; i < parts.length; i++) { cs += parts[i]; if (parts[i].includes(')')) break; } const m = cs.match(/\((-?\d+(?:\.\d+)?),(-?\d+(?:\.\d+)?),(-?\d+(?:\.\d+)?)\)/); if (m) { _core.updatePuerto(tag, puertoId, { pos: { x: parseFloat(m[1]), y: parseFloat(m[2]), z: parseFloat(m[3]) } }); notifyWithVoice("✅ Puerto " + puertoId + " posición actualizada", false); return true; } }
-                    else if (subParam === 'dir' || subParam === 'direccion') { let cs = ''; for (let i = 7; i < parts.length; i++) { cs += parts[i]; if (parts[i].includes(')')) break; } const m = cs.match(/\((-?\d+(?:\.\d+)?),(-?\d+(?:\.\d+)?),(-?\d+(?:\.\d+)?)\)/); if (m) { _core.updatePuerto(tag, puertoId, { dir: { dx: parseFloat(m[1]), dy: parseFloat(m[2]), dz: parseFloat(m[3]) } }); notifyWithVoice("✅ Puerto " + puertoId + " dirección actualizada", false); return true; } }
+                    if (subParam === 'diam' || subParam === 'diametro') { 
+                        const nuevoDiam = parseFloat(parts[7]); 
+                        if (!isNaN(nuevoDiam)) { 
+                            _core.updatePuerto(tag, puertoId, { diametro: nuevoDiam }); 
+                            notifyWithVoice("✅ Puerto " + puertoId + " diámetro " + nuevoDiam + "\"", false); 
+                            return true; 
+                        } 
+                    }
+                    else if (subParam === 'pos' || subParam === 'posicion') { 
+                        let cs = ''; 
+                        for (let i = 7; i < parts.length; i++) { cs += parts[i]; if (parts[i].includes(')')) break; } 
+                        const m = cs.match(/\((-?\d+(?:\.\d+)?),(-?\d+(?:\.\d+)?),(-?\d+(?:\.\d+)?)\)/); 
+                        if (m) { 
+                            _core.updatePuerto(tag, puertoId, { pos: { x: parseFloat(m[1]), y: parseFloat(m[2]), z: parseFloat(m[3]) } }); 
+                            notifyWithVoice("✅ Puerto " + puertoId + " posición actualizada", false); 
+                            return true; 
+                        } 
+                    }
+                    else if (subParam === 'dir' || subParam === 'direccion') { 
+                        let cs = ''; 
+                        for (let i = 7; i < parts.length; i++) { cs += parts[i]; if (parts[i].includes(')')) break; } 
+                        const m = cs.match(/\((-?\d+(?:\.\d+)?),(-?\d+(?:\.\d+)?),(-?\d+(?:\.\d+)?)\)/); 
+                        if (m) { 
+                            _core.updatePuerto(tag, puertoId, { dir: { dx: parseFloat(m[1]), dy: parseFloat(m[2]), dz: parseFloat(m[3]) } }); 
+                            notifyWithVoice("✅ Puerto " + puertoId + " dirección actualizada", false); 
+                            return true; 
+                        } 
+                    }
                 }
             }
         } else if (parts[1] === 'line' || parts[1] === 'línea') {
             const tag = parts[2], action = parts[3];
             if (action === 'set' || action === 'establecer') {
                 const property = parts[4], value = parts[5];
-                if (property === 'material') { _core.updateLine(tag, { material: value.toUpperCase() }); notifyWithVoice("✅ Línea " + tag + " material " + value.toUpperCase(), false); return true; }
-                else if (property === 'diameter' || property === 'diametro') { const val = parseFloat(value); if (!isNaN(val)) { _core.updateLine(tag, { diameter: val }); notifyWithVoice("✅ Línea " + tag + " diámetro " + val + "\"", false); return true; } }
-                else if (property === 'spec') { _core.updateLine(tag, { spec: value }); notifyWithVoice("✅ Línea " + tag + " spec " + value, false); return true; }
+                if (property === 'material') { 
+                    _core.updateLine(tag, { material: value.toUpperCase() }); 
+                    notifyWithVoice("✅ Línea " + tag + " material " + value.toUpperCase(), false); 
+                    return true; 
+                }
+                else if (property === 'diameter' || property === 'diametro') { 
+                    const val = parseFloat(value);
+                    if (!isNaN(val)) {
+                        _core.updateLine(tag, { diameter: val }); 
+                        notifyWithVoice("✅ Línea " + tag + " diámetro " + val + "\"", false); 
+                        return true; 
+                    }
+                }
+                else if (property === 'spec') { 
+                    _core.updateLine(tag, { spec: value }); 
+                    notifyWithVoice("✅ Línea " + tag + " spec " + value, false); 
+                    return true; 
+                }
             } else if ((action === 'add' || action === 'añadir') && (parts[4] === 'component' || parts[4] === 'componente')) {
                 const compType = parts[5];
-                let position = 0.5;
+                let position = 0.5; 
                 const atIdx = parts.indexOf('at') !== -1 ? parts.indexOf('at') : parts.indexOf('en');
                 if (atIdx !== -1) position = parseFloat(parts[atIdx + 1]);
+                
                 const branchOrientation = extractBranchOrientation(parts, atIdx + 2);
+                
                 const line = _core.findObjectByTag(tag);
                 if (line && _core.getLines().includes(line)) {
                     const compDef = _catalog.getComponent(compType);
                     if (!compDef) { notifyWithVoice("Componente desconocido: " + compType, true); return true; }
                     const comp = { type: compDef.tipo || compType, tag: compType + "-" + Date.now().toString().slice(-6), param: position };
                     if (!line.components) line.components = [];
-                    const existe = line.components.some(function(c) { return c.type === comp.type && Math.abs((c.param || 0) - position) < 0.02; });
-                    if (existe) { notifyWithVoice("⚠️ Ya existe un componente similar en esa posición", false); return true; }
+                    
+                    const existe = line.components.some(function(c) { 
+                        return c.type === comp.type && Math.abs((c.param || 0) - position) < 0.02; 
+                    });
+                    if (existe) {
+                        notifyWithVoice("⚠️ Ya existe un componente similar en esa posición", false);
+                        return true;
+                    }
+                    
                     line.components.push(comp);
                     if (compDef.generarPuertos) {
                         const nuevosPuertos = compDef.generarPuertos(line, position, line.diameter, branchOrientation);
                         if (!line.puertos) line.puertos = [];
-                        nuevosPuertos.forEach(function(p, idx) { p.id = comp.tag + "_" + idx; if (branchOrientation && (p.id.includes('BRANCH') || p.label === 'Derivación' || idx === 2)) { p.orientacion = branchOrientation; p.dir = branchOrientation; p.vector = branchOrientation; } line.puertos.push(p); });
+                        nuevosPuertos.forEach(function(p, idx) { 
+                            p.id = comp.tag + "_" + idx; 
+                            if (branchOrientation && (p.id.includes('BRANCH') || p.label === 'Derivación' || idx === 2)) {
+                                p.orientacion = branchOrientation;
+                                p.dir = branchOrientation;
+                                p.vector = branchOrientation;
+                            }
+                            line.puertos.push(p); 
+                        });
                     }
                     _core.updateLine(tag, { components: line.components, puertos: line.puertos });
                     notifyWithVoice("✅ " + (compDef.nombre || compType) + " añadido a " + tag + " en posición " + position.toFixed(2) + (branchOrientation ? " con orientación personalizada" : ""), false);
@@ -1618,15 +2183,23 @@ const SmartFlowCommands = (function() {
         const vx = parseFloat(m[1]), vy = parseFloat(m[2]), vz = parseFloat(m[3]);
         saveStateBeforeMutation();
         if (obj.posX !== undefined) {
-            if (mode === 'by' || mode === 'por') { _core.updateEquipment(tag, { posX: (obj.posX || 0) + vx, posY: (obj.posY || 0) + vy, posZ: (obj.posZ || 0) + vz }); }
-            else { _core.updateEquipment(tag, { posX: vx, posY: vy, posZ: vz }); }
+            if (mode === 'by' || mode === 'por') {
+                _core.updateEquipment(tag, { posX: (obj.posX || 0) + vx, posY: (obj.posY || 0) + vy, posZ: (obj.posZ || 0) + vz });
+            } else {
+                _core.updateEquipment(tag, { posX: vx, posY: vy, posZ: vz });
+            }
             notifyWithVoice("✅ " + tag + " movido a (" + vx + "," + vy + "," + vz + ")", false);
         } else {
             const pts = getPoints(obj);
             if (pts.length > 0) {
                 let newPts;
-                if (mode === 'by' || mode === 'por') { newPts = pts.map(function(p) { return { x: p.x + vx, y: p.y + vy, z: p.z + vz }; }); }
-                else { const base = pts[0]; const dx = vx - base.x, dy = vy - base.y, dz = vz - base.z; newPts = pts.map(function(p) { return { x: p.x + dx, y: p.y + dy, z: p.z + dz }; }); }
+                if (mode === 'by' || mode === 'por') {
+                    newPts = pts.map(function(p) { return { x: p.x + vx, y: p.y + vy, z: p.z + vz }; });
+                } else {
+                    const base = pts[0];
+                    const dx = vx - base.x, dy = vy - base.y, dz = vz - base.z;
+                    newPts = pts.map(function(p) { return { x: p.x + dx, y: p.y + dy, z: p.z + dz }; });
+                }
                 _core.updateLine(tag, { _cachedPoints: newPts });
                 notifyWithVoice("✅ " + tag + " desplazado", false);
             }
@@ -1645,7 +2218,8 @@ const SmartFlowCommands = (function() {
         const tag = parts[1];
         if (!tag) { notifyWithVoice("Uso: rotate TAG [angulo] [around X|Y|Z]", true); return true; }
         let angle = 0;
-        if (parts[2] === 'by') { angle = parseFloat(parts[3]) || 0; } else { angle = parseFloat(parts[2]) || 0; }
+        if (parts[2] === 'by') { angle = parseFloat(parts[3]) || 0; }
+        else { angle = parseFloat(parts[2]) || 0; }
         let axis = 'Y';
         const aroundIdx = parts.indexOf('around') !== -1 ? parts.indexOf('around') : parts.indexOf('eje');
         if (aroundIdx !== -1 && aroundIdx + 1 < parts.length) { axis = parts[aroundIdx + 1].toUpperCase(); }
@@ -1653,8 +2227,11 @@ const SmartFlowCommands = (function() {
         const obj = _core.findObjectByTag(tag);
         if (!obj) { notifyWithVoice(tag + " no encontrado", true); return true; }
         saveStateBeforeMutation();
-        if (obj.posX !== undefined) { const currentRotation = obj.rotation || 0; _core.updateEquipment(tag, { rotation: currentRotation + angle }); notifyWithVoice("✅ " + tag + " rotado " + angle + "° (total: " + (currentRotation + angle) + "°)", false); }
-        else {
+        if (obj.posX !== undefined) {
+            const currentRotation = obj.rotation || 0;
+            _core.updateEquipment(tag, { rotation: currentRotation + angle });
+            notifyWithVoice("✅ " + tag + " rotado " + angle + "° (total: " + (currentRotation + angle) + "°)", false);
+        } else {
             const pts = getPoints(obj);
             if (pts.length > 0) {
                 const rad = angle * Math.PI / 180;
@@ -1691,26 +2268,46 @@ const SmartFlowCommands = (function() {
         if (!original) { notifyWithVoice(tag + " no encontrado", true); return true; }
         let newTag = null;
         const asIdx = parts.indexOf('as') !== -1 ? parts.indexOf('as') : parts.indexOf('como');
-        if (asIdx !== -1 && asIdx + 1 < parts.length) { newTag = parts[asIdx + 1]; } else { newTag = tag + '-COPY'; }
-        if (_core.findObjectByTag(newTag)) { notifyWithVoice("❌ El tag " + newTag + " ya existe", true); return true; }
+        if (asIdx !== -1 && asIdx + 1 < parts.length) { newTag = parts[asIdx + 1]; }
+        else { newTag = tag + '-COPY'; }
+        
+        if (_core.findObjectByTag(newTag)) {
+            notifyWithVoice("❌ El tag " + newTag + " ya existe", true);
+            return true;
+        }
+        
         let offsetX = 2000, offsetY = 0, offsetZ = 0;
         const offsetIdx = parts.indexOf('offset') !== -1 ? parts.indexOf('offset') : parts.indexOf('desplazar');
-        if (offsetIdx !== -1) { const coordStr = parts.slice(offsetIdx + 1).join(''); const m = coordStr.match(/\((-?\d+\.?\d*),(-?\d+\.?\d*),(-?\d+\.?\d*)\)/); if (m) { offsetX = parseFloat(m[1]); offsetY = parseFloat(m[2]); offsetZ = parseFloat(m[3]); } }
+        if (offsetIdx !== -1) {
+            const coordStr = parts.slice(offsetIdx + 1).join('');
+            const m = coordStr.match(/\((-?\d+\.?\d*),(-?\d+\.?\d*),(-?\d+\.?\d*)\)/);
+            if (m) { offsetX = parseFloat(m[1]); offsetY = parseFloat(m[2]); offsetZ = parseFloat(m[3]); }
+        }
         const isEquipment = original.posX !== undefined || (original.pos && original.pos.x !== undefined);
         saveStateBeforeMutation();
         if (isEquipment) {
             const clone = JSON.parse(JSON.stringify(original));
             clone.tag = newTag;
-            clone.posX = (clone.posX || 0) + offsetX; clone.posY = (clone.posY || 0) + offsetY; clone.posZ = (clone.posZ || 0) + offsetZ;
+            clone.posX = (clone.posX || 0) + offsetX;
+            clone.posY = (clone.posY || 0) + offsetY;
+            clone.posZ = (clone.posZ || 0) + offsetZ;
             const success = _core.addEquipment(clone);
-            if (success) { notifyWithVoice("✅ Equipo duplicado: " + tag + " → " + newTag, false); if (_core.setSelected) _core.setSelected({ type: 'equipment', obj: clone }); }
+            if (success) { 
+                notifyWithVoice("✅ Equipo duplicado: " + tag + " → " + newTag, false); 
+                if (_core.setSelected) _core.setSelected({ type: 'equipment', obj: clone }); 
+            }
         } else {
             const clone = JSON.parse(JSON.stringify(original));
             clone.tag = newTag;
             const pts = getPoints(original);
-            if (pts.length > 0) { clone._cachedPoints = pts.map(function(p) { return { x: p.x + offsetX, y: p.y + offsetY, z: p.z + offsetZ }; }); }
+            if (pts.length > 0) {
+                clone._cachedPoints = pts.map(function(p) { return { x: p.x + offsetX, y: p.y + offsetY, z: p.z + offsetZ }; });
+            }
             const success = _core.addLine(clone);
-            if (success) { notifyWithVoice("✅ Línea duplicada: " + tag + " → " + newTag, false); if (_core.setSelected) _core.setSelected({ type: 'line', obj: clone }); }
+            if (success) { 
+                notifyWithVoice("✅ Línea duplicada: " + tag + " → " + newTag, false); 
+                if (_core.setSelected) _core.setSelected({ type: 'line', obj: clone }); 
+            }
         }
         if (_renderUI) _renderUI();
         return true;
@@ -1757,124 +2354,287 @@ const SmartFlowCommands = (function() {
     function parseAccessoriesCommand(cmd) {
         const parts = cmd.trim().split(/\s+/);
         if (parts[0] !== 'accessories' && parts[0] !== 'accesorios') return false;
+        
         const lineTag = parts[1];
-        if (!lineTag) { notifyWithVoice("Uso: accessories LINEA add TIPO@pos... | accessories LINEA auto TIPO... at POS | accessories LINEA transition from MAT1 to MAT2 [with COMP] at POS", true); return true; }
+        if (!lineTag) { 
+            notifyWithVoice("Uso: accessories LINEA add TIPO@pos... | accessories LINEA auto TIPO... at POS | accessories LINEA transition from MAT1 to MAT2 [with COMP] at POS", true); 
+            return true; 
+        }
+        
         if (!_core) { notifyWithVoice("Core no inicializado", true); return true; }
+        
         const line = _core.findObjectByTag(lineTag);
-        if (!line || !_core.getLines().includes(line)) { notifyWithVoice("❌ Línea " + lineTag + " no encontrada", true); return true; }
+        if (!line || !_core.getLines().includes(line)) {
+            notifyWithVoice("❌ Línea " + lineTag + " no encontrada", true);
+            return true;
+        }
+        
         saveStateBeforeMutation();
+        
         if (parts[2] === 'add' || parts[2] === 'añadir') {
             let added = 0, errors = 0;
+            
             for (let i = 3; i < parts.length; i++) {
-                const accDef = parts[i]; const atIdx = accDef.indexOf('@');
-                if (atIdx === -1) { notifyWithVoice("⚠️ Formato: " + accDef + " (use TIPO@pos)", true); errors++; continue; }
-                const compType = accDef.substring(0, atIdx); const position = parseFloat(accDef.substring(atIdx + 1));
-                if (isNaN(position) || position < 0 || position > 1) { notifyWithVoice("⚠️ Posición inválida: " + accDef, true); errors++; continue; }
-                if (!addComponentToLine(line, lineTag, compType, position)) { errors++; } else { added++; }
+                const accDef = parts[i];
+                const atIdx = accDef.indexOf('@');
+                
+                if (atIdx === -1) {
+                    notifyWithVoice("⚠️ Formato: " + accDef + " (use TIPO@pos)", true);
+                    errors++;
+                    continue;
+                }
+                
+                const compType = accDef.substring(0, atIdx);
+                const position = parseFloat(accDef.substring(atIdx + 1));
+                
+                if (isNaN(position) || position < 0 || position > 1) {
+                    notifyWithVoice("⚠️ Posición inválida: " + accDef, true);
+                    errors++;
+                    continue;
+                }
+                
+                if (!addComponentToLine(line, lineTag, compType, position)) {
+                    errors++;
+                } else {
+                    added++;
+                }
             }
+            
             _core.updateLine(lineTag, { components: line.components });
             if (_renderUI) _renderUI();
-            notifyWithVoice("✅ " + added + " accesorio(s) añadido(s)" + (errors > 0 ? " | ⚠️ " + errors + " error(es)" : ""), errors > 0);
+            
+            notifyWithVoice(
+                "✅ " + added + " accesorio(s) añadido(s)" + 
+                (errors > 0 ? " | ⚠️ " + errors + " error(es)" : ""), 
+                errors > 0
+            );
             return true;
         }
+        
         if (parts[2] === 'auto') {
             const atIdx = parts.indexOf('at') !== -1 ? parts.indexOf('at') : parts.indexOf('en');
+            
             const endIdx = atIdx !== -1 ? atIdx : parts.length;
             const componentTypes = [];
-            for (let i = 3; i < endIdx; i++) { const compType = parts[i].toUpperCase(); if (['AT', 'EN', 'DIAMETER', 'DIAMETRO'].indexOf(compType) === -1) { componentTypes.push(compType); } }
-            if (componentTypes.length === 0) { notifyWithVoice("❌ Especifique al menos un componente", true); return true; }
+            for (let i = 3; i < endIdx; i++) {
+                const compType = parts[i].toUpperCase();
+                if (['AT', 'EN', 'DIAMETER', 'DIAMETRO'].indexOf(compType) === -1) {
+                    componentTypes.push(compType);
+                }
+            }
+            
+            if (componentTypes.length === 0) {
+                notifyWithVoice("❌ Especifique al menos un componente", true);
+                return true;
+            }
+            
             let startPosition = 0.5;
-            if (atIdx !== -1 && atIdx + 1 < parts.length) { startPosition = parseFloat(parts[atIdx + 1]); if (isNaN(startPosition)) startPosition = 0.5; }
+            if (atIdx !== -1 && atIdx + 1 < parts.length) {
+                startPosition = parseFloat(parts[atIdx + 1]);
+                if (isNaN(startPosition)) startPosition = 0.5;
+            }
+            
             const namedParams = extractNamedParams(parts, endIdx);
             const diameter = namedParams.diameter || line.diameter || 4;
+            
             const pts = getPoints(line);
             let totalLength = 10000;
-            if (pts.length >= 2) { totalLength = 0; for (let i = 0; i < pts.length - 1; i++) { totalLength += Math.hypot(pts[i+1].x - pts[i].x, pts[i+1].y - pts[i].y, pts[i+1].z - pts[i].z); } }
+            if (pts.length >= 2) {
+                totalLength = 0;
+                for (let i = 0; i < pts.length - 1; i++) {
+                    totalLength += Math.hypot(pts[i+1].x - pts[i].x, pts[i+1].y - pts[i].y, pts[i+1].z - pts[i].z);
+                }
+            }
+            
             const positions = calculateAccessoryPositions(componentTypes, startPosition, totalLength, diameter);
+            
             let added = 0, errors = 0;
-            for (let i = 0; i < positions.length; i++) { const pos = positions[i]; if (addComponentToLine(line, lineTag, pos.type, pos.position)) { added++; } else { errors++; } }
-            if (line.components) { line.components.sort(function(a, b) { return (a.param || 0) - (b.param || 0); }); }
+            for (let i = 0; i < positions.length; i++) {
+                const pos = positions[i];
+                if (addComponentToLine(line, lineTag, pos.type, pos.position)) {
+                    added++;
+                } else {
+                    errors++;
+                }
+            }
+            
+            if (line.components) {
+                line.components.sort(function(a, b) { return (a.param || 0) - (b.param || 0); });
+            }
             _core.updateLine(lineTag, { components: line.components });
+            
             if (_renderUI) _renderUI();
-            notifyWithVoice("✅ " + added + " accesorio(s) añadido(s) automáticamente a " + lineTag + " (desde pos " + startPosition.toFixed(2) + ")" + (errors > 0 ? " | ⚠️ " + errors + " error(es)" : ""), errors > 0);
+            
+            notifyWithVoice(
+                "✅ " + added + " accesorio(s) añadido(s) automáticamente a " + lineTag +
+                " (desde pos " + startPosition.toFixed(2) + ")" +
+                (errors > 0 ? " | ⚠️ " + errors + " error(es)" : ""),
+                errors > 0
+            );
             return true;
         }
+        
         if (parts[2] === 'transition' || parts[2] === 'transicion') {
             const fromIdx = parts.indexOf('from') !== -1 ? parts.indexOf('from') : parts.indexOf('de');
             const toIdx = parts.indexOf('to') !== -1 ? parts.indexOf('to') : parts.indexOf('a');
             const withIdx = parts.indexOf('with') !== -1 ? parts.indexOf('with') : parts.indexOf('con');
             const atIdx = parts.indexOf('at') !== -1 ? parts.indexOf('at') : parts.indexOf('en');
-            if (fromIdx === -1 || toIdx === -1) { notifyWithVoice("Uso: accessories LINEA transition from MAT1 to MAT2 [with COMP] at POS", true); return true; }
+            
+            if (fromIdx === -1 || toIdx === -1) {
+                notifyWithVoice("Uso: accessories LINEA transition from MAT1 to MAT2 [with COMP] at POS", true);
+                return true;
+            }
+            
             const material1 = parts[fromIdx + 1].toUpperCase();
             const material2 = parts[toIdx + 1].toUpperCase();
             const componente = withIdx !== -1 ? parts[withIdx + 1] : null;
+            
             let startPos = 0.85;
-            if (atIdx !== -1 && atIdx + 1 < parts.length) { startPos = parseFloat(parts[atIdx + 1]); if (isNaN(startPos)) startPos = 0.85; }
+            if (atIdx !== -1 && atIdx + 1 < parts.length) {
+                startPos = parseFloat(parts[atIdx + 1]);
+                if (isNaN(startPos)) startPos = 0.85;
+            }
+            
             const namedParams = extractNamedParams(parts, toIdx + 2);
             const diameter = namedParams.diameter || line.diameter || 4;
+            
             const transitionComponents = ['FLANGE'];
             if (material1 !== material2) { transitionComponents.push('CONCENTRIC_REDUCER'); }
             if (componente) { transitionComponents.push(componente); }
             transitionComponents.push('FLANGE');
+            
             const pts = getPoints(line);
             let totalLength = 10000;
-            if (pts.length >= 2) { totalLength = 0; for (let i = 0; i < pts.length - 1; i++) { totalLength += Math.hypot(pts[i+1].x - pts[i].x, pts[i+1].y - pts[i].y, pts[i+1].z - pts[i].z); } }
+            if (pts.length >= 2) {
+                totalLength = 0;
+                for (let i = 0; i < pts.length - 1; i++) {
+                    totalLength += Math.hypot(pts[i+1].x - pts[i].x, pts[i+1].y - pts[i].y, pts[i+1].z - pts[i].z);
+                }
+            }
+            
             const positions = calculateAccessoryPositions(transitionComponents, startPos, totalLength, diameter);
+            
             let added = 0;
-            for (let i = 0; i < positions.length; i++) { const pos = positions[i]; if (addComponentToLine(line, lineTag, pos.type, pos.position)) { added++; } }
+            for (let i = 0; i < positions.length; i++) {
+                const pos = positions[i];
+                if (addComponentToLine(line, lineTag, pos.type, pos.position)) { added++; }
+            }
+            
             if (line.components) { line.components.sort(function(a, b) { return (a.param || 0) - (b.param || 0); }); }
             _core.updateLine(lineTag, { components: line.components });
             if (_renderUI) _renderUI();
+            
             notifyWithVoice("✅ Transición " + material1 + " → " + material2 + " creada en " + lineTag + " (" + added + " accesorios)" + (componente ? " con " + componente : ""), false);
             return true;
         }
+        
         notifyWithVoice("Modo no reconocido. Use: add | auto | transition", true);
         return true;
     }
 
     // ================================================================
-    //  COMANDO BOM, AUDIT, HELP, MACRO, EXPORT, VIEW
+    //  COMANDO BOM, AUDIT, HELP, MACRO, EXPORT, VIEW, PCF, EXECUTE, INIT
     // ================================================================
 
-    function parseBOM(cmd) { const t = cmd.trim().toLowerCase(); if (t === 'bom' || t === 'mto' || t === 'generate bom' || t === 'generar bom') { generateBOM(); return true; } return false; }
+    function parseBOM(cmd) { 
+        const t = cmd.trim().toLowerCase(); 
+        if (t === 'bom' || t === 'mto' || t === 'generate bom' || t === 'generar bom') { generateBOM(); return true; } 
+        return false; 
+    }
     
     function generateBOM() {
         if (!_core) { notifyWithVoice("Error: Core no inicializado", true); return; }
         const db = _core.getDb(); const lines = db.lines || []; const equipos = db.equipos || []; let items = [];
-        equipos.forEach(function(eq) { if (eq.tipo !== 'colector') { items.push({ tipo: 'EQUIPO', tag: eq.tag, descripcion: (eq.tipo || 'Equipo') + ' ' + (eq.material || ''), cantidad: 1, unidad: 'Und' }); } });
+        equipos.forEach(function(eq) { 
+            if (eq.tipo !== 'colector') { 
+                items.push({ tipo: 'EQUIPO', tag: eq.tag, descripcion: (eq.tipo || 'Equipo') + ' ' + (eq.material || ''), cantidad: 1, unidad: 'Und' }); 
+            } 
+        });
         const pipeMap = new Map();
         lines.forEach(function(line) {
             const pts = getPoints(line); if (!pts || pts.length < 2) return;
             let length = 0; for (let i = 0; i < pts.length - 1; i++) length += Math.hypot(pts[i+1].x - pts[i].x, pts[i+1].y - pts[i].y, pts[i+1].z - pts[i].z);
             const lengthM = length / 1000; const key = (line.diameter || '?') + '"-' + (line.material || 'PPR') + '-' + (line.spec || 'STD');
-            if (pipeMap.has(key)) { var d = pipeMap.get(key); d.length += lengthM; } else pipeMap.set(key, { diametro: line.diameter, material: line.material || 'PPR', spec: line.spec || 'STD', length: lengthM });
+            if (pipeMap.has(key)) { var d = pipeMap.get(key); d.length += lengthM; }
+            else pipeMap.set(key, { diametro: line.diameter, material: line.material || 'PPR', spec: line.spec || 'STD', length: lengthM });
         });
-        pipeMap.forEach(function(data, key) { items.push({ tipo: 'TUBERIA', tag: '', descripcion: 'Tubo ' + data.material + ' ' + data.diametro + '" ' + data.spec, cantidad: data.length.toFixed(2), unidad: 'm' }); });
+        pipeMap.forEach(function(data, key) {
+            items.push({ tipo: 'TUBERIA', tag: '', descripcion: 'Tubo ' + data.material + ' ' + data.diametro + '" ' + data.spec, cantidad: data.length.toFixed(2), unidad: 'm' });
+        });
         const compMap = new Map();
-        lines.forEach(function(line) { if (line.components) line.components.forEach(function(comp) { const key = (comp.type || '?') + '-' + (line.diameter || '?') + '"'; compMap.set(key, (compMap.get(key) || 0) + 1); }); });
-        compMap.forEach(function(count, key) { const parts = key.split('-'); items.push({ tipo: 'COMPONENTE', tag: '', descripcion: parts[0] + ' ' + parts[1], cantidad: count, unidad: 'Und' }); });
+        lines.forEach(function(line) { 
+            if (line.components) line.components.forEach(function(comp) { 
+                const key = (comp.type || '?') + '-' + (line.diameter || '?') + '"'; 
+                compMap.set(key, (compMap.get(key) || 0) + 1); 
+            }); 
+        });
+        compMap.forEach(function(count, key) { 
+            const parts = key.split('-'); 
+            items.push({ tipo: 'COMPONENTE', tag: '', descripcion: parts[0] + ' ' + parts[1], cantidad: count, unidad: 'Und' }); 
+        });
         let csv = 'Tipo,Tag,Descripción,Cantidad,Unidad\n';
         items.forEach(function(item) { csv += item.tipo + ',' + item.tag + ',' + item.descripcion + ',' + item.cantidad + ',' + item.unidad + '\n'; });
-        const blob = new Blob([csv], { type: 'text/csv;charset=utf-8;' }); const a = document.createElement('a'); a.href = URL.createObjectURL(blob);
+        const blob = new Blob([csv], { type: 'text/csv;charset=utf-8;' }); 
+        const a = document.createElement('a'); a.href = URL.createObjectURL(blob);
         a.download = 'BOM_' + (window.currentProjectName || 'Proyecto') + '_' + Date.now() + '.csv'; a.click();
         notifyWithVoice('✅ BOM generado con ' + items.length + ' líneas.', false);
     }
 
-    function parseAudit(cmd) { const t = cmd.trim().toLowerCase(); if (t === 'audit' || t === 'auditar') { if (_core && _core.auditModel) _core.auditModel(); else notifyWithVoice("Auditoría no disponible.", true); return true; } return false; }
+    function parseAudit(cmd) { 
+        const t = cmd.trim().toLowerCase(); 
+        if (t === 'audit' || t === 'auditar') { 
+            if (_core && _core.auditModel) _core.auditModel(); 
+            else notifyWithVoice("Auditoría no disponible.", true); 
+            return true; 
+        } 
+        return false; 
+    }
 
     function parseHelp(cmd) {
-        const lower = cmd.toLowerCase(); if (lower !== 'help' && lower !== 'ayuda') return false;
+        const lower = cmd.toLowerCase(); 
+        if (lower !== 'help' && lower !== 'ayuda') return false;
         let ayuda = "═══════════════════════════════════════════════════════════\n";
-        ayuda += "              SMARTFLOW PRO v3.7 - COMANDOS\n";
+        ayuda += "              SMARTFLOW PRO v3.6 - COMANDOS\n";
         ayuda += "═══════════════════════════════════════════════════════════\n\n";
-        ayuda += "⚙️ CONFIGURACIÓN:\n  set project material <MATERIAL> spec <SPEC>\n  set project defaults\n\n";
-        ayuda += "🏗️ CREACIÓN:\n  create [tipo] [tag] at (x,y,z) [diam X] [height X] [material X]\n  create line [tag] route (x,y,z) (x,y,z)... [diameter X] [material X]\n  line TAG from EQUIPO PUERTO to EQUIPO PUERTO [diameter X] [via (x,y,z)...]\n\n";
-        ayuda += "🔗 CONEXIÓN:\n  connect [origen] [0.5|puerto] to [destino] [puerto] [material X]\n  connect ... via (x,y,z) (x,y,z) ← waypoints intermedios\n  route from [origen] [puerto] via (x,y,z)... to [destino] [puerto]\n  tap [origen] [puerto] to [linea] [0.0-1.0] [material X]\n\n";
-        ayuda += "✏️ EDICIÓN:\n  extend line TAG to EQUIPO PUERTO [via (x,y,z)...]\n  optimize route TAG\n  reroute line TAG [mode smart|orthogonal] [elevation N]\n  move [tag] to (x,y,z)  |  move [tag] by (dx,dy,dz)\n  rotate [tag] [angulo] [around X|Y|Z]\n  duplicate [tag] as [nuevo_tag] [offset (dx,dy,dz)]\n  delete equipment|line [tag]\n  split [línea] at (x,y,z) [type TEE_EQUAL]\n\n";
-        ayuda += "🔩 ACCESORIOS:\n  accessories [linea] add TIPO@pos TIPO@pos...\n  accessories [linea] auto TIPO TIPO... at POS [diameter X]\n  accessories [linea] transition from MAT1 to MAT2 [with COMP] at POS\n  edit line [tag] set material|diameter|spec [valor]\n\n";
-        ayuda += "📊 CONSULTAS:\n  info line|equipment|component [tag]\n  nodos [tag]  ← muestra todos los puertos con nombres completos\n  nodos abiertos [tag]  ← muestra solo puertos DISPONIBLES\n  point de [tag] [puerto|@0.5|punto N]\n  measure [tag1] to [tag2]\n  list equipos | lineas | componentes | especificaciones\n\n";
-        ayuda += "💡 TIP: Copia el nombre completo de un nodo (ej: L-1.TEE_xyz_P3)\n   y úsalo directamente en: connect L-1.TEE_xyz_P3 to EQUIPO PUERTO\n\n";
-        ayuda += "🎯 VISTA / OTROS:\n  view top|front|iso|extents  |  view [tag] (centrar)\n  macro save|run|list|delete [nombre]\n  export json | csv  |  bom  |  audit  |  undo | redo\n";
+        ayuda += "⚙️ CONFIGURACIÓN:\n";
+        ayuda += "  set project material <MATERIAL> spec <SPEC>\n";
+        ayuda += "  set project defaults  (ver configuración actual)\n\n";
+        ayuda += "🏗️ CREACIÓN:\n";
+        ayuda += "  create [tipo] [tag] at (x,y,z) [diam X] [height X] [material X]\n";
+        ayuda += "  create line [tag] route (x,y,z) (x,y,z)... [diameter X] [material X] [spec X]\n";
+        ayuda += "  line TAG from EQUIPO PUERTO to EQUIPO PUERTO [diameter X] [via (x,y,z)...]\n\n";
+        ayuda += "🔗 CONEXIÓN:\n";
+        ayuda += "  connect [origen] [0.5|puerto] to [destino] [puerto] [material X] [diameter X]\n";
+        ayuda += "  connect ... via (x,y,z) (x,y,z) ← waypoints intermedios\n";
+        ayuda += "  route from [origen] [puerto] via (x,y,z)... to [destino] [puerto]\n";
+        ayuda += "  tap [origen] [puerto] to [linea] [0.0-1.0] [material X] [diameter X]\n\n";
+        ayuda += "✏️ EDICIÓN:\n";
+        ayuda += "  extend line TAG to EQUIPO PUERTO [via (x,y,z)...]\n";
+        ayuda += "  optimize route TAG\n";
+        ayuda += "  reroute line TAG [mode smart|orthogonal] [elevation N]\n";
+        ayuda += "  move [tag] to (x,y,z)  |  move [tag] by (dx,dy,dz)\n";
+        ayuda += "  rotate [tag] [angulo] [around X|Y|Z]\n";
+        ayuda += "  duplicate [tag] as [nuevo_tag] [offset (dx,dy,dz)]\n";
+        ayuda += "  delete equipment|line [tag]\n";
+        ayuda += "  split [línea] at (x,y,z) [type TEE_EQUAL]\n\n";
+        ayuda += "🔩 ACCESORIOS:\n";
+        ayuda += "  accessories [linea] add TIPO@pos TIPO@pos...\n";
+        ayuda += "  accessories [linea] auto TIPO TIPO... at POS [diameter X]\n";
+        ayuda += "  accessories [linea] transition from MAT1 to MAT2 [with COMP] at POS\n";
+        ayuda += "  edit line [tag] set material|diameter|spec [valor]\n\n";
+        ayuda += "📊 CONSULTAS:\n";
+        ayuda += "  info line|equipment|component [tag]\n";
+        ayuda += "  nodos [tag]  ← muestra todos los puertos con nombres completos\n";
+        ayuda += "  nodos abiertos [tag]  ← muestra solo puertos DISPONIBLES\n";
+        ayuda += "  point de [tag] [puerto|@0.5|punto N]\n";
+        ayuda += "  measure [tag1] to [tag2]\n";
+        ayuda += "  list equipos | lineas | componentes | especificaciones\n\n";
+        ayuda += "💡 TIP: Copia el nombre completo de un nodo (ej: L-1.TEE_xyz_P3)\n";
+        ayuda += "   y úsalo directamente en: connect L-1.TEE_xyz_P3 to EQUIPO PUERTO\n\n";
+        ayuda += "🎯 VISTA / OTROS:\n";
+        ayuda += "  view top|front|iso|extents  |  view [tag] (centrar)\n";
+        ayuda += "  macro save|run|list|delete [nombre]\n";
+        ayuda += "  export json | csv  |  bom  |  audit  |  undo | redo\n";
         ayuda += "═══════════════════════════════════════════════════════════\n";
         notifyWithVoice(ayuda, false); return true;
     }
@@ -1882,26 +2642,72 @@ const SmartFlowCommands = (function() {
     let _macros = new Map();
     window._commandHistory = window._commandHistory || [];
 
-    function recordCommand(cmd) { if (cmd && !cmd.startsWith('//') && cmd.trim()) { window._commandHistory.push(cmd.trim()); if (window._commandHistory.length > 200) { window._commandHistory.shift(); } } }
+    function recordCommand(cmd) {
+        if (cmd && !cmd.startsWith('//') && cmd.trim()) {
+            window._commandHistory.push(cmd.trim());
+            if (window._commandHistory.length > 200) { window._commandHistory.shift(); }
+        }
+    }
 
     function parseMacro(cmd) {
         const parts = cmd.trim().split(/\s+/);
         if (parts[0] !== 'macro' && parts[0] !== 'script') return false;
         const action = parts[1] ? parts[1].toLowerCase() : null;
-        if (action === 'save' || action === 'guardar') { const name = parts[2]; if (!name) { notifyWithVoice("Uso: macro save NOMBRE", true); return true; } _macros.set(name, window._commandHistory.slice()); notifyWithVoice("💾 Macro \"" + name + "\" guardada (" + window._commandHistory.length + " comandos)", false); return true; }
-        if (action === 'run' || action === 'ejecutar') { const name = parts[2]; if (!name || !_macros.has(name)) { notifyWithVoice("Macro \"" + name + "\" no encontrada.", true); return true; } const commands = _macros.get(name); let count = 0; commands.forEach(function(c) { if (executeCommand(c)) count++; }); notifyWithVoice("▶️ Macro \"" + name + "\": " + count + "/" + commands.length + " ejecutados", false); return true; }
-        if (action === 'list' || action === 'lista') { if (_macros.size === 0) { notifyWithVoice("No hay macros guardadas.", false); } else { let msg = "📋 Macros guardadas:\n"; _macros.forEach(function(cmds, name) { msg += "  • " + name + " (" + cmds.length + " comandos)\n"; }); notifyWithVoice(msg, false); } return true; }
-        if (action === 'delete' || action === 'eliminar') { const name = parts[2]; if (_macros.delete(name)) { notifyWithVoice("🗑️ Macro \"" + name + "\" eliminada", false); } else { notifyWithVoice("Macro \"" + name + "\" no encontrada", true); } return true; }
-        notifyWithVoice("Uso: macro save|run|list|delete [nombre]", true); return true;
+        if (action === 'save' || action === 'guardar') {
+            const name = parts[2];
+            if (!name) { notifyWithVoice("Uso: macro save NOMBRE", true); return true; }
+            const history = window._commandHistory.slice();
+            _macros.set(name, history);
+            notifyWithVoice("💾 Macro \"" + name + "\" guardada (" + history.length + " comandos)", false);
+            return true;
+        }
+        if (action === 'run' || action === 'ejecutar') {
+            const name = parts[2];
+            if (!name || !_macros.has(name)) { notifyWithVoice("Macro \"" + name + "\" no encontrada. Use macro list.", true); return true; }
+            const commands = _macros.get(name);
+            let count = 0;
+            commands.forEach(function(c) { if (executeCommand(c)) count++; });
+            notifyWithVoice("▶️ Macro \"" + name + "\": " + count + "/" + commands.length + " comandos ejecutados", false);
+            return true;
+        }
+        if (action === 'list' || action === 'lista') {
+            if (_macros.size === 0) { notifyWithVoice("No hay macros guardadas.", false); }
+            else {
+                let msg = "📋 Macros guardadas:\n";
+                _macros.forEach(function(cmds, name) { msg += "  • " + name + " (" + cmds.length + " comandos)\n"; });
+                notifyWithVoice(msg, false);
+            }
+            return true;
+        }
+        if (action === 'delete' || action === 'eliminar') {
+            const name = parts[2];
+            if (_macros.delete(name)) { notifyWithVoice("🗑️ Macro \"" + name + "\" eliminada", false); }
+            else { notifyWithVoice("Macro \"" + name + "\" no encontrada", true); }
+            return true;
+        }
+        notifyWithVoice("Uso: macro save|run|list|delete [nombre]", true);
+        return true;
     }
 
     function parseExportCommand(cmd) {
         const parts = cmd.trim().split(/\s+/);
         if (parts[0] !== 'export' && parts[0] !== 'exportar') return false;
         const format = parts[1] ? parts[1].toLowerCase() : null;
-        if (format === 'json') { if (_core && _core.exportProject) { const json = _core.exportProject(); const blob = new Blob([json], { type: 'application/json' }); const a = document.createElement('a'); a.href = URL.createObjectURL(blob); a.download = 'SmartFlow_' + new Date().toISOString().slice(0,10) + '.json'; a.click(); notifyWithVoice("📁 Proyecto exportado como JSON", false); } return true; }
+        if (format === 'json') {
+            if (_core && _core.exportProject) {
+                const json = _core.exportProject();
+                const blob = new Blob([json], { type: 'application/json' });
+                const a = document.createElement('a');
+                a.href = URL.createObjectURL(blob);
+                a.download = 'SmartFlow_' + new Date().toISOString().slice(0,10) + '.json';
+                a.click();
+                notifyWithVoice("📁 Proyecto exportado como JSON", false);
+            }
+            return true;
+        }
         if (format === 'csv') { generateBOM(); return true; }
-        notifyWithVoice("Formatos: export json | export csv", true); return true;
+        notifyWithVoice("Formatos: export json | export csv", true);
+        return true;
     }
 
     function parseViewCommand(cmd) {
@@ -1912,8 +2718,12 @@ const SmartFlowCommands = (function() {
         if (sub === 'front' || sub === 'frente') { if (_renderer && _renderer.setView) _renderer.setView('front'); notifyWithVoice("🔭 Vista: Frontal", false); return true; }
         if (sub === 'iso' || sub === 'isometrico' || sub === 'isométrico') { if (_renderer && _renderer.setView) _renderer.setView('iso'); notifyWithVoice("🔭 Vista: Isométrica", false); return true; }
         if (sub === 'extents' || sub === 'todo' || sub === 'fit' || sub === 'extender') { if (_renderer && _renderer.zoomToFit) _renderer.zoomToFit(); notifyWithVoice("🔭 Zoom: Extender", false); return true; }
-        if (sub && ['top','front','iso','extents','fit','todo','extender','reset'].indexOf(sub) === -1) { const obj = _core ? _core.findObjectByTag(sub) : null; if (obj) { const pos = getBasePosition(obj); if (_renderer && _renderer.focusOn) _renderer.focusOn(pos); notifyWithVoice("🔭 Centrando en " + sub, false); return true; } }
-        notifyWithVoice("Vistas: top | front | iso | extents | [TAG]", true); return true;
+        if (sub && ['top','front','iso','extents','fit','todo','extender','reset'].indexOf(sub) === -1) {
+            const obj = _core ? _core.findObjectByTag(sub) : null;
+            if (obj) { const pos = getBasePosition(obj); if (_renderer && _renderer.focusOn) _renderer.focusOn(pos); notifyWithVoice("🔭 Centrando en " + sub, false); return true; }
+        }
+        notifyWithVoice("Vistas: top | front | iso | extents | [TAG]", true);
+        return true;
     }
 
     // ================================================================
@@ -1923,32 +2733,66 @@ const SmartFlowCommands = (function() {
     function parseLineFromTo(cmd) {
         const parts = cmd.trim().split(/\s+/);
         if (parts[0] !== 'line' && parts[0] !== 'linea') return false;
-        const tag = parts[1]; if (!tag) return false;
+        const tag = parts[1];
+        if (!tag) return false;
         const fromIdx = parts.indexOf('from') !== -1 ? parts.indexOf('from') : parts.indexOf('desde');
         const toIdx = parts.indexOf('to') !== -1 ? parts.indexOf('to') : parts.indexOf('a');
-        if (fromIdx === -1 || toIdx === -1 || fromIdx >= toIdx) return false;
-        const fromEquip = parts[fromIdx + 1]; const fromNozzle = parts[fromIdx + 2];
-        const toEquip = parts[toIdx + 1]; let toNozzle = parts[toIdx + 2];
+        if (fromIdx === -1 || toIdx === -1) return false;
+        if (fromIdx >= toIdx) return false;
+        
+        const fromEquip = parts[fromIdx + 1];
+        const fromNozzle = parts[fromIdx + 2];
+        const toEquip = parts[toIdx + 1];
+        let toNozzle = parts[toIdx + 2];
         const keywords = ['material', 'spec', 'diameter', 'diametro', 'via', 'route', 'ruta', 'mode', 'orient', 'direccion'];
         if (toNozzle && keywords.indexOf(toNozzle.toLowerCase()) !== -1) toNozzle = null;
         if (!fromEquip || !fromNozzle || !toEquip) { notifyWithVoice("❌ Uso: line TAG from EQUIPO PUERTO to EQUIPO [PUERTO]", true); return true; }
-        const viaIdx = parts.indexOf('via'); let waypoints = [];
+        
+        const viaIdx = parts.indexOf('via');
+        let waypoints = [];
         if (viaIdx !== -1 && viaIdx < toIdx) waypoints = extractWaypoints(parts, viaIdx + 1, toIdx);
+        
         const paramStartIdx = toIdx + (toNozzle ? 3 : 2);
         const namedParams = extractNamedParams(parts, paramStartIdx);
         if (!_core) { notifyWithVoice("Core no inicializado", true); return true; }
         if (_core.findObjectByTag(tag)) { notifyWithVoice("❌ El tag " + tag + " ya existe", true); return true; }
-        const fromObj = _core.findObjectByTag(fromEquip); const toObj = _core.findObjectByTag(toEquip);
+        
+        const fromObj = _core.findObjectByTag(fromEquip);
+        const toObj = _core.findObjectByTag(toEquip);
         if (!fromObj || !toObj) { notifyWithVoice("❌ Origen/Destino no encontrado", true); return true; }
+        
         const resolved = resolveMaterialAndSpec(namedParams, [fromObj, toObj], null, { inheritFromConnected: false });
-        let diameter = namedParams.diameter || 4; let material = resolved.material; let spec = resolved.spec;
-        for (let i = paramStartIdx; i < parts.length; i++) { if (parts[i] === 'diameter' || parts[i] === 'diametro') diameter = parseFloat(parts[++i]); else if (parts[i] === 'material') material = parts[++i].toUpperCase(); else if (parts[i] === 'spec') spec = parts[++i]; }
-        if (!toNozzle) { const ptsTo = _core.getLinePoints(toObj) || toObj._cachedPoints; if (ptsTo && ptsTo.length >= 2) toNozzle = ''; else if (toObj.puertos && toObj.puertos.length > 0) { const openPort = toObj.puertos.find(function(p) { return p.status === 'open'; }); toNozzle = openPort ? openPort.id : toObj.puertos[0].id; } else toNozzle = 'N1'; }
+        let diameter = namedParams.diameter || 4;
+        let material = resolved.material;
+        let spec = resolved.spec;
+        
+        for (let i = paramStartIdx; i < parts.length; i++) {
+            if (parts[i] === 'diameter' || parts[i] === 'diametro') diameter = parseFloat(parts[++i]);
+            else if (parts[i] === 'material') material = parts[++i].toUpperCase();
+            else if (parts[i] === 'spec') spec = parts[++i];
+        }
+        
+        if (!toNozzle) {
+            const ptsTo = _core.getLinePoints(toObj) || toObj._cachedPoints;
+            if (ptsTo && ptsTo.length >= 2) toNozzle = '';
+            else if (toObj.puertos && toObj.puertos.length > 0) {
+                const openPort = toObj.puertos.find(function(p) { return p.status === 'open'; });
+                toNozzle = openPort ? openPort.id : toObj.puertos[0].id;
+            } else toNozzle = 'N1';
+        }
+        
         if (typeof SmartFlowRouter !== 'undefined') {
             let nuevaLinea;
             if (waypoints.length > 0) nuevaLinea = SmartFlowRouter.routeWithWaypoints(fromEquip, fromNozzle, toEquip, toNozzle, waypoints, diameter, material, spec);
             else nuevaLinea = SmartFlowRouter.routeBetweenPorts(fromEquip, fromNozzle, toEquip, toNozzle, diameter, material, spec);
-            if (nuevaLinea && nuevaLinea.tag !== tag) { const oldTag = nuevaLinea.tag; _core.updateLine(oldTag, { tag: tag }); if (_core.rebuildIndexes) _core.rebuildIndexes(); if (fromObj && fromObj.puertos) { const pFrom = fromObj.puertos.find(function(p) { return p.id === fromNozzle; }); if (pFrom && pFrom.connectedLine === oldTag) pFrom.connectedLine = tag; } if (toObj && toObj.puertos) { const pTo = toObj.puertos.find(function(p) { return p.id === toNozzle; }); if (pTo && pTo.connectedLine === oldTag) pTo.connectedLine = tag; } }
+            
+            if (nuevaLinea && nuevaLinea.tag !== tag) {
+                const oldTag = nuevaLinea.tag;
+                _core.updateLine(oldTag, { tag: tag });
+                if (_core.rebuildIndexes) _core.rebuildIndexes();
+                if (fromObj && fromObj.puertos) { const pFrom = fromObj.puertos.find(function(p) { return p.id === fromNozzle; }); if (pFrom && pFrom.connectedLine === oldTag) pFrom.connectedLine = tag; }
+                if (toObj && toObj.puertos) { const pTo = toObj.puertos.find(function(p) { return p.id === toNozzle; }); if (pTo && pTo.connectedLine === oldTag) pTo.connectedLine = tag; }
+            }
             if (_core.setSelected) { const finalLine = _core.findObjectByTag(tag); if (finalLine) _core.setSelected({ type: 'line', obj: finalLine }); }
             if (_renderUI) _renderUI();
             notifyWithVoice("✅ Línea " + tag + ": " + fromEquip + ":" + fromNozzle + " → " + toEquip + ":" + (toNozzle || 'auto') + " | " + material + " " + diameter + "\" " + spec, false);
@@ -1959,30 +2803,45 @@ const SmartFlowCommands = (function() {
     function parseExtendLine(cmd) {
         const parts = cmd.trim().split(/\s+/);
         if (parts[0] !== 'extend' || (parts[1] !== 'line' && parts[1] !== 'linea')) return false;
-        const lineTag = parts[2]; const toIdx = parts.indexOf('to') !== -1 ? parts.indexOf('to') : parts.indexOf('a');
+        const lineTag = parts[2];
+        const toIdx = parts.indexOf('to') !== -1 ? parts.indexOf('to') : parts.indexOf('a');
         if (toIdx === -1) { notifyWithVoice("Uso: extend line TAG to EQUIPO PUERTO [via (x,y,z)...]", true); return true; }
-        const targetTag = parts[toIdx + 1]; let targetPort = parts[toIdx + 2];
+        const targetTag = parts[toIdx + 1];
+        let targetPort = parts[toIdx + 2];
         if (targetPort && ['via', 'material', 'spec', 'diameter'].indexOf(targetPort.toLowerCase()) !== -1) targetPort = null;
+        
         if (!_core) { notifyWithVoice("Core no inicializado", true); return true; }
-        const line = _core.findObjectByTag(lineTag); if (!line) { notifyWithVoice("❌ Línea " + lineTag + " no encontrada", true); return true; }
-        const targetObj = _core.findObjectByTag(targetTag); if (!targetObj) { notifyWithVoice("❌ Destino " + targetTag + " no encontrado", true); return true; }
+        const line = _core.findObjectByTag(lineTag);
+        if (!line) { notifyWithVoice("❌ Línea " + lineTag + " no encontrada", true); return true; }
+        const targetObj = _core.findObjectByTag(targetTag);
+        if (!targetObj) { notifyWithVoice("❌ Destino " + targetTag + " no encontrado", true); return true; }
+        
         const pts = _core.getLinePoints(line) || line._cachedPoints || line.points3D;
         if (!pts || pts.length < 2) { notifyWithVoice("❌ Línea sin geometría", true); return true; }
-        const material = line.material || getProjectDefaultMaterial(); const spec = line.spec || getProjectDefaultSpec(material); const diameter = line.diameter || 4;
+        
+        const lastPoint = pts[pts.length - 1];
+        const material = line.material || getProjectDefaultMaterial();
+        const spec = line.spec || getProjectDefaultSpec(material);
+        const diameter = line.diameter || 4;
+        
         if (!targetPort && targetObj.puertos) { const openPort = targetObj.puertos.find(function(p) { return p.status === 'open'; }); targetPort = openPort ? openPort.id : targetObj.puertos[0].id; }
         if (!targetPort) targetPort = 'N1';
+        
         let endPos;
         if (typeof SmartFlowRouter !== 'undefined') endPos = SmartFlowRouter.getPortPosition(targetObj, targetPort);
         else endPos = getPortPosition(targetTag, targetPort);
         if (!endPos) { notifyWithVoice("❌ No se pudo obtener posición del destino", true); return true; }
+        
         saveStateBeforeMutation();
         const newPoints = pts.slice();
         const viaIdx = parts.indexOf('via');
         if (viaIdx !== -1) { const wps = extractWaypoints(parts, viaIdx + 1, parts.length); for (let w = 0; w < wps.length; w++) newPoints.push({ x: wps[w].x, y: wps[w].y, z: wps[w].z }); }
         newPoints.push({ x: endPos.x, y: endPos.y, z: endPos.z });
+        
         _core.updateLine(lineTag, { _cachedPoints: newPoints, destination: { equipTag: targetTag, portId: targetPort } });
         if (typeof SmartFlowRouter !== 'undefined') { const updatedLine = _core.findObjectByTag(lineTag); if (updatedLine) SmartFlowRouter.ensureFittings(updatedLine, null, null, targetObj, targetPort, diameter, material, spec); }
-        _core.syncPhysicalData(); if (_renderUI) _renderUI();
+        _core.syncPhysicalData();
+        if (_renderUI) _renderUI();
         notifyWithVoice("✅ Línea " + lineTag + " extendida a " + targetTag + ":" + targetPort + " (+" + (newPoints.length - pts.length) + " punto(s))", false);
         return true;
     }
@@ -1990,12 +2849,16 @@ const SmartFlowCommands = (function() {
     function parseOptimizeRoute(cmd) {
         const parts = cmd.trim().split(/\s+/);
         if (parts[0] !== 'optimize' || (parts[1] !== 'route' && parts[1] !== 'ruta')) return false;
-        const lineTag = parts[2]; if (!lineTag) { notifyWithVoice("Uso: optimize route TAG", true); return true; }
+        const lineTag = parts[2];
+        if (!lineTag) { notifyWithVoice("Uso: optimize route TAG", true); return true; }
         if (!_core) { notifyWithVoice("Core no inicializado", true); return true; }
-        const line = _core.findObjectByTag(lineTag); if (!line) { notifyWithVoice("❌ Línea " + lineTag + " no encontrada", true); return true; }
+        const line = _core.findObjectByTag(lineTag);
+        if (!line) { notifyWithVoice("❌ Línea " + lineTag + " no encontrada", true); return true; }
         const pts = _core.getLinePoints(line) || line._cachedPoints || line.points3D;
         if (!pts || pts.length < 3) { notifyWithVoice("✅ La línea ya está optimizada", true); return true; }
-        const optimized = [pts[0]]; let removedCount = 0;
+        
+        const optimized = [pts[0]];
+        let removedCount = 0;
         for (let i = 1; i < pts.length - 1; i++) {
             const prev = optimized[optimized.length - 1], curr = pts[i], next = pts[i + 1];
             const v1 = { x: curr.x - prev.x, y: curr.y - prev.y, z: curr.z - prev.z };
@@ -2006,30 +2869,54 @@ const SmartFlowCommands = (function() {
             if (angle > 5) optimized.push(curr); else removedCount++;
         }
         optimized.push(pts[pts.length - 1]);
-        if (removedCount > 0) { saveStateBeforeMutation(); _core.updateLine(lineTag, { _cachedPoints: optimized }); _core.syncPhysicalData(); if (_renderUI) _renderUI(); notifyWithVoice("✅ Ruta optimizada: " + removedCount + " punto(s) eliminado(s) (" + pts.length + " → " + optimized.length + " puntos)"); }
-        else { notifyWithVoice("✅ La ruta ya está optimizada."); }
+        
+        if (removedCount > 0) {
+            saveStateBeforeMutation();
+            _core.updateLine(lineTag, { _cachedPoints: optimized });
+            _core.syncPhysicalData();
+            if (_renderUI) _renderUI();
+            notifyWithVoice("✅ Ruta optimizada: " + removedCount + " punto(s) eliminado(s) (" + pts.length + " → " + optimized.length + " puntos)");
+        } else { notifyWithVoice("✅ La ruta ya está optimizada."); }
         return true;
     }
 
     function parseRerouteLine(cmd) {
         const parts = cmd.trim().split(/\s+/);
         if (parts[0] !== 'reroute' || (parts[1] !== 'line' && parts[1] !== 'linea')) return false;
-        const lineTag = parts[2]; if (!lineTag) { notifyWithVoice("Uso: reroute line TAG [mode smart|orthogonal] [elevation N]", true); return true; }
+        const lineTag = parts[2];
+        if (!lineTag) { notifyWithVoice("Uso: reroute line TAG [mode smart|orthogonal] [elevation N]", true); return true; }
         if (!_core) { notifyWithVoice("Core no inicializado", true); return true; }
-        const line = _core.findObjectByTag(lineTag); if (!line) { notifyWithVoice("❌ Línea " + lineTag + " no encontrada", true); return true; }
+        const line = _core.findObjectByTag(lineTag);
+        if (!line) { notifyWithVoice("❌ Línea " + lineTag + " no encontrada", true); return true; }
+        
         let mode = 'smart', elevation = null;
-        for (let i = 3; i < parts.length; i++) { if (parts[i] === 'mode') mode = (parts[++i] || 'smart').toLowerCase(); else if (parts[i] === 'elevation' || parts[i] === 'elevacion') elevation = parseFloat(parts[++i]); }
+        for (let i = 3; i < parts.length; i++) {
+            if (parts[i] === 'mode') mode = (parts[++i] || 'smart').toLowerCase();
+            else if (parts[i] === 'elevation' || parts[i] === 'elevacion') elevation = parseFloat(parts[++i]);
+        }
+        
         const origin = line.origin, destination = line.destination;
         if (!origin || !destination) { notifyWithVoice("❌ La línea debe tener origen y destino definidos", true); return true; }
-        const material = line.material || getProjectDefaultMaterial(); const spec = line.spec || getProjectDefaultSpec(material); const diameter = line.diameter || 4;
+        
+        const material = line.material || getProjectDefaultMaterial();
+        const spec = line.spec || getProjectDefaultSpec(material);
+        const diameter = line.diameter || 4;
+        
         saveStateBeforeMutation();
         if (typeof SmartFlowRouter !== 'undefined') {
             const fromTag = origin.equipTag || origin.objTag, fromPort = origin.portId;
             const toTag = destination.equipTag || destination.objTag, toPort = destination.portId;
             _core.removeLine(lineTag);
             let nuevaLinea;
-            if (elevation !== null) { const pts = _core.getLinePoints(line) || line._cachedPoints || []; const startPoint = pts[0] || { x: 0, y: 0, z: 0 }; const endPoint = pts[pts.length - 1] || { x: 0, y: 0, z: 0 }; const midPoint = { x: (startPoint.x + endPoint.x) / 2, y: elevation, z: (startPoint.z + endPoint.z) / 2 }; nuevaLinea = SmartFlowRouter.routeWithWaypoints(fromTag, fromPort, toTag, toPort, [midPoint], diameter, material, spec); }
-            else { nuevaLinea = SmartFlowRouter.routeBetweenPorts(fromTag, fromPort, toTag, toPort, diameter, material, spec); }
+            if (elevation !== null) {
+                const pts = _core.getLinePoints(line) || line._cachedPoints || [];
+                const startPoint = pts[0] || { x: 0, y: 0, z: 0 };
+                const endPoint = pts[pts.length - 1] || { x: 0, y: 0, z: 0 };
+                const midPoint = { x: (startPoint.x + endPoint.x) / 2, y: elevation, z: (startPoint.z + endPoint.z) / 2 };
+                nuevaLinea = SmartFlowRouter.routeWithWaypoints(fromTag, fromPort, toTag, toPort, [midPoint], diameter, material, spec);
+            } else {
+                nuevaLinea = SmartFlowRouter.routeBetweenPorts(fromTag, fromPort, toTag, toPort, diameter, material, spec);
+            }
             if (nuevaLinea) { const oldTag = nuevaLinea.tag; _core.updateLine(oldTag, { tag: lineTag }); if (_core.rebuildIndexes) _core.rebuildIndexes(); }
             notifyWithVoice("✅ Línea " + lineTag + " re-enrutada (modo: " + mode + (elevation ? ", elevación: " + elevation + "mm" : "") + ")", false);
         } else { notifyWithVoice("Router no disponible", true); }
@@ -2040,10 +2927,17 @@ const SmartFlowCommands = (function() {
     function parseSetProject(cmd) {
         const parts = cmd.trim().split(/\s+/);
         if (parts[0] !== 'set' || parts[1] !== 'project') return false;
-        if (parts[2] === 'defaults' || parts[2] === 'default') { notifyWithVoice("📐 Defaults: Material=" + _projectDefaults.material + " | Spec=" + _projectDefaults.spec + "\nPara cambiar: set project material <MATERIAL> spec <SPEC>", false); return true; }
+        if (parts[2] === 'defaults' || parts[2] === 'default') {
+            notifyWithVoice("📐 Defaults del proyecto: Material=" + _projectDefaults.material + " | Spec=" + _projectDefaults.spec + "\nPara cambiar: set project material <MATERIAL> spec <SPEC>", false);
+            return true;
+        }
         let material = null, spec = null;
-        for (let i = 2; i < parts.length; i++) { if (parts[i] === 'material' && i + 1 < parts.length) material = parts[++i].toUpperCase(); else if (parts[i] === 'spec' && i + 1 < parts.length) spec = parts[++i]; }
-        if (material || spec) setProjectDefaults(material, spec); else notifyWithVoice("Uso: set project material <MATERIAL> spec <SPEC>", true);
+        for (let i = 2; i < parts.length; i++) {
+            if (parts[i] === 'material' && i + 1 < parts.length) material = parts[++i].toUpperCase();
+            else if (parts[i] === 'spec' && i + 1 < parts.length) spec = parts[++i];
+        }
+        if (material || spec) setProjectDefaults(material, spec);
+        else notifyWithVoice("Uso: set project material <MATERIAL> spec <SPEC>", true);
         return true;
     }
 
@@ -2054,11 +2948,14 @@ const SmartFlowCommands = (function() {
         'VGLF': { type: 'component', internal: 'GLOBE_VALVE' }, 'VBAL': { type: 'component', internal: 'BALL_VALVE' },
         'VBAF': { type: 'component', internal: 'BUTTERFLY_VALVE' }, 'VCFF': { type: 'component', internal: 'CHECK_VALVE' },
         'ELBW': { type: 'component', internal: 'ELBOW_90_LR' }, 'ELL4': { type: 'component', internal: 'ELBOW_45' },
+        'ELLL': { type: 'component', internal: 'ELBOW_90_LR' }, 'ELLS': { type: 'component', internal: 'ELBOW_90_SR' },
         'TEES': { type: 'component', internal: 'TEE_EQUAL' }, 'TEER': { type: 'component', internal: 'TEE_REDUCING' },
         'CROS': { type: 'component', internal: 'CROSS' }, 'FLWN': { type: 'component', internal: 'WELD_NECK_FLANGE' },
         'FLSO': { type: 'component', internal: 'SLIP_ON_FLANGE' }, 'FLBL': { type: 'component', internal: 'BLIND_FLANGE' },
         'CAPF': { type: 'component', internal: 'CAP' }, 'REDC': { type: 'component', internal: 'CONCENTRIC_REDUCER' },
-        'REDE': { type: 'component', internal: 'ECCENTRIC_REDUCER' }
+        'REDE': { type: 'component', internal: 'ECCENTRIC_REDUCER' }, 'INSI': { type: 'component', internal: 'PRESSURE_GAUGE' },
+        'INPG': { type: 'component', internal: 'PRESSURE_GAUGE' }, 'INTG': { type: 'component', internal: 'TEMPERATURE_GAUGE' },
+        'INFM': { type: 'component', internal: 'FLOW_METER' }, 'INLV': { type: 'component', internal: 'LEVEL_SWITCH_RANA' }
     };
 
     function importPCF(fileContent) {
@@ -2067,30 +2964,67 @@ const SmartFlowCommands = (function() {
         let currentLine = null, puntos = [], componentes = [];
         const equiposMap = new Map(), lineasMap = new Map();
         let currentComponent = null;
+
         function processAccumulatedComponent() {
             if (!currentComponent || !currentComponent.skey) return;
             const mapping = skeyToInternal[currentComponent.skey];
             if (mapping) {
-                if (mapping.type === 'equipment') { const pos = currentComponent.pos || {x:0, y:0, z:0}; const tag = currentComponent.itemCode || (mapping.internal + '_' + (equiposMap.size + 1)); if (!equiposMap.has(tag)) { const equipo = _catalog.createEquipment(mapping.internal, tag, pos.x, pos.y, pos.z, { diametro: currentComponent.diameter || 1000, altura: currentComponent.height || 1500, material: currentComponent.material || 'PPR' }); if (equipo) { equiposMap.set(tag, equipo); _core.addEquipment(equipo); } } }
-                else if (mapping.type === 'component' && currentLine) { componentes.push({ type: mapping.internal, tag: currentComponent.itemCode || (mapping.internal + '_' + (componentes.length + 1)), param: 0.5, description: currentComponent.description, material: currentComponent.material }); }
+                if (mapping.type === 'equipment') {
+                    const pos = currentComponent.pos || {x:0, y:0, z:0};
+                    const tag = currentComponent.itemCode || (mapping.internal + '_' + (equiposMap.size + 1));
+                    if (!equiposMap.has(tag)) {
+                        const equipo = _catalog.createEquipment(mapping.internal, tag, pos.x, pos.y, pos.z, {
+                            diametro: currentComponent.diameter || 1000, altura: currentComponent.height || 1500, material: currentComponent.material || 'PPR'
+                        });
+                        if (equipo) { equiposMap.set(tag, equipo); _core.addEquipment(equipo); }
+                    }
+                } else if (mapping.type === 'component' && currentLine) {
+                    componentes.push({ type: mapping.internal, tag: currentComponent.itemCode || (mapping.internal + '_' + (componentes.length + 1)), param: 0.5, description: currentComponent.description, material: currentComponent.material });
+                }
             }
             currentComponent = null;
         }
+
         function finalizeLine() {
-            if (currentLine && puntos.length >= 2) { if (!currentLine.tag) currentLine.tag = 'L-' + (lineasMap.size + 1); currentLine._cachedPoints = puntos; currentLine.components = componentes; _core.addLine(currentLine); const db = _core.getDb(); const lReg = db.lines.find(function(l) { return l.tag === currentLine.tag; }) || currentLine; runFittingInjection(lReg, null, null, null, null, lReg.diameter || 4, lReg.material || 'PPR', lReg.spec || 'PPR_PN12_5'); if (_core.updateLine) { _core.updateLine(lReg.tag, lReg); } lineasMap.set(currentLine.tag, lReg); }
+            if (currentLine && puntos.length >= 2) {
+                if (!currentLine.tag) currentLine.tag = 'L-' + (lineasMap.size + 1);
+                currentLine._cachedPoints = puntos; currentLine.components = componentes;
+                _core.addLine(currentLine);
+                const db = _core.getDb(); const lReg = db.lines.find(function(l) { return l.tag === currentLine.tag; }) || currentLine;
+                runFittingInjection(lReg, null, null, null, null, lReg.diameter || 4, lReg.material || 'PPR', lReg.spec || 'PPR_PN12_5');
+                if (_core.updateLine) { _core.updateLine(lReg.tag, lReg); }
+                lineasMap.set(currentLine.tag, lReg);
+            }
             currentLine = null; puntos = []; componentes = [];
         }
+
         for (let i = 0; i < lines.length; i++) {
             let line = lines[i]; line = line.trim();
             if (line.startsWith('!') || line.length === 0) continue;
             const parts = line.split(/\s+/); const firstWord = parts[0];
             const newBlockWords = ['PIPE', 'VALVE', 'TEE', 'TANK', 'PUMP', 'INSTRUMENT', 'ELBOW', 'FLANGE', 'STRA'];
-            if (newBlockWords.indexOf(firstWord) !== -1) { processAccumulatedComponent(); if (firstWord === 'PIPE' || firstWord === 'STRA') { finalizeLine(); currentLine = { tag: '', diameter: 4, material: 'PPR', spec: 'PPR_PN12_5' }; puntos = []; componentes = []; } else { currentComponent = { type: firstWord }; } continue; }
-            if (line.startsWith('END-POINT') && parts.length >= 7) { const p1 = { x: parseFloat(parts[1]), y: parseFloat(parts[2]), z: parseFloat(parts[3]) }; const p2 = { x: parseFloat(parts[4]), y: parseFloat(parts[5]), z: parseFloat(parts[6]) }; const diam = parts.length >= 8 ? parseFloat(parts[7]) : null; if (currentLine) { if (puntos.length === 0) puntos.push(p1); puntos.push(p2); if (diam && !currentLine.diameter) currentLine.diameter = diam / 25.4; } if (currentComponent) { currentComponent.pos = p1; if (diam) currentComponent.diameter = diam; } }
-            else if (line.startsWith('PCF_ELEM_SKEY')) { const skey = parts[1] ? parts[1].replace(/'/g, '') : ''; if (currentComponent) currentComponent.skey = skey; else if (currentLine) currentLine.skey = skey; }
-            else if (line.startsWith('ITEM-CODE')) { const code = line.substring(line.indexOf('ITEM-CODE') + 9).trim().replace(/'/g, ''); if (currentComponent) currentComponent.itemCode = code; else if (currentLine) currentLine.tag = code; }
-            else if (line.startsWith('MATERIAL')) { const mat = parts[1] ? parts[1].replace(/'/g, '') : ''; if (currentComponent) currentComponent.material = mat; else if (currentLine) currentLine.material = mat; }
-            else if (line.startsWith('DIAMETER')) { if (currentComponent) currentComponent.diameter = parseFloat(parts[1]); }
+            if (newBlockWords.indexOf(firstWord) !== -1) {
+                processAccumulatedComponent();
+                if (firstWord === 'PIPE' || firstWord === 'STRA') { finalizeLine(); currentLine = { tag: '', diameter: 4, material: 'PPR', spec: 'PPR_PN12_5' }; puntos = []; componentes = []; }
+                else { currentComponent = { type: firstWord }; }
+                continue;
+            }
+            if (line.startsWith('END-POINT') && parts.length >= 7) {
+                const p1 = { x: parseFloat(parts[1]), y: parseFloat(parts[2]), z: parseFloat(parts[3]) };
+                const p2 = { x: parseFloat(parts[4]), y: parseFloat(parts[5]), z: parseFloat(parts[6]) };
+                const diam = parts.length >= 8 ? parseFloat(parts[7]) : null;
+                if (currentLine) { if (puntos.length === 0) puntos.push(p1); puntos.push(p2); if (diam && !currentLine.diameter) currentLine.diameter = diam / 25.4; }
+                if (currentComponent) { currentComponent.pos = p1; if (diam) currentComponent.diameter = diam; }
+            } else if (line.startsWith('PCF_ELEM_SKEY')) {
+                const skey = parts[1] ? parts[1].replace(/'/g, '') : '';
+                if (currentComponent) currentComponent.skey = skey; else if (currentLine) currentLine.skey = skey;
+            } else if (line.startsWith('ITEM-CODE')) {
+                const code = line.substring(line.indexOf('ITEM-CODE') + 9).trim().replace(/'/g, '');
+                if (currentComponent) currentComponent.itemCode = code; else if (currentLine) currentLine.tag = code;
+            } else if (line.startsWith('MATERIAL')) {
+                const mat = parts[1] ? parts[1].replace(/'/g, '') : '';
+                if (currentComponent) currentComponent.material = mat; else if (currentLine) currentLine.material = mat;
+            } else if (line.startsWith('DIAMETER')) { if (currentComponent) currentComponent.diameter = parseFloat(parts[1]); }
             else if (line.startsWith('PIPING-SPEC')) { const spec = parts.slice(1).join(' ').replace(/'/g, ''); if (currentLine) currentLine.spec = spec; }
         }
         processAccumulatedComponent(); finalizeLine();
@@ -2111,12 +3045,17 @@ const SmartFlowCommands = (function() {
         if (trimmed === 'undo' || trimmed === 'deshacer') { if (_core) _core.undo(); recordCommand(cmd); return true; }
         if (trimmed === 'redo' || trimmed === 'rehacer') { if (_core) _core.redo(); recordCommand(cmd); return true; }
         
+        // NUEVOS COMANDOS v3.6
         if (parseNodosAbiertos(trimmed))  { recordCommand(cmd); return true; }
+        
+        // NUEVOS COMANDOS v3.5
         if (parseLineFromTo(trimmed))      { recordCommand(cmd); return true; }
         if (parseExtendLine(trimmed))      { recordCommand(cmd); return true; }
         if (parseOptimizeRoute(trimmed))   { recordCommand(cmd); return true; }
         if (parseRerouteLine(trimmed))     { recordCommand(cmd); return true; }
         if (parseSetProject(trimmed))      { recordCommand(cmd); return true; }
+        
+        // COMANDOS EXISTENTES
         if (parseCreateLine(trimmed)) { recordCommand(cmd); return true; }
         if (parseCreate(trimmed)) { recordCommand(cmd); return true; }
         if (parseConnect(trimmed)) { recordCommand(cmd); return true; }
@@ -2149,7 +3088,12 @@ const SmartFlowCommands = (function() {
     function executeBatch(commandsText) {
         const lines = commandsText.split('\n');
         let executed = 0, failed = 0;
-        for (let i = 0; i < lines.length; i++) { const raw = lines[i]; const trimmed = raw.trim(); if (!trimmed || trimmed.startsWith('//')) continue; if (executeCommand(trimmed)) executed++; else { failed++; notifyWithVoice('No entendí: "' + trimmed.substring(0, 50) + '..."', true); } }
+        for (let i = 0; i < lines.length; i++) {
+            const raw = lines[i]; const trimmed = raw.trim();
+            if (!trimmed || trimmed.startsWith('//')) continue;
+            if (executeCommand(trimmed)) executed++;
+            else { failed++; notifyWithVoice('No entendí: "' + trimmed.substring(0, 50) + '..."', true); }
+        }
         if (executed + failed > 0) notifyWithVoice(executed + ' comandos ejecutados, ' + failed + ' fallidos', failed > 0);
         return executed;
     }
