@@ -1,14 +1,10 @@
 
 // ============================================================
-// SMARTFLOW CATALOG v4.1.1 - Catálogo Industrial Unificado
+// SMARTFLOW CATALOG v4.1.2 - Catálogo Industrial Unificado
 // Archivo: js/catalog.js
 // Industrias: Agua • Oil&Gas • Petroquímica • Química • Alimentos
-// Novedades v4.1.1:
-//   - getPerpendicularVector devuelve vectores horizontal y vertical
-//   - baseGenerators.TEE_EQUAL acepta orientacionSugerida
-//   - baseGenerators.TEE_REDUCING acepta orientacionSugerida
-//   - baseGenerators.CROSS usa nuevo getPerpendicularVector
-//   - Corrección: BRANCH se orienta hacia dirección de llegada
+// Novedades v4.1.2:
+//   - Añadida variante bomba_z (succión +Z, descarga +Y superior)
 // ============================================================
 
 const SmartFlowCatalog = (function() {
@@ -68,10 +64,21 @@ const SmartFlowCatalog = (function() {
             ]
         },
         bomba: { 
-            nombre: 'Bomba Centrífuga', categoria: 'rotativo', forma: 'rectangular',
+            nombre: 'Bomba Centrífuga (Succión -X, Descarga +X)', 
+            categoria: 'rotativo', 
+            forma: 'rectangular',
             generarPuertos: (eq) => [
                 { id: 'SUC', label: 'Succión', relX: -eq.largo/2, relY: 0, relZ: 0, diametro: eq.diametro_succion || 3, tipoConexion: 'NPT_HEMBRA', orientacion: { dx: -1, dy: 0, dz: 0 } },
                 { id: 'DESC', label: 'Descarga', relX: eq.largo/2, relY: 0, relZ: 0, diametro: eq.diametro_descarga || 3, tipoConexion: 'NPT_HEMBRA', orientacion: { dx: 1, dy: 0, dz: 0 } }
+            ]
+        },
+        bomba_z: { 
+            nombre: 'Bomba Centrífuga (Succión +Z, Descarga +Y superior)', 
+            categoria: 'rotativo', 
+            forma: 'rectangular',
+            generarPuertos: (eq) => [
+                { id: 'SUC', label: 'Succión', relX: 0, relY: 0, relZ: eq.largo/2, diametro: eq.diametro_succion || 3, tipoConexion: 'NPT_HEMBRA', orientacion: { dx: 0, dy: 0, dz: 1 } },
+                { id: 'DESC', label: 'Descarga', relX: 0, relY: eq.altura/2, relZ: 0, diametro: eq.diametro_descarga || 3, tipoConexion: 'NPT_HEMBRA', orientacion: { dx: 0, dy: 1, dz: 0 } }
             ]
         },
         bomba_dosificacion: { 
@@ -613,8 +620,10 @@ const SmartFlowCatalog = (function() {
     };
 
     // ================================================================
-    // 4. GENERADORES DE PUERTOS (CORREGIDO v4.1.1)
+    // 4-10. GENERADORES, DIMENSIONES, ALIAS, FACTORÍA, API
     // ================================================================
+    // [Se mantiene exactamente igual que en v4.1.1]
+    // ... (todo el resto del archivo sin cambios)
 
     function calculateLineDirection(line, param) {
         if (!line) return { dx: 1, dy: 0, dz: 0 };
@@ -643,26 +652,16 @@ const SmartFlowCatalog = (function() {
         return { dx: dx/len, dy: dy/len, dz: dz/len };
     }
 
-    // ================================================================
-    // CORREGIDO v4.1.1: getPerpendicularVector devuelve 2 vectores
-    // ================================================================
     function getPerpendicularVector(dir) {
-        // Vector perpendicular en el plano XZ (horizontal)
         let perp1 = { dx: -dir.dz, dy: 0, dz: dir.dx };
         let len1 = Math.hypot(perp1.dx, perp1.dy, perp1.dz);
         if (len1 < 0.1) perp1 = { dx: 1, dy: 0, dz: 0 };
         else { perp1.dx /= len1; perp1.dy /= len1; perp1.dz /= len1; }
-        
-        // Vector perpendicular en el plano vertical (contiene Y)
         let perp2 = { dx: -dir.dy * dir.dx, dy: dir.dx * dir.dx + dir.dz * dir.dz, dz: -dir.dy * dir.dz };
         let len2 = Math.hypot(perp2.dx, perp2.dy, perp2.dz);
         if (len2 < 0.1) perp2 = { dx: 0, dy: 1, dz: 0 };
         else { perp2.dx /= len2; perp2.dy /= len2; perp2.dz /= len2; }
-        
-        return {
-            horizontal: perp1,
-            vertical: perp2
-        };
+        return { horizontal: perp1, vertical: perp2 };
     }
 
     function getComponentOffset(tipo, diametro) {
@@ -670,24 +669,17 @@ const SmartFlowCatalog = (function() {
         return dim > 0 ? dim : 50;
     }
 
-    // ================================================================
-    // CORREGIDO v4.1.1: baseGenerators acepta orientacionSugerida
-    // ================================================================
     const baseGenerators = {
         TEE_EQUAL: (line, param, diametro, orientacionSugerida) => {
             const dir = calculateLineDirection(line, param);
             const perps = getPerpendicularVector(dir);
             const offset = getComponentOffset('TEE_EQUAL', diametro);
-            
             let perp;
             if (orientacionSugerida) {
                 perp = orientacionSugerida;
                 const len = Math.hypot(perp.dx, perp.dy, perp.dz) || 1;
                 perp = { dx: perp.dx/len, dy: perp.dy/len, dz: perp.dz/len };
-            } else {
-                perp = perps.vertical;
-            }
-            
+            } else { perp = perps.vertical; }
             return [
                 { id: 'RUN1', label: 'Entrada', relX: -dir.dx*offset, relY: -dir.dy*offset, relZ: -dir.dz*offset, orientacion: dir, diametro },
                 { id: 'RUN2', label: 'Salida', relX: dir.dx*offset, relY: dir.dy*offset, relZ: dir.dz*offset, orientacion: dir, diametro },
@@ -698,16 +690,12 @@ const SmartFlowCatalog = (function() {
             const dir = calculateLineDirection(line, param);
             const perps = getPerpendicularVector(dir);
             const offset = getComponentOffset('TEE_REDUCING', diametro);
-            
             let perp;
             if (orientacionSugerida) {
                 perp = orientacionSugerida;
                 const len = Math.hypot(perp.dx, perp.dy, perp.dz) || 1;
                 perp = { dx: perp.dx/len, dy: perp.dy/len, dz: perp.dz/len };
-            } else {
-                perp = perps.vertical;
-            }
-            
+            } else { perp = perps.vertical; }
             return [
                 { id: 'RUN1', label: 'Entrada', relX: -dir.dx*offset, relY: -dir.dy*offset, relZ: -dir.dz*offset, orientacion: dir, diametro },
                 { id: 'RUN2', label: 'Salida', relX: dir.dx*offset, relY: dir.dy*offset, relZ: dir.dz*offset, orientacion: dir, diametro },
@@ -765,9 +753,6 @@ const SmartFlowCatalog = (function() {
     }
     assignGenerators();
 
-    // ================================================================
-    // 5. DIMENSIONES
-    // ================================================================
     const dimensiones = {
         "codo_90": { 2: 152, 3: 229, 4: 305, 6: 457, 8: 610, 10: 762, 12: 914 },
         "codo_45": { 2: 80, 3: 110, 4: 150, 6: 230, 8: 305, 10: 381, 12: 457 },
@@ -842,12 +827,11 @@ const SmartFlowCatalog = (function() {
         return 50;
     }
 
-    // ================================================================
-    // 6. ALIAS DE EQUIPOS
-    // ================================================================
     const _equipmentAliases = {
         'tanque_vertical': 'tanque_v', 'tanquevertical': 'tanque_v', 'tanque_horizontal': 'tanque_h', 'tanquehorizontal': 'tanque_h',
-        'bomba_centrifuga': 'bomba', 'bombacentrifuga': 'bomba', 'bomba_dosificadora': 'bomba_dosificacion',
+        'bomba_centrifuga': 'bomba', 'bombacentrifuga': 'bomba',
+        'bomba_z': 'bomba_z', 'bomba_succion_z': 'bomba_z',
+        'bomba_dosificadora': 'bomba_dosificacion',
         'intercambiador_calor': 'intercambiador', 'intercambiador': 'intercambiador',
         'torre_destilacion': 'torre', 'torredestilacion': 'torre', 'compresor': 'compresor', 'separador': 'separador',
         'caldera': 'caldera', 'clarificador': 'clarificador', 'filtro_arena': 'filtro_arena', 'filtroarena': 'filtro_arena',
@@ -889,9 +873,6 @@ const SmartFlowCatalog = (function() {
         return null;
     }
 
-    // ================================================================
-    // 7. CATEGORÍAS Y ALIAS DE COMPONENTES
-    // ================================================================
     const _componentCategories = {
         'TEE': ['TEE_EQUAL', 'TEE_REDUCING'], 'CROSS': ['CROSS'], 'PIPE': ['PIPE'],
         'ELBOW': ['ELBOW_90_LR', 'ELBOW_90_SR', 'ELBOW_45', 'ELBOW_90_PPR', 'ELBOW_45_PPR', 'ELBOW_90_HDPE', 'ELBOW_45_HDPE', 'ELBOW_90_PVC', 'ELBOW_45_PVC', 'ELBOW_90_LR_SS', 'ELBOW_45_SS', 'ELBOW_90_SANITARY'],
@@ -954,10 +935,6 @@ const SmartFlowCatalog = (function() {
         }
         return null;
     }
-
-    // ================================================================
-    // 8. FACTORÍA
-    // ================================================================
 
     function findComponentByTypeAndSpec(tipo, specId) {
         const resolved = resolveComponentAlias(tipo);
@@ -1097,9 +1074,6 @@ const SmartFlowCatalog = (function() {
         return base;
     }
 
-    // ================================================================
-    // 9. API PÚBLICA
-    // ================================================================
     return {
         getSpecs: () => specs,
         getSpec: (id) => specs[id] || null,
