@@ -626,7 +626,7 @@ const SmartFlowCommands = (function() {
             if (i > 0) {
                 const prevRules = getSpacingRules(componentTypes[i - 1]);
                 if (prevRules.category === 'connection' && rules.category === 'inline') {
-                    spaceBefore = Math.max(spaceBefore, 50);
+                    spaceBefore = Math.max(spaceBefore, 50);ii
                 }
                 if (prevRules.category === 'inline' && rules.category === 'inline') {
                     spaceBefore *= 1.5;
@@ -854,29 +854,6 @@ const SmartFlowCommands = (function() {
             notifyWithVoice('Comando no reconocido', true);
             return true;
         } catch (e) { notifyWithVoice('❌ Error: ' + e.message, true); return true; }
-    }
-
-    function parseNodes(cmd) {
-        const parts = cmd.trim().split(/\s+/);
-        if (parts[0] !== 'nodes' && parts[0] !== 'nodos') return false;
-        if (parts.length < 2) { notifyWithVoice('Uso: nodos TAG', true); return true; }
-        const tag = parts[1];
-        if (!_core) { notifyWithVoice("Error: Core no inicializado", true); return true; }
-        const obj = _core.findObjectByTag(tag);
-        if (!obj) { notifyWithVoice(tag + " no encontrado", true); return true; }
-        let nodes = [];
-        if (obj.posX !== undefined || (obj.pos && obj.pos.x !== undefined)) {
-            nodes = (obj.puertos || []).map(function(p) { return p.id + " ⌀" + (p.diametro || '?') + '" ' + (p.status || 'open'); });
-        } else {
-            const pts = getPoints(obj);
-            nodes = ['START (P0)', 'END (P' + (pts.length - 1) + ')'];
-            if (obj.puertos) {
-                const extra = obj.puertos.filter(function(p) { return ['START', 'END', '0', '1'].indexOf(p.id) === -1; }).map(function(p) { return p.id; });
-                nodes = nodes.concat(extra);
-            }
-        }
-        notifyWithVoice('🔌 Nodos de ' + tag + ': ' + nodes.join(' | '), false);
-        return true;
     }
 
     // ================================================================
