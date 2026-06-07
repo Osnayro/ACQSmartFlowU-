@@ -35,17 +35,17 @@ const SmartFlowRenderer = (function() {
             }
             return false;
         },
-        findBestPosition(prefX, prefY, w, h, priority, maxAttempts = 8) {
+        findBestPosition(preferredX, preferredY, w, h, priority, maxAttempts = 8) {
             const offsets = [
                 { dx: 0, dy: 0 }, { dx: 0, dy: -h - 5 }, { dx: 0, dy: h + 5 },
                 { dx: w + 10, dy: 0 }, { dx: -w - 10, dy: 0 }, { dx: w + 10, dy: -h - 5 },
                 { dx: -w - 10, dy: -h - 5 }, { dx: 0, dy: -2 * h - 10 }
             ];
             for (let i = 0; i < Math.min(maxAttempts, offsets.length); i++) {
-                const candidate = { x: prefX + offsets[i].dx, y: prefY + offsets[i].dy, w, h };
+                const candidate = { x: preferredX + offsets[i].dx, y: preferredY + offsets[i].dy, w, h };
                 if (!this.checkCollision(candidate)) return candidate;
             }
-            return { x: prefX, y: prefY, w, h };
+            return { x: preferredX, y: preferredY, w, h };
         },
         register(box, priority) {
             const best = this.findBestPosition(box.x, box.y, box.w, box.h, priority);
@@ -114,9 +114,6 @@ const SmartFlowRenderer = (function() {
         return (dist / 1000).toFixed(2) + "m";
     }
 
-    // ═══════════════════════════════════════════
-    // ABREVIATURAS CORTAS (SOLO SIGLAS)
-    // ═══════════════════════════════════════════
     function getComponentLabel(compType) {
         if (typeof SmartFlowCatalog !== 'undefined') {
             const catComp = SmartFlowCatalog.getComponent(compType);
@@ -164,8 +161,7 @@ const SmartFlowRenderer = (function() {
             'ROTAMETER':'RO','ROTAMETRO':'RO',
             'FLOW_METER_MAG':'FM','CORIOLIS_METER':'CM',
             'PRESSURE_GAUGE_SANITARY':'PG',
-            'MAGNETIC_DRIVE_PUMP':'MP',
-            'PEDESTAL_SUPPORT':'PS','LOOSE_FLANGE':'BL'
+            'MAGNETIC_DRIVE_PUMP':'MP','LOOSE_FLANGE':'BL'
         };
         return abbrMap[compType] || compType?.substring(0,2)?.toUpperCase() || '??';
     }
@@ -219,9 +215,6 @@ const SmartFlowRenderer = (function() {
         _ctx.fillText(`ORIGEN (0,${_currentElevation/1000}m,0)`, o.x + 15, o.y - 8);
     }
 
-    // ═══════════════════════════════════════════
-    // TANQUE VERTICAL
-    // ═══════════════════════════════════════════
     function drawTank(eq) {
         const p = project({ x: eq.posX, y: eq.posY, z: eq.posZ });
         const r = (eq.diametro / 2) * _cam.scale, h = eq.altura * _cam.scale;
@@ -271,9 +264,6 @@ const SmartFlowRenderer = (function() {
         if (eq.accessories) eq.accessories.forEach(acc => drawAccessory(acc, eq));
     }
 
-    // ═══════════════════════════════════════════
-    // BOMBA
-    // ═══════════════════════════════════════════
     function drawBomba(eq) {
         const p = project({ x: eq.posX, y: eq.posY, z: eq.posZ });
         const s = 20 * _cam.scale;
@@ -315,9 +305,6 @@ const SmartFlowRenderer = (function() {
         drawPuertos(eq);
     }
 
-    // ═══════════════════════════════════════════
-    // PLATAFORMA
-    // ═══════════════════════════════════════════
     function drawPlataforma(eq) {
         const p = project({ x: eq.posX, y: eq.posY, z: eq.posZ });
         const w = (eq.largo || 6000) * _cam.scale / 2, d = (eq.ancho || 3000) * _cam.scale / 2, h = (eq.altura || 400) * _cam.scale;
@@ -351,6 +338,12 @@ const SmartFlowRenderer = (function() {
                 _ctx.beginPath(); _ctx.moveTo(p1.x, p1.y); _ctx.lineTo(p2.x, p2.y); _ctx.stroke();
             }
         }
+        if (esConcreto && _cam.scale > 0.2) {
+            _ctx.strokeStyle = '#4b5563'; _ctx.lineWidth = 0.8;
+            for (let jx = -w + 400 * _cam.scale; jx < w - 200 * _cam.scale; jx += 500 * _cam.scale) {
+                _ctx.beginPath(); _ctx.moveTo(p.x + jx, topY - d * 0.2); _ctx.lineTo(p.x + jx, topY + d * 0.2); _ctx.stroke();
+            }
+        }
         _ctx.strokeStyle = esConcreto ? '#6b7280' : '#4b5563'; _ctx.lineWidth = 1.5;
         const patas = [
             { x: eq.posX - (eq.largo || 6000) / 2, z: eq.posZ - (eq.ancho || 3000) / 2 },
@@ -366,6 +359,16 @@ const SmartFlowRenderer = (function() {
             _ctx.fillStyle = esConcreto ? '#78716c' : '#374151';
             _ctx.fillRect(bot.x - ps, bot.y - ps/2, ps * 2, ps); _ctx.strokeRect(bot.x - ps, bot.y - ps/2, ps * 2, ps);
         });
+        if (esAcero && _cam.scale > 0.2) {
+            _ctx.strokeStyle = '#374151'; _ctx.lineWidth = 1; _ctx.setLineDash([3, 3]);
+            for (let si = 0; si < 2; si++) {
+                const side = si === 0 ? -1 : 1;
+                const top1 = project({ x: eq.posX - (eq.largo || 6000) / 2, y: eq.posY - (eq.altura || 400), z: eq.posZ + side * (eq.ancho || 3000) / 2 });
+                const bot2 = project({ x: eq.posX + (eq.largo || 6000) / 2, y: eq.posY, z: eq.posZ - side * (eq.ancho || 3000) / 2 });
+                _ctx.beginPath(); _ctx.moveTo(top1.x, top1.y); _ctx.lineTo(bot2.x, bot2.y); _ctx.stroke();
+            }
+            _ctx.setLineDash([]);
+        }
         if (eq.baranda !== false && _cam.scale > 0.12) {
             _ctx.strokeStyle = esConcreto ? '#d1d5db' : '#f59e0b'; _ctx.lineWidth = 0.8;
             const esquinas = [
@@ -383,6 +386,9 @@ const SmartFlowRenderer = (function() {
                 const pBTop = project({ x: b.x, y: eq.posY - (eq.altura || 400) - barH, z: b.z });
                 _ctx.beginPath(); _ctx.moveTo(pATop.x, pATop.y); _ctx.lineTo(pBTop.x, pBTop.y); _ctx.stroke();
                 _ctx.beginPath(); _ctx.moveTo(pa.x, pa.y); _ctx.lineTo(pATop.x, pATop.y); _ctx.stroke();
+                const pAMid = project({ x: a.x, y: eq.posY - (eq.altura || 400) - barH/2, z: a.z });
+                const pBMid = project({ x: b.x, y: eq.posY - (eq.altura || 400) - barH/2, z: b.z });
+                _ctx.beginPath(); _ctx.moveTo(pAMid.x, pAMid.y); _ctx.lineTo(pBMid.x, pBMid.y); _ctx.stroke();
             }
         }
         drawIsoText(eq.tag, p.x, topY - 30 * _cam.scale, 'XY');
@@ -471,14 +477,17 @@ const SmartFlowRenderer = (function() {
         const diam = nozzle.diametro || parentEq.diametro || '?';
         const elevation = nozzle.elevation || (parentEq.posY + (nozzle.relY || 0));
         const label = `${nozzle.id} ${diam}" – EL ${elevation}`;
+        const plane = (nozzle.orientacion && Math.abs(nozzle.orientacion.dx) > Math.abs(nozzle.orientacion.dz)) ? 'LEFT' : 'RIGHT';
         const prefX = proj2D.x + 35, prefY = proj2D.y - 25;
         const box = AnnotationManager.register({ x: prefX, y: prefY - 10, w: 110, h: 22 }, 2);
         _ctx.save(); _ctx.setTransform(1, 0, 0, 1, 0, 0);
         _ctx.strokeStyle = '#f59e0b'; _ctx.lineWidth = 1; _ctx.beginPath();
         _ctx.moveTo(proj2D.x, proj2D.y); _ctx.lineTo(box.x, box.y + 11); _ctx.stroke(); _ctx.restore();
         _ctx.save();
-        _ctx.font = 'bold 10px "Courier New", monospace'; _ctx.fillStyle = '#ffffff'; _ctx.textAlign = 'left'; _ctx.textBaseline = 'middle';
-        _ctx.fillText(label, box.x, box.y + 11);
+        if (plane === 'LEFT') _ctx.setTransform(1, 0.5, 0, 1, box.x, box.y + 11);
+        else _ctx.setTransform(1, -0.5, 0, 1, box.x, box.y + 11);
+        _ctx.font = 'bold 10px "Courier New", monospace'; _ctx.fillStyle = '#ffffff';
+        _ctx.textAlign = 'left'; _ctx.textBaseline = 'middle'; _ctx.fillText(label, 0, 0);
         _ctx.restore(); _ctx.setTransform(1, 0, 0, 1, 0, 0);
     }
 
@@ -563,9 +572,6 @@ const SmartFlowRenderer = (function() {
         return false;
     }
 
-    // ═══════════════════════════════════════════
-    // TUBERÍAS
-    // ═══════════════════════════════════════════
     function drawPipeWithElbows(line) {
         const originalPts = _core ? _core.getLinePoints(line) : (line._cachedPoints || line.points3D);
         if (!originalPts || originalPts.length < 2) return;
@@ -685,9 +691,6 @@ const SmartFlowRenderer = (function() {
         if (line.puertos) drawPuertos(line);
     }
 
-    // ═══════════════════════════════════════════
-    // COMPONENTES DE TUBERÍA (BOM + PCF mejorado)
-    // ═══════════════════════════════════════════
     function drawPipeComponents(line) {
         if (!_core) return;
         const pts = _core.getLinePoints(line);
@@ -716,7 +719,6 @@ const SmartFlowRenderer = (function() {
                 const globalIndex = _bomItems.length + 1;
                 drawComponentTag(proj, globalIndex, comp.type, dir3D);
                 comp._bomIndex = globalIndex;
-                // BOM: STUB_END genera 2 items automaticamente
                 if (comp.type === 'STUB_END' || comp.type === 'STUB_END_PPR' || comp.type === 'STUB_END_HDPE') {
                     _bomItems.push({ index: globalIndex, desc: 'PORTABRIDA ' + (comp.type.includes('PPR')?'PPR':comp.type.includes('HDPE')?'HDPE':''), mat: getShortMaterial(line.material), comp: comp });
                     _bomItems.push({ index: globalIndex + 0.1, desc: 'BRIDA LOCA', mat: 'CS', comp: comp });
@@ -726,8 +728,6 @@ const SmartFlowRenderer = (function() {
             }
         });
     }
-
-
     function drawSymbol(x, y, dir3D, comp) {
         _ctx.save();
         const s = Math.max(12, 18 * _cam.scale);
@@ -1071,6 +1071,10 @@ const SmartFlowRenderer = (function() {
         const dp1 = { x: p1.x+finalOffsetVec.dx, y: p1.y+finalOffsetVec.dy, z: p1.z+finalOffsetVec.dz };
         const dp2 = { x: p2.x+finalOffsetVec.dx, y: p2.y+finalOffsetVec.dy, z: p2.z+finalOffsetVec.dz };
         const pr1 = project(p1), pr2 = project(p2), prD1 = project(dp1), prD2 = project(dp2);
+        const dir3D = getSegmentDirection3D(p1, p2);
+        let plane = 'RIGHT';
+        if (dir3D === 'X') plane = 'LEFT';
+        else if (dir3D === 'Y') plane = 'RIGHT';
         _ctx.save();
         _ctx.beginPath(); _ctx.setLineDash([4,4]); _ctx.strokeStyle = '#64748b'; _ctx.lineWidth = 1;
         _ctx.moveTo(pr1.x, pr1.y); _ctx.lineTo(prD1.x, prD1.y);
@@ -1083,7 +1087,9 @@ const SmartFlowRenderer = (function() {
         const midX = (prD1.x + prD2.x) / 2, midY = (prD1.y + prD2.y) / 2;
         _ctx.font = `bold ${Math.max(10, 12 * _cam.scale)}px "Courier New", monospace`;
         _ctx.fillStyle = '#ffffff'; _ctx.textAlign = 'center'; _ctx.textBaseline = 'middle';
-        _ctx.fillText(formatDimensionText(realDist), midX, midY - 5);
+        if (plane === 'LEFT') { _ctx.setTransform(1, 0.5, 0, 1, midX, midY - 5); }
+        else if (plane === 'RIGHT') { _ctx.setTransform(1, -0.5, 0, 1, midX, midY - 5); }
+        _ctx.fillText(formatDimensionText(realDist), 0, 0);
         _ctx.restore(); _ctx.setTransform(1, 0, 0, 1, 0, 0);
     }
 
@@ -1420,16 +1426,30 @@ const SmartFlowRenderer = (function() {
         _notifyUI = notifyFn || ((msg, isErr) => console.log(msg));
         _currentElevation = 0; resizeCanvas();
         window.addEventListener('resize', resizeCanvas);
+        window.addEventListener('orientationchange', () => { setTimeout(resizeCanvas, 100); });
         if (_core && _core.on) _core.on('modelChanged', () => { _cacheDirty = true; scheduleRender(); });
         _canvas.addEventListener('mousemove', (e) => {
             const rect = _canvas.getBoundingClientRect(), mX = e.clientX - rect.left, mY = e.clientY - rect.top;
             const snapped = pickPort(mX, mY);
-            if (snapped) { _activeSnap = snapped; _canvas.style.cursor = 'crosshair'; _hoveredComponent = null; }
+            if (snapped) { _activeSnap = snapped; _canvas.style.cursor = 'crosshair'; _hoveredComponent = null; _hoveredComponentScreenPos = null; }
             else { _activeSnap = null; const hovered = pickComponent(mX, mY);
                 if (hovered) { _hoveredComponent = { comp: hovered }; _hoveredComponentScreenPos = hovered._screenPos || {x:mX, y:mY}; _canvas.style.cursor = 'pointer'; }
-                else { _hoveredComponent = null; _canvas.style.cursor = pickElement({x:mX,y:mY}) ? 'pointer' : 'default'; }
+                else { _hoveredComponent = null; _hoveredComponentScreenPos = null; _canvas.style.cursor = pickElement({x:mX,y:mY}) ? 'pointer' : 'default'; }
             }
             scheduleRender();
+        });
+        _canvas.addEventListener('click', (e) => {
+            if (e.ctrlKey && _activeSnap) {
+                const input = document.getElementById('commandText');
+                if (input) { input.value = `${input.value.trim()} ${_activeSnap.item.tag} ${_activeSnap.port.id}`.trim(); input.focus(); _notifyUI(`Seleccionado: ${_activeSnap.item.tag} puerto ${_activeSnap.port.id}`); }
+            }
+        });
+        _canvas.addEventListener('touchstart', (e) => {
+            if (e.touches.length === 1) {
+                const rect = _canvas.getBoundingClientRect(), mX = e.touches[0].clientX - rect.left, mY = e.touches[0].clientY - rect.top;
+                const touched = pickComponent(mX, mY);
+                if (touched) { _hoveredComponent = { comp: touched }; _hoveredComponentScreenPos = touched._screenPos || {x:mX, y:mY}; scheduleRender(); }
+            }
         });
         _canvas.addEventListener('wheel', (e) => { e.preventDefault(); const rect = _canvas.getBoundingClientRect(); zoom(e.deltaY < 0 ? 1 : -1, e.clientX - rect.left, e.clientY - rect.top); });
         let lastTouchDist = 0;
@@ -1452,3 +1472,4 @@ const SmartFlowRenderer = (function() {
     window.SmartFlowRenderer = { init, render: scheduleRender, autoCenter, pan, zoom, project, inverseProject, setElevation, resizeCanvas, exportPDF, exportPCF, getCam: () => _cam, pickElement, getActiveSnap: () => _activeSnap, calculateComponentPosition };
     return window.SmartFlowRenderer;
 })();
+
