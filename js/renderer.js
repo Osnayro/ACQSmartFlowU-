@@ -1158,6 +1158,9 @@ const SmartFlowRenderer = (function() {
             }
         });
     }
+    // ═══════════════════════════════════════════════════════════════
+    //  PARTE 2 - CONTINUACIÓN
+    // ═══════════════════════════════════════════════════════════════
 
     function drawSymbol(x, y, dir3D, comp) {
         _ctx.save();
@@ -1171,6 +1174,9 @@ const SmartFlowRenderer = (function() {
         else if (dir3D === 'Y') { _ctx.setTransform(0, 1, -1, 0, x, y); }
 
         switch (comp.type) {
+            // ═══════════════════════════════════════
+            // VÁLVULAS PRINCIPALES
+            // ═══════════════════════════════════════
             case 'BUTTERFLY_VALVE':
                 _ctx.beginPath(); _ctx.ellipse(0, 0, s*0.9, s*0.35, 0, 0, Math.PI*2); _ctx.fill(); _ctx.stroke();
                 _ctx.beginPath(); _ctx.moveTo(0,0); _ctx.lineTo(0, -s*1.6);
@@ -1205,13 +1211,95 @@ const SmartFlowRenderer = (function() {
                 _ctx.strokeRect(-s*0.35, -s*1.3, s*0.7, s*0.6);
                 _ctx.beginPath(); _ctx.moveTo(-s*0.2, -s*1.3); _ctx.lineTo(s*0.2, -s*1.3); _ctx.stroke();
                 break;
-            case 'CHECK_VALVE':
+            case 'CHECK_VALVE': case 'CHECK_VALVE_SANITARY': case 'SANITARY_CHECK_VALVE':
                 _ctx.strokeRect(-s, -s*0.5, s*2, s*1.0);
                 _ctx.fillStyle = '#4ade80'; _ctx.beginPath();
                 _ctx.moveTo(-s*0.5, 0); _ctx.lineTo(s*0.3, -s*0.35); _ctx.lineTo(s*0.3, s*0.35); _ctx.closePath();
                 _ctx.fill(); _ctx.stroke();
                 _ctx.setLineDash([2,2]); _ctx.beginPath(); _ctx.moveTo(-s, 0); _ctx.lineTo(-s*0.5, 0); _ctx.stroke(); _ctx.setLineDash([]);
                 break;
+
+            // ═══════════════════════════════════════
+            // VÁLVULA DE CONTROL (con actuador)
+            // ═══════════════════════════════════════
+            case 'CONTROL_VALVE':
+                _ctx.fillRect(-s*0.8, -s*0.5, s*1.6, s*1.0); _ctx.strokeRect(-s*0.8, -s*0.5, s*1.6, s*1.0);
+                _ctx.fillStyle = '#2563eb'; _ctx.fillRect(-s*0.4, -s*1.4, s*0.8, s*0.9);
+                _ctx.strokeRect(-s*0.4, -s*1.4, s*0.8, s*0.9);
+                _ctx.strokeStyle = '#fbbf24'; _ctx.lineWidth = 1; _ctx.setLineDash([2, 2]);
+                _ctx.beginPath(); _ctx.moveTo(0, -s*0.5); _ctx.lineTo(0, -s*1.4); _ctx.stroke(); _ctx.setLineDash([]);
+                break;
+
+            // ═══════════════════════════════════════
+            // VÁLVULA DE DIAFRAGMA
+            // ═══════════════════════════════════════
+            case 'DIAPHRAGM_VALVE': case 'ASEPTIC_VALVE':
+                _ctx.fillRect(-s*0.9, -s*0.45, s*1.8, s*0.9); _ctx.strokeRect(-s*0.9, -s*0.45, s*1.8, s*0.9);
+                _ctx.fillStyle = '#1e293b'; _ctx.fillRect(-s*0.3, -s*1.2, s*0.6, s*0.55);
+                _ctx.strokeRect(-s*0.3, -s*1.2, s*0.6, s*0.55);
+                _ctx.strokeStyle = '#f8fafc'; _ctx.lineWidth = 2;
+                _ctx.beginPath(); _ctx.moveTo(-s*0.15, -s*1.2); _ctx.lineTo(s*0.15, -s*1.2); _ctx.stroke();
+                _ctx.fillStyle = '#ef4444'; _ctx.beginPath(); _ctx.arc(0, -s*0.9, s*0.08, 0, Math.PI*2); _ctx.fill();
+                break;
+
+            // ═══════════════════════════════════════
+            // VÁLVULA DE ALIVIO / SEGURIDAD
+            // ═══════════════════════════════════════
+            case 'PRESSURE_RELIEF': case 'SAFETY_VALVE': case 'PRESSURE_SAFETY_VALVE':
+                _ctx.fillStyle = '#7f1d1d'; _ctx.fillRect(-s*0.5, -s*0.8, s*1.0, s*1.6);
+                _ctx.strokeStyle = '#ef4444'; _ctx.lineWidth = 2; _ctx.strokeRect(-s*0.5, -s*0.8, s*1.0, s*1.6);
+                _ctx.strokeStyle = '#f8fafc'; _ctx.lineWidth = 1.5;
+                _ctx.beginPath(); _ctx.moveTo(-s*0.3, s*0.8); _ctx.lineTo(s*0.3, s*0.8); _ctx.stroke();
+                _ctx.fillStyle = '#fbbf24'; _ctx.beginPath(); _ctx.arc(0, -s*0.85, 3, 0, Math.PI*2); _ctx.fill();
+                break;
+
+            // ═══════════════════════════════════════
+            // VÁLVULA DE PURGA / MUESTREO
+            // ═══════════════════════════════════════
+            case 'DRAIN_VALVE': case 'SAMPLE_VALVE': case 'SAMPLE_VALVE_SANITARY': case 'PISTON_SAMPLE_VALVE':
+                _ctx.fillRect(-s*0.4, -s*0.4, s*0.8, s*0.8); _ctx.strokeRect(-s*0.4, -s*0.4, s*0.8, s*0.8);
+                _ctx.beginPath(); _ctx.moveTo(0, s*0.4); _ctx.lineTo(0, s*0.9); _ctx.stroke();
+                _ctx.fillStyle = '#fbbf24'; _ctx.fillRect(-s*0.25, s*0.9, s*0.5, s*0.15);
+                _ctx.strokeRect(-s*0.25, s*0.9, s*0.5, s*0.15);
+                break;
+
+            // ═══════════════════════════════════════
+            // VÁLVULA DE LIBERACIÓN DE AIRE
+            // ═══════════════════════════════════════
+            case 'AIR_RELEASE': case 'AIR_RELEASE_VALVE':
+                _ctx.beginPath(); _ctx.arc(0, 0, s*0.45, 0, Math.PI*2); _ctx.fill(); _ctx.stroke();
+                _ctx.fillStyle = '#0ea5e9'; _ctx.fillRect(-s*0.12, -s*0.9, s*0.24, s*0.5);
+                _ctx.strokeRect(-s*0.12, -s*0.9, s*0.24, s*0.5);
+                for (let v = 0; v < 3; v++) {
+                    _ctx.strokeStyle = '#fff'; _ctx.lineWidth = 0.5;
+                    _ctx.beginPath(); _ctx.moveTo(-s*0.12, -s*0.75 + v*s*0.12); _ctx.lineTo(s*0.12, -s*0.75 + v*s*0.12); _ctx.stroke();
+                }
+                break;
+
+            // ═══════════════════════════════════════
+            // VÁLVULAS ESPECIALES (Tapón, Criogénica, Choke)
+            // ═══════════════════════════════════════
+            case 'PLUG_VALVE':
+                _ctx.beginPath(); _ctx.arc(0, 0, s*0.7, 0, Math.PI*2); _ctx.fill(); _ctx.stroke();
+                _ctx.fillStyle = '#475569'; _ctx.fillRect(-s*0.15, -s*1.1, s*0.3, s*0.9);
+                _ctx.strokeRect(-s*0.15, -s*1.1, s*0.3, s*0.9);
+                break;
+            case 'CHOKE_VALVE':
+                _ctx.fillRect(-s*0.6, -s*0.5, s*1.2, s*1.0); _ctx.strokeRect(-s*0.6, -s*0.5, s*1.2, s*1.0);
+                _ctx.fillStyle = '#fbbf24'; _ctx.fillRect(-s*0.2, -s*1.2, s*0.4, s*0.5);
+                _ctx.strokeRect(-s*0.2, -s*1.2, s*0.4, s*0.5);
+                break;
+            case 'CRYOGENIC_VALVE':
+                _ctx.fillRect(-s*0.8, -s*0.5, s*1.6, s*1.0); _ctx.strokeRect(-s*0.8, -s*0.5, s*1.6, s*1.0);
+                _ctx.strokeStyle = '#6366f1'; _ctx.lineWidth = 1; _ctx.setLineDash([3, 2]);
+                _ctx.beginPath(); _ctx.moveTo(-s*0.7, -s*0.4); _ctx.lineTo(s*0.7, -s*0.4); _ctx.stroke(); _ctx.setLineDash([]);
+                _ctx.strokeStyle = '#fff'; _ctx.lineWidth = 1.5;
+                _ctx.beginPath(); _ctx.moveTo(-s*0.7, s*0.4); _ctx.lineTo(s*0.7, s*0.4); _ctx.stroke();
+                break;
+
+            // ═══════════════════════════════════════
+            // FITTINGS
+            // ═══════════════════════════════════════
             case 'CONCENTRIC_REDUCER': case 'ECCENTRIC_REDUCER':
                 const reducGrad = _ctx.createLinearGradient(-s, 0, s, 0);
                 reducGrad.addColorStop(0, '#475569'); reducGrad.addColorStop(1, '#94a3b8');
@@ -1222,7 +1310,7 @@ const SmartFlowRenderer = (function() {
                     _ctx.strokeStyle = '#facc15'; _ctx.lineWidth = 2.5; _ctx.stroke();
                 }
                 break;
-            case 'WELD_NECK_FLANGE':
+            case 'WELD_NECK_FLANGE': case 'RTJ_FLANGE': case 'ORIFICE_FLANGE':
                 _ctx.fillRect(-s*0.3, -s*0.9, s*0.6, s*1.8); _ctx.strokeRect(-s*0.3, -s*0.9, s*0.6, s*1.8);
                 for (let py = -0.7; py <= 0.7; py += 0.45) {
                     _ctx.beginPath(); _ctx.arc(-s*0.5, py*s, 2, 0, Math.PI*2); _ctx.fillStyle = '#64748b'; _ctx.fill();
@@ -1240,13 +1328,18 @@ const SmartFlowRenderer = (function() {
                 _ctx.fillStyle = '#fbbf24'; _ctx.beginPath(); _ctx.arc(0, 0, s*0.35, 0, Math.PI*2); _ctx.fill(); _ctx.stroke();
                 if (comp.type === 'TEE_REDUCING') { _ctx.fillStyle = '#facc15'; _ctx.beginPath(); _ctx.arc(0, -s*1.3, s*0.25, 0, Math.PI*2); _ctx.fill(); }
                 break;
+            case 'CROSS':
+                _ctx.beginPath(); _ctx.moveTo(-s*0.9, 0); _ctx.lineTo(s*0.9, 0); _ctx.moveTo(0, -s*0.9); _ctx.lineTo(0, s*0.9);
+                _ctx.strokeStyle = '#f8fafc'; _ctx.lineWidth = 3; _ctx.stroke();
+                _ctx.fillStyle = '#fbbf24'; _ctx.beginPath(); _ctx.arc(0, 0, s*0.3, 0, Math.PI*2); _ctx.fill(); _ctx.stroke();
+                break;
             case 'ELBOW_45':
                 _ctx.beginPath(); _ctx.arc(0, 0, s, 0, Math.PI/4); _ctx.strokeStyle = '#f8fafc'; _ctx.lineWidth = 3; _ctx.stroke();
                 _ctx.beginPath(); _ctx.arc(0, 0, s, 0, Math.PI/4); _ctx.strokeStyle = '#ffffff'; _ctx.lineWidth = 1; _ctx.globalAlpha = 0.5; _ctx.stroke(); _ctx.globalAlpha = 1;
                 _ctx.fillStyle = '#ffffff'; _ctx.beginPath(); _ctx.arc(0, 0, 4, 0, Math.PI*2); _ctx.fill();
                 break;
-            case 'ELBOW_90_LR': case 'ELBOW_90_SR':
-                const radius = comp.type === 'ELBOW_90_LR' ? s*1.3 : s*0.8;
+            case 'ELBOW_90_LR': case 'ELBOW_90_SR': case 'ELBOW_90_PPR': case 'ELBOW_90_HDPE': case 'ELBOW_90_PVC': case 'ELBOW_90_LR_SS': case 'ELBOW_90_SANITARY':
+                const radius = (comp.type === 'ELBOW_90_LR' || comp.type.includes('PPR') || comp.type.includes('HDPE') || comp.type.includes('PVC') || comp.type.includes('SS') || comp.type.includes('SANITARY')) ? s*1.3 : s*0.8;
                 _ctx.beginPath(); _ctx.arc(0, 0, radius, 0, Math.PI/2); _ctx.strokeStyle = '#f8fafc'; _ctx.lineWidth = 3; _ctx.stroke();
                 _ctx.beginPath(); _ctx.arc(0, 0, radius, 0, Math.PI/2); _ctx.strokeStyle = '#ffffff'; _ctx.lineWidth = 1; _ctx.globalAlpha = 0.5; _ctx.stroke(); _ctx.globalAlpha = 1;
                 _ctx.fillStyle = '#ffffff'; _ctx.beginPath(); _ctx.arc(0, 0, 4, 0, Math.PI*2); _ctx.fill();
@@ -1258,36 +1351,300 @@ const SmartFlowRenderer = (function() {
             case 'UNION': case 'UNION_ACERO':
                 _ctx.fillRect(-s*0.7, -s*0.7, s*1.4, s*1.4); _ctx.strokeRect(-s*0.7, -s*0.7, s*1.4, s*1.4);
                 for (let i = -0.5; i <= 0.5; i += 0.25) { _ctx.beginPath(); _ctx.moveTo(-s*0.7, i*s); _ctx.lineTo(s*0.7, i*s); _ctx.strokeStyle = '#334155'; _ctx.lineWidth = 1; _ctx.stroke(); }
+                _ctx.fillStyle = '#fbbf24'; _ctx.fillRect(-s*0.2, -s*0.7, s*0.4, s*0.15);
+                _ctx.strokeRect(-s*0.2, -s*0.7, s*0.4, s*0.15);
                 break;
+
+            // ═══════════════════════════════════════
+            // STUB END / PORTABRIDA (MEJORADO)
+            // ═══════════════════════════════════════
+            case 'STUB_END': case 'STUB_END_PPR': case 'STUB_END_HDPE':
+                // Cuello
+                _ctx.fillStyle = '#10b981'; _ctx.fillRect(-s*0.25, -s*0.7, s*0.5, s*1.4);
+                _ctx.strokeStyle = '#047857'; _ctx.strokeRect(-s*0.25, -s*0.7, s*0.5, s*1.4);
+                // Reborde (flare)
+                _ctx.fillStyle = '#10b981'; _ctx.fillRect(-s*0.45, -s*0.85, s*0.9, s*0.3);
+                _ctx.strokeRect(-s*0.45, -s*0.85, s*0.9, s*0.3);
+                // Brida loca (anillo metálico)
+                _ctx.strokeStyle = '#94a3b8'; _ctx.lineWidth = 2.5;
+                _ctx.beginPath(); _ctx.moveTo(-s*0.55, -s*0.7); _ctx.lineTo(s*0.55, -s*0.7); _ctx.stroke();
+                _ctx.strokeStyle = '#64748b'; _ctx.lineWidth = 1; _ctx.setLineDash([2, 2]);
+                _ctx.beginPath(); _ctx.moveTo(-s*0.55, -s*0.65); _ctx.lineTo(s*0.55, -s*0.65); _ctx.stroke(); _ctx.setLineDash([]);
+                // Empaquetadura (punto verde)
+                _ctx.fillStyle = '#16a34a'; _ctx.beginPath(); _ctx.arc(0, -s*0.7, s*0.15, 0, Math.PI*2); _ctx.fill();
+                break;
+
+            // ═══════════════════════════════════════
+            // BULKHEAD / PASAMUROS (MEJORADO)
+            // ═══════════════════════════════════════
             case 'BULKHEAD':
-                _ctx.beginPath(); _ctx.moveTo(-s*0.25, -s*1.3); _ctx.lineTo(-s*0.25, s*1.3); _ctx.lineWidth = 6; _ctx.strokeStyle = '#94a3b8'; _ctx.stroke();
-                _ctx.lineWidth = 2; _ctx.strokeStyle = '#e2e8f0'; _ctx.strokeRect(-s*1.1, -s*0.6, s*2.2, s*1.2);
+                // Placa base
+                _ctx.fillStyle = '#94a3b8'; _ctx.fillRect(-s*0.7, -s*0.2, s*1.4, s*0.4);
+                _ctx.strokeStyle = '#fff'; _ctx.strokeRect(-s*0.7, -s*0.2, s*1.4, s*0.4);
+                // Cuello
+                _ctx.fillStyle = '#64748b'; _ctx.fillRect(-s*0.3, -s*0.8, s*0.6, s*0.6);
+                _ctx.strokeRect(-s*0.3, -s*0.8, s*0.6, s*0.6);
+                _ctx.fillRect(-s*0.3, s*0.2, s*0.6, s*0.6);
+                _ctx.strokeRect(-s*0.3, s*0.2, s*0.6, s*0.6);
+                // Empaquetaduras
+                _ctx.fillStyle = '#16a34a'; _ctx.fillRect(-s*0.5, -s*0.22, s*0.15, s*0.44);
+                _ctx.fillRect(s*0.35, -s*0.22, s*0.15, s*0.44);
+                // Línea de pared
+                _ctx.strokeStyle = '#fff'; _ctx.lineWidth = 1; _ctx.setLineDash([1, 2]);
+                _ctx.beginPath(); _ctx.moveTo(-s*0.9, -s*0.2); _ctx.lineTo(s*0.9, -s*0.2); _ctx.stroke();
+                _ctx.moveTo(-s*0.9, s*0.2); _ctx.lineTo(s*0.9, s*0.2); _ctx.stroke();
+                _ctx.setLineDash([]);
                 break;
+
+            // ═══════════════════════════════════════
+            // TRANSITION / ADAPTADOR (MEJORADO)
+            // ═══════════════════════════════════════
             case 'TRANSITION': case 'ADAPTADOR_MACHO_PPR_3IN': case 'ADAPTADOR_HEMBRA_PPR_3IN':
-                _ctx.beginPath(); _ctx.moveTo(-s, -s*0.6); _ctx.lineTo(s*0.2, -s*0.8); _ctx.lineTo(s*0.2, s*0.8); _ctx.lineTo(-s, s*0.6); _ctx.closePath();
-                _ctx.fillStyle = '#1e293b'; _ctx.fill(); _ctx.stroke();
-                _ctx.beginPath(); _ctx.moveTo(s*0.2, -s*0.6); _ctx.lineTo(s*0.9, -s*0.6); _ctx.lineTo(s*0.9, s*0.6); _ctx.lineTo(s*0.2, s*0.6);
-                _ctx.fillStyle = '#475569'; _ctx.fill(); _ctx.stroke();
+                // Lado PPR (verde)
+                _ctx.fillStyle = '#10b981'; _ctx.fillRect(-s*0.8, -s*0.5, s*0.8, s*1.0);
+                _ctx.strokeStyle = '#047857'; _ctx.strokeRect(-s*0.8, -s*0.5, s*0.8, s*1.0);
+                // Lado metálico (gris)
+                _ctx.fillStyle = '#94a3b8'; _ctx.fillRect(s*0.0, -s*0.5, s*0.8, s*1.0);
+                _ctx.strokeStyle = '#64748b'; _ctx.strokeRect(s*0.0, -s*0.5, s*0.8, s*1.0);
+                // Línea divisoria
+                _ctx.strokeStyle = '#fff'; _ctx.lineWidth = 1.5;
+                _ctx.beginPath(); _ctx.moveTo(0, -s*0.5); _ctx.lineTo(0, s*0.5); _ctx.stroke();
+                // Tuerca de unión
+                _ctx.strokeStyle = '#fbbf24'; _ctx.lineWidth = 2;
+                _ctx.beginPath(); _ctx.moveTo(-s*0.1, -s*0.5); _ctx.lineTo(-s*0.1, s*0.5); _ctx.stroke();
                 break;
+
+            // ═══════════════════════════════════════
+            // NIPPLE (MEJORADO - roscas visibles)
+            // ═══════════════════════════════════════
             case 'NIPPLE':
-                _ctx.fillRect(-s*0.9, -s*0.45, s*1.8, s*0.9); _ctx.strokeRect(-s*0.9, -s*0.45, s*1.8, s*0.9);
-                for (let i = -0.3; i <= 0.3; i += 0.2) { _ctx.beginPath(); _ctx.moveTo(-s*0.9, i*s); _ctx.lineTo(s*0.9, i*s); _ctx.strokeStyle = '#475569'; _ctx.lineWidth = 1; _ctx.stroke(); }
+                _ctx.fillRect(-s*0.9, -s*0.4, s*1.8, s*0.8); _ctx.strokeRect(-s*0.9, -s*0.4, s*1.8, s*0.8);
+                for (let i = -0.6; i <= 0.6; i += 0.2) { _ctx.beginPath(); _ctx.moveTo(-s*0.9, i*s); _ctx.lineTo(s*0.9, i*s); _ctx.strokeStyle = '#475569'; _ctx.lineWidth = 1; _ctx.stroke(); }
                 break;
+
+            // ═══════════════════════════════════════
+            // EXPANSION JOINT (MEJORADO)
+            // ═══════════════════════════════════════
             case 'EXPANSION_JOINT':
-                _ctx.fillRect(-s*0.8, -s*0.7, s*1.6, s*1.4); _ctx.strokeRect(-s*0.8, -s*0.7, s*1.6, s*1.4);
-                for (let i = -0.55; i <= 0.55; i += 0.35) { _ctx.beginPath(); _ctx.moveTo(-s*0.8, i*s); _ctx.lineTo(s*0.8, i*s); _ctx.strokeStyle = '#fbbf24'; _ctx.lineWidth = 1; _ctx.stroke(); }
+                _ctx.fillRect(-s*0.8, -s*0.6, s*1.6, s*1.2); _ctx.strokeRect(-s*0.8, -s*0.6, s*1.6, s*1.2);
+                for (let i = -0.45; i <= 0.45; i += 0.3) { _ctx.beginPath(); _ctx.moveTo(-s*0.8, i*s); _ctx.lineTo(s*0.8, i*s); _ctx.strokeStyle = '#fbbf24'; _ctx.lineWidth = 1; _ctx.stroke(); }
                 break;
+
+            // ═══════════════════════════════════════
+            // Y STRAINER / FILTRO
+            // ═══════════════════════════════════════
             case 'Y_STRAINER':
                 _ctx.beginPath(); _ctx.moveTo(-s, 0); _ctx.lineTo(0, -s*0.9); _ctx.lineTo(s, 0); _ctx.lineTo(0, s*0.4); _ctx.closePath();
                 _ctx.fill(); _ctx.stroke();
                 _ctx.beginPath(); _ctx.moveTo(-s, 0); _ctx.lineTo(s, 0); _ctx.strokeStyle = '#4ade80'; _ctx.lineWidth = 2; _ctx.stroke();
                 break;
+            case 'T_STRAINER': case 'BASKET_STRAINER': case 'DUPLEX_STRAINER': case 'SANITARY_STRAINER':
+                _ctx.fillRect(-s*0.8, -s*0.7, s*1.6, s*1.4); _ctx.strokeRect(-s*0.8, -s*0.7, s*1.6, s*1.4);
+                _ctx.strokeStyle = '#4ade80'; _ctx.lineWidth = 1.5; _ctx.setLineDash([2, 2]);
+                _ctx.beginPath(); _ctx.moveTo(-s*0.6, 0); _ctx.lineTo(s*0.6, 0); _ctx.stroke(); _ctx.setLineDash([]);
+                if (comp.type === 'DUPLEX_STRAINER') {
+                    _ctx.strokeStyle = '#fbbf24'; _ctx.lineWidth = 1;
+                    _ctx.beginPath(); _ctx.moveTo(0, -s*0.7); _ctx.lineTo(0, s*0.7); _ctx.stroke();
+                }
+                break;
+
+            // ═══════════════════════════════════════
+            // STEAM TRAP
+            // ═══════════════════════════════════════
+            case 'STEAM_TRAP': case 'STEAM_TRAP_SANITARY': case 'STEAM_TRAP_THERMODYNAMIC': case 'STEAM_TRAP_FLOAT': case 'STEAM_TRAP_BUCKET':
+                _ctx.fillRect(-s*0.6, -s*0.5, s*1.2, s*1.0); _ctx.strokeRect(-s*0.6, -s*0.5, s*1.2, s*1.0);
+                _ctx.fillStyle = '#475569'; _ctx.fillRect(-s*0.25, -s*0.9, s*0.5, s*0.35);
+                _ctx.strokeRect(-s*0.25, -s*0.9, s*0.5, s*0.35);
+                _ctx.fillStyle = '#ef4444'; _ctx.beginPath(); _ctx.arc(0, -s*0.9, 2.5, 0, Math.PI*2); _ctx.fill();
+                break;
+
+            // ═══════════════════════════════════════
+            // CAMLOCK (MEJORADO)
+            // ═══════════════════════════════════════
+            case 'CAMLOCK': case 'CAMLOCK_MALE': case 'CAMLOCK_FEMALE':
+                _ctx.fillStyle = '#94a3b8'; _ctx.fillRect(-s*0.6, -s*0.5, s*1.2, s*1.0);
+                _ctx.strokeRect(-s*0.6, -s*0.5, s*1.2, s*1.0);
+                for (let a = 0; a < Math.PI*2; a += Math.PI) {
+                    _ctx.fillStyle = '#64748b';
+                    _ctx.fillRect(Math.cos(a)*s*0.45 - s*0.06, Math.sin(a)*s*0.45 - s*0.06, s*0.12, s*0.12);
+                    _ctx.strokeRect(Math.cos(a)*s*0.45 - s*0.06, Math.sin(a)*s*0.45 - s*0.06, s*0.12, s*0.12);
+                }
+                break;
+
+            // ═══════════════════════════════════════
+            // QUICK CONNECT
+            // ═══════════════════════════════════════
+            case 'QUICK_CONNECT':
+                _ctx.fillStyle = '#d4a800'; _ctx.fillRect(-s*0.6, -s*0.45, s*1.2, s*0.9);
+                _ctx.strokeRect(-s*0.6, -s*0.45, s*1.2, s*0.9);
+                _ctx.strokeStyle = '#fff'; _ctx.lineWidth = 1;
+                for (let q = -0.3; q <= 0.3; q += 0.2) { _ctx.beginPath(); _ctx.moveTo(-s*0.6, q*s); _ctx.lineTo(s*0.6, q*s); _ctx.stroke(); }
+                _ctx.fillStyle = '#ef4444'; _ctx.beginPath(); _ctx.arc(s*0.4, 0, s*0.1, 0, Math.PI*2); _ctx.fill();
+                break;
+
+            // ═══════════════════════════════════════
+            // HOSE / MANGUERA (MEJORADO)
+            // ═══════════════════════════════════════
+            case 'HOSE': case 'FLEXIBLE_HOSE': case 'METALLIC_HOSE': case 'PTFE_HOSE':
+                const hoseCol = comp.type.includes('PTFE') ? '#a78bfa' : (comp.type.includes('METALLIC') ? '#94a3b8' : '#22c55e');
+                _ctx.fillStyle = hoseCol; _ctx.fillRect(-s*0.8, -s*0.35, s*1.6, s*0.7);
+                _ctx.strokeRect(-s*0.8, -s*0.35, s*1.6, s*0.7);
+                _ctx.strokeStyle = '#1e293b'; _ctx.lineWidth = 1;
+                for (let r = -0.5; r <= 0.5; r += 0.25) { _ctx.beginPath(); _ctx.moveTo(-s*0.8, r*s); _ctx.lineTo(s*0.8, r*s); _ctx.stroke(); }
+                break;
+
+            // ═══════════════════════════════════════
+            // SILENCER / VENT SILENCER (MEJORADO)
+            // ═══════════════════════════════════════
+            case 'SILENCER': case 'VENT_SILENCER':
+                _ctx.fillStyle = '#64748b'; _ctx.fillRect(-s*0.5, -s*0.9, s*1.0, s*1.8);
+                _ctx.strokeStyle = '#fff'; _ctx.strokeRect(-s*0.5, -s*0.9, s*1.0, s*1.8);
+                for (let si = -0.7; si <= 0.7; si += 0.3) {
+                    _ctx.beginPath(); _ctx.moveTo(-s*0.5, si*s); _ctx.lineTo(s*0.5, si*s); _ctx.strokeStyle = '#334155'; _ctx.lineWidth = 1.5; _ctx.stroke();
+                }
+                break;
+
+            // ═══════════════════════════════════════
+            // FLAME ARRESTER (MEJORADO)
+            // ═══════════════════════════════════════
+            case 'FLAME_ARRESTER': case 'DETONATION_ARRESTER':
+                _ctx.fillStyle = '#7f1d1d'; _ctx.fillRect(-s*0.6, -s*0.6, s*1.2, s*1.2);
+                _ctx.strokeStyle = '#ef4444'; _ctx.lineWidth = 2; _ctx.strokeRect(-s*0.6, -s*0.6, s*1.2, s*1.2);
+                _ctx.strokeStyle = '#fbbf24'; _ctx.lineWidth = 1; _ctx.setLineDash([1, 1]);
+                for (let fl = -0.4; fl <= 0.4; fl += 0.2) { _ctx.beginPath(); _ctx.moveTo(-s*0.6, fl*s); _ctx.lineTo(s*0.6, fl*s); _ctx.stroke(); }
+                _ctx.setLineDash([]);
+                break;
+
+            // ═══════════════════════════════════════
+            // VACUUM BREAKER (MEJORADO)
+            // ═══════════════════════════════════════
+            case 'VACUUM_BREAKER':
+                _ctx.fillStyle = '#0ea5e9'; _ctx.fillRect(-s*0.4, -s*0.6, s*0.8, s*1.2);
+                _ctx.strokeRect(-s*0.4, -s*0.6, s*0.8, s*1.2);
+                _ctx.fillStyle = '#fff'; _ctx.fillRect(-s*0.15, -s*1.0, s*0.3, s*0.3);
+                _ctx.strokeRect(-s*0.15, -s*1.0, s*0.3, s*0.3);
+                break;
+
+            // ═══════════════════════════════════════
+            // SAMPLE COOLER (MEJORADO)
+            // ═══════════════════════════════════════
+            case 'SAMPLE_COOLER':
+                _ctx.fillRect(-s*0.5, -s*0.7, s*1.0, s*1.4); _ctx.strokeRect(-s*0.5, -s*0.7, s*1.0, s*1.4);
+                _ctx.strokeStyle = '#94a3b8'; _ctx.lineWidth = 0.8; _ctx.globalAlpha = 0.6;
+                _ctx.strokeRect(-s*0.55, -s*0.5, s*1.1, s*1.0); _ctx.globalAlpha = 1;
+                _ctx.fillStyle = '#0ea5e9'; _ctx.beginPath(); _ctx.arc(0, -s*0.8, s*0.08, 0, Math.PI*2); _ctx.fill();
+                break;
+
+            // ═══════════════════════════════════════
+            // INSULATING JOINT / SPECTACLE BLIND / RUPTURE DISC
+            // ═══════════════════════════════════════
+            case 'INSULATING_JOINT':
+                _ctx.fillRect(-s*0.7, -s*0.6, s*1.4, s*1.2); _ctx.strokeRect(-s*0.7, -s*0.6, s*1.4, s*1.2);
+                _ctx.fillStyle = '#ef4444'; _ctx.fillRect(-s*0.1, -s*0.6, s*0.2, s*1.2);
+                _ctx.strokeRect(-s*0.1, -s*0.6, s*0.2, s*1.2);
+                break;
+            case 'SPECTACLE_BLIND':
+                _ctx.beginPath(); _ctx.arc(0, 0, s*0.7, 0, Math.PI*2); _ctx.fill(); _ctx.stroke();
+                _ctx.fillStyle = '#fbbf24'; _ctx.beginPath(); _ctx.arc(0, 0, s*0.3, 0, Math.PI*2); _ctx.fill(); _ctx.stroke();
+                break;
+            case 'RUPTURE_DISC':
+                _ctx.beginPath(); _ctx.arc(0, 0, s*0.7, 0, Math.PI*2); _ctx.fillStyle = '#fef2f2'; _ctx.fill(); _ctx.strokeStyle = '#ef4444'; _ctx.lineWidth = 2; _ctx.stroke();
+                _ctx.beginPath(); _ctx.moveTo(-s*0.4, -s*0.4); _ctx.lineTo(s*0.4, s*0.4); _ctx.moveTo(s*0.4, -s*0.4); _ctx.lineTo(-s*0.4, s*0.4); _ctx.stroke();
+                break;
+
+            // ═══════════════════════════════════════
+            // INSTRUMENTOS
+            // ═══════════════════════════════════════
+            case 'PRESSURE_GAUGE': case 'PRESSURE_GAUGE_SANITARY':
+                _ctx.beginPath(); _ctx.arc(0, 0, s*0.55, 0, Math.PI*2);
+                _ctx.fillStyle = '#1e293b'; _ctx.fill(); _ctx.strokeStyle = '#94a3b8'; _ctx.lineWidth = 2; _ctx.stroke();
+                _ctx.fillStyle = '#f8fafc'; _ctx.beginPath(); _ctx.arc(0, 0, s*0.4, 0, Math.PI*2); _ctx.fill();
+                _ctx.fillStyle = '#ef4444'; _ctx.fillRect(-s*0.02, -s*0.35, s*0.04, s*0.25);
+                break;
+            case 'TEMPERATURE_GAUGE':
+                _ctx.fillStyle = '#c0c0c0'; _ctx.fillRect(-s*0.08, -s*0.7, s*0.16, s*0.7);
+                _ctx.strokeRect(-s*0.08, -s*0.7, s*0.16, s*0.7);
+                _ctx.beginPath(); _ctx.arc(0, -s*0.75, s*0.3, 0, Math.PI*2);
+                _ctx.fillStyle = '#f8fafc'; _ctx.fill(); _ctx.strokeStyle = '#94a3b8'; _ctx.lineWidth = 1.5; _ctx.stroke();
+                break;
+            case 'FLOW_METER': case 'FLOW_METER_MAG': case 'CORIOLIS_METER':
+                _ctx.fillStyle = '#94a3b8'; _ctx.fillRect(-s*0.7, -s*0.5, s*1.4, s*1.0);
+                _ctx.strokeRect(-s*0.7, -s*0.5, s*1.4, s*1.0);
+                _ctx.fillStyle = '#1e293b'; _ctx.fillRect(s*0.2, -s*0.8, s*0.35, s*0.4);
+                _ctx.strokeRect(s*0.2, -s*0.8, s*0.35, s*0.4);
+                _ctx.fillStyle = '#00f2ff'; _ctx.font = `bold ${s*0.5}px Inter`; _ctx.textAlign = 'center'; _ctx.fillText('FM', s*0.35, -s*0.55);
+                break;
+            case 'PRESSURE_TRANSMITTER': case 'LEVEL_TRANSMITTER': case 'TEMPERATURE_TRANSMITTER':
+                _ctx.fillStyle = '#2563eb'; _ctx.fillRect(-s*0.5, -s*0.6, s*1.0, s*0.8);
+                _ctx.strokeRect(-s*0.5, -s*0.6, s*1.0, s*0.8);
+                _ctx.fillStyle = '#1e293b'; _ctx.fillRect(-s*0.15, -s*1.0, s*0.3, s*0.35);
+                _ctx.strokeRect(-s*0.15, -s*1.0, s*0.3, s*0.35);
+                _ctx.fillStyle = '#fff'; _ctx.font = `bold ${s*0.4}px Inter`; _ctx.textAlign = 'center'; _ctx.fillText('TX', 0, -s*0.25);
+                break;
+            case 'ROTAMETER': case 'ROTAMETRO':
+                _ctx.fillStyle = 'rgba(135,206,235,0.3)'; _ctx.fillRect(-s*0.25, -s*0.9, s*0.5, s*1.8);
+                _ctx.strokeRect(-s*0.25, -s*0.9, s*0.5, s*1.8);
+                _ctx.strokeStyle = '#c0c0c0'; _ctx.lineWidth = 1;
+                _ctx.strokeRect(-s*0.3, -s*0.9, s*0.6, s*1.8);
+                _ctx.fillStyle = '#ef4444'; _ctx.fillRect(-s*0.2, -s*0.3, s*0.4, s*0.12);
+                break;
+            case 'SIGHT_GLASS': case 'SIGHT_GLASS_SANITARY':
+                _ctx.strokeStyle = '#94a3b8'; _ctx.lineWidth = 2.5;
+                _ctx.strokeRect(-s*0.25, -s*0.7, s*0.5, s*1.4);
+                _ctx.fillStyle = 'rgba(135,206,235,0.4)'; _ctx.fillRect(-s*0.2, -s*0.65, s*0.4, s*1.3);
+                for (let gl = -0.5; gl <= 0.5; gl += 0.3) {
+                    _ctx.strokeStyle = '#fff'; _ctx.lineWidth = 0.5;
+                    _ctx.beginPath(); _ctx.moveTo(-s*0.2, gl*s); _ctx.lineTo(s*0.2, gl*s); _ctx.stroke();
+                }
+                break;
+            case 'LEVEL_SWITCH': case 'LEVEL_SWITCH_RANA':
+                _ctx.fillStyle = '#f59e0b'; _ctx.fillRect(-s*0.35, -s*0.3, s*0.7, s*0.6);
+                _ctx.strokeRect(-s*0.35, -s*0.3, s*0.7, s*0.6);
+                _ctx.fillStyle = '#c0c0c0'; _ctx.fillRect(-s*0.06, -s*0.9, s*0.12, s*0.6);
+                _ctx.strokeRect(-s*0.06, -s*0.9, s*0.12, s*0.6);
+                break;
+            case 'SPRAY_BALL':
+                _ctx.beginPath(); _ctx.arc(0, 0, s*0.5, 0, Math.PI*2);
+                _ctx.fillStyle = '#c0c0c0'; _ctx.fill(); _ctx.strokeStyle = '#94a3b8'; _ctx.stroke();
+                for (let sp = 0; sp < Math.PI*2; sp += Math.PI/3) {
+                    _ctx.beginPath(); _ctx.moveTo(0, 0); _ctx.lineTo(Math.cos(sp)*s*0.5, Math.sin(sp)*s*0.5); _ctx.strokeStyle = '#fff'; _ctx.lineWidth = 0.5; _ctx.stroke();
+                }
+                break;
+            case 'STATIC_MIXER':
+                _ctx.fillRect(-s*0.6, -s*0.5, s*1.2, s*1.0); _ctx.strokeRect(-s*0.6, -s*0.5, s*1.2, s*1.0);
+                _ctx.strokeStyle = '#fbbf24'; _ctx.lineWidth = 1.5;
+                _ctx.beginPath(); _ctx.moveTo(-s*0.5, -s*0.4); _ctx.lineTo(s*0.5, s*0.4); _ctx.stroke();
+                _ctx.beginPath(); _ctx.moveTo(-s*0.5, s*0.4); _ctx.lineTo(s*0.5, -s*0.4); _ctx.stroke();
+                break;
+
+            // ═══════════════════════════════════════
+            // SOPORTES
+            // ═══════════════════════════════════════
             case 'PIPE_SHOE': case 'U_BOLT': case 'GUIDE': case 'ANCHOR': case 'HANGER': case 'PIPE_CLAMP': case 'SPRING_HANGER':
                 _ctx.strokeStyle = '#64748b'; _ctx.lineWidth = 1.5; _ctx.setLineDash([3, 3]);
                 _ctx.beginPath(); _ctx.moveTo(-s*0.9, 0); _ctx.lineTo(s*0.9, 0);
                 if (comp.type === 'ANCHOR') { _ctx.moveTo(-s*0.6, -s*0.5); _ctx.lineTo(-s*0.6, s*0.5); _ctx.moveTo(s*0.6, -s*0.5); _ctx.lineTo(s*0.6, s*0.5); }
                 _ctx.stroke(); _ctx.setLineDash([]);
+                if (comp.type === 'SPRING_HANGER') {
+                    for (let sp = -0.35; sp <= 0.35; sp += 0.35) {
+                        _ctx.strokeStyle = '#fbbf24'; _ctx.lineWidth = 1; _ctx.setLineDash([1, 1]);
+                        _ctx.beginPath(); _ctx.moveTo(-s*0.4, sp*s); _ctx.lineTo(s*0.4, sp*s); _ctx.stroke(); _ctx.setLineDash([]);
+                    }
+                }
                 break;
+
+            // ═══════════════════════════════════════
+            // DIFUSOR / EYECTOR / INYECTOR
+            // ═══════════════════════════════════════
+            case 'AIR_DIFFUSER': case 'CHLORINE_EJECTOR': case 'CHEMICAL_INJECTOR':
+                _ctx.fillStyle = '#64748b'; _ctx.fillRect(-s*0.5, -s*0.4, s*1.0, s*0.8);
+                _ctx.strokeRect(-s*0.5, -s*0.4, s*1.0, s*0.8);
+                _ctx.fillStyle = '#00f2ff'; _ctx.beginPath(); _ctx.arc(0, s*0.5, s*0.2, 0, Math.PI*2); _ctx.fill(); _ctx.strokeStyle = '#fff'; _ctx.stroke();
+                break;
+
+            // ═══════════════════════════════════════
+            // FALLBACK GENÉRICO
+            // ═══════════════════════════════════════
             default:
                 _ctx.fillRect(-s*0.8, -s*0.8, s*1.6, s*1.6); _ctx.strokeRect(-s*0.8, -s*0.8, s*1.6, s*1.6);
                 const lbl = getComponentLabel(comp.type);
@@ -1726,7 +2083,26 @@ const SmartFlowRenderer = (function() {
         db.equipos?.forEach(eq => { if (!eq.puertos) return; eq.puertos.forEach(nz => { const pos = { x: eq.posX + (nz.relX || 0), y: eq.posY + (nz.relY || 0), z: eq.posZ + (nz.relZ || 0) }; const dir = nz.orientacion || { dx: 0, dy: 0, dz: 1 }; pcfContent += `NOZZLE\n    COMPONENT-IDENTIFIER ${eq.tag}-${nz.id}\n    END-POINT           ${pos.x.toFixed(2)} ${pos.y.toFixed(2)} ${pos.z.toFixed(2)}  ${(nz.diametro*25.4).toFixed(2)}\n    DIRECTION           ${dir.dx.toFixed(3)} ${dir.dy.toFixed(3)} ${dir.dz.toFixed(3)}\n    SKEY                NOZZ\n    ITEM-DESCRIPTION    Boquilla ${nz.id} ${nz.diametro}"\n\n`; }); });
         lines.forEach(line => { const pts = _core.getLinePoints(line); if (!pts || pts.length < 2) return; const diamMM = (line.diameter || 4) * 25.4; pcfContent += generatePCFHeader(line) + "\n";
             for (let i = 0; i < pts.length - 1; i++) { const p1 = pts[i], p2 = pts[i+1]; if (!p1.isControlPoint && !p2.isControlPoint) { const dirVec = { dx: p2.x - p1.x, dy: p2.y - p1.y, dz: p2.z - p1.z }; const len = Math.hypot(dirVec.dx, dirVec.dy, dirVec.dz) || 1; const dir = { dx: dirVec.dx/len, dy: dirVec.dy/len, dz: dirVec.dz/len }; pcfContent += "PIPE\n    END-POINT           " + p1.x.toFixed(2) + " " + p1.y.toFixed(2) + " " + p1.z.toFixed(2) + "  " + diamMM.toFixed(2) + "\n    END-POINT           " + p2.x.toFixed(2) + " " + p2.y.toFixed(2) + " " + p2.z.toFixed(2) + "  " + diamMM.toFixed(2) + "\n    ENTRY               " + dir.dx.toFixed(3) + " " + dir.dy.toFixed(3) + " " + dir.dz.toFixed(3) + "\n    EXIT                " + dir.dx.toFixed(3) + " " + dir.dy.toFixed(3) + " " + dir.dz.toFixed(3) + "\n    ITEM-CODE           PIPE-" + (line.material || 'PPR') + "-" + line.diameter + "IN\n    SKEY                PIPE\n    FABRICATION-ITEM\n"; } }
-            if (line.components && line.components.length > 0) { line.components.forEach(comp => { const pos = calculateComponentPosition(line, comp.param || 0.5); if (pos) pcfContent += formatComponentPCF(comp, pos, diamMM, pos.dir) + "\n"; }); }
+            if (line.components && line.components.length > 0) { 
+                line.components.forEach(comp => { 
+                    const pos = calculateComponentPosition(line, comp.param || 0.5); 
+                    if (pos) {
+                        pcfContent += formatComponentPCF(comp, pos, diamMM, pos.dir) + "\n";
+                        
+                        // Si es STUB_END, agregar también la Brida Loca como componente separado
+                        if (comp.type === 'STUB_END' || comp.type === 'STUB_END_PPR' || comp.type === 'STUB_END_HDPE') {
+                            var flangeComp = {
+                                type: 'LOOSE_FLANGE',
+                                tag: 'BL-' + (comp.tag || ''),
+                                itemCode: 'LOOSE_FLANGE',
+                                description: 'Brida Loca ' + (line.diameter || '?') + '"',
+                                material: 'Acero Galvanizado'
+                            };
+                            pcfContent += formatComponentPCF(flangeComp, pos, diamMM, pos.dir) + "\n";
+                        }
+                    }
+                }); 
+            }
             pcfContent += "\n";
         });
         const blob = new Blob([pcfContent], { type: 'text/plain' }); const a = document.createElement('a'); a.href = URL.createObjectURL(blob);
@@ -1745,7 +2121,7 @@ const SmartFlowRenderer = (function() {
         'TEE_PPR': 'TEE', 'CROSS': 'CROS', 'CAP': 'CAPF', 'PIPE_SHOE': 'SHOE', 'U_BOLT': 'UBOL',
         'GUIDE': 'GUID', 'ANCHOR': 'ANCH', 'TRANSITION': 'TRAN', 'UNION': 'UNIO', 'BULKHEAD': 'BULK',
         'Y_STRAINER': 'STRY', 'PRESSURE_GAUGE': 'INPG', 'TEMPERATURE_GAUGE': 'INTG', 'FLOW_METER': 'INFM',
-        'LEVEL_SWITCH_RANA': 'INSLS'
+        'LEVEL_SWITCH_RANA': 'INSLS', 'LOOSE_FLANGE': 'FLLJ'
     };
 
     function calculateComponentPosition(line, param) {
@@ -1870,3 +2246,5 @@ const SmartFlowRenderer = (function() {
     };
     return window.SmartFlowRenderer;
 })( );
+
+
