@@ -337,6 +337,7 @@
         </div>
     </div>
 
+    <!-- Panel de comandos original (se mantiene como respaldo) -->
     <div id="commandPanel" class="command-panel">
         <div class="command-header">
             <strong>🤖 Comandos IA</strong>
@@ -380,31 +381,45 @@
         <button id="btnFullscreenExit" style="padding:12px 20px; border-radius:30px; background:#ef4444; color:white; font-weight:bold; border:none;">✕ Salir</button>
     </div>
 
-    <!-- Módulos 2.5D (sin cambios) -->
+    <!-- ═══════════════════════════════════════════════════════ -->
+    <!-- SCRIPTS -->
+    <!-- ═══════════════════════════════════════════════════════ -->
+    
+    <!-- Módulos 2.5D -->
     <script src="js/core.js"></script>
     <script src="js/catalog.js"></script>
     <script src="js/router.js"></script>
     <script src="js/renderer.js"></script>
     <script src="js/commands.js"></script>
 
+    <!-- ✅ NUEVO: Sistema de Comandos Adaptativo (32 comandos, 72 variantes) -->
+    <script src="js/adaptiveCommands.js"></script>
+    <script src="js/adaptiveCommandsUI.js"></script>
+
     <!-- Módulos 3D migrados a r160 (type="module") -->
     <script type="module" src="js/ThreeJsEngine.js"></script>
     <script type="module" src="js/render.js"></script>
     <script type="module" src="js/SmartFlowLabels3D.js"></script>
 
-    <!-- Main (sin cambios) -->
+    <!-- Main -->
     <script src="js/main.js"></script>
 
+    <!-- ═══════════════════════════════════════════════════════ -->
+    <!-- CONFIGURACIÓN FINAL -->
+    <!-- ═══════════════════════════════════════════════════════ -->
     <script>
         window.voiceEnabled = true;
         window.currentProjectName = 'Proyecto_SmartEngp';
 
         document.addEventListener("DOMContentLoaded", function() {
+            
+            // Cerrar panel de propiedades
             var btnClosePanel = document.getElementById('btnClosePanel');
             if (btnClosePanel) {
                 btnClosePanel.addEventListener('click', function() { togglePanel(false); });
             }
 
+            // Botones de elevación
             ['btnElev0', 'btnElev2500', 'btnElev5000'].forEach(function(id) {
                 var btn = document.getElementById(id);
                 if (btn) {
@@ -414,6 +429,66 @@
                     });
                 }
             });
+
+            // ✅ NUEVO: Conectar botón "🤖 Cmd" al sistema adaptativo
+            var btnCommand = document.getElementById('btnCommand');
+            if (btnCommand) {
+                // Clonar para limpiar listeners previos
+                var newBtn = btnCommand.cloneNode(true);
+                btnCommand.parentNode.replaceChild(newBtn, btnCommand);
+                
+                newBtn.addEventListener('click', function(e) {
+                    e.preventDefault();
+                    e.stopPropagation();
+                    if (typeof AdaptiveCommandUI !== 'undefined') {
+                        AdaptiveCommandUI.openPanel('assisted');
+                    }
+                });
+            }
+
+            // ✅ NUEVO: Atajo de teclado Ctrl+Shift+C para abrir comandos
+            document.addEventListener('keydown', function(e) {
+                if (e.ctrlKey && e.shiftKey && e.key === 'C') {
+                    e.preventDefault();
+                    if (typeof AdaptiveCommandUI !== 'undefined') {
+                        AdaptiveCommandUI.openPanel('assisted');
+                    }
+                }
+                // También permitir Escape para cerrar
+                if (e.key === 'Escape') {
+                    var overlay = document.getElementById('adaptive-overlay');
+                    if (overlay && typeof AdaptiveCommandUI !== 'undefined') {
+                        AdaptiveCommandUI.closeOverlay();
+                    }
+                }
+            });
+
+            // ✅ NUEVO: Conectar botones Undo/Redo del menú "+" al sistema
+            var btnUndo = document.getElementById('btnUndo');
+            if (btnUndo) {
+                var newUndo = btnUndo.cloneNode(true);
+                btnUndo.parentNode.replaceChild(newUndo, btnUndo);
+                newUndo.addEventListener('click', function(e) {
+                    e.preventDefault();
+                    e.stopPropagation();
+                    if (typeof SmartFlowCommands !== 'undefined') {
+                        SmartFlowCommands.executeCommand('undo');
+                    }
+                });
+            }
+
+            var btnRedo = document.getElementById('btnRedo');
+            if (btnRedo) {
+                var newRedo = btnRedo.cloneNode(true);
+                btnRedo.parentNode.replaceChild(newRedo, btnRedo);
+                newRedo.addEventListener('click', function(e) {
+                    e.preventDefault();
+                    e.stopPropagation();
+                    if (typeof SmartFlowCommands !== 'undefined') {
+                        SmartFlowCommands.executeCommand('redo');
+                    }
+                });
+            }
         });
 
         function setElevation(level) {
