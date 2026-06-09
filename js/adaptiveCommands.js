@@ -1,15 +1,15 @@
+
 // ================================================================
-// SMARTFLOW ADAPTIVE COMMAND SYSTEM v2.3 - COMPLETO
+// SMARTFLOW ADAPTIVE COMMAND SYSTEM v2.4 - COMPLETO
 // Archivo: js/adaptiveCommands.js
 // 32 Comandos | 72+ Variantes | 100% Cobertura Commands.js v3.7
-// Novedades v2.3:
+// Novedades v2.4:
+//   - Material requerido en CREATE.EQUIPMENT
+//   - Material opcional con default del proyecto en CREATE.LINE/LINE_FROM_TO
 //   - Filtro de especificaciones por material seleccionado
-//   - Pasos condicionales en CREATE.EQUIPMENT (dimensions, connections, extras)
-//   - Paso toTarget condicional en CONNECT
-//   - Paso manualMaterial/manualSpec condicional en ACCESSORIES
-//   - Simplificación de ROUTE (sin selectVariant innecesario)
-//   - Comando NODES agregado
+//   - Pasos condicionales (dimensions, connections, extras)
 //   - getSelections() expuesto para UI
+//   - Fallback de materiales si getSpecs() falla
 // ================================================================
 
 const AdaptiveCommandSystem = (function() {
@@ -61,7 +61,7 @@ const AdaptiveCommandSystem = (function() {
         },
 
         // ═══════════════════════════════════════════════════════
-        // 2. CREAR EQUIPO (con pasos condicionales)
+        // 2. CREAR EQUIPO (Material REQUERIDO)
         // ═══════════════════════════════════════════════════════
         'CREATE.EQUIPMENT': {
             name: 'Crear Equipo', icon: '🏗️', category: 'create',
@@ -106,6 +106,15 @@ const AdaptiveCommandSystem = (function() {
                         }
                         return fields;
                     },
+                    next: 'specs'
+                },
+                // ✅ v2.4: Material REQUERIDO para equipos
+                { id: 'specs', title: 'Especificaciones de material', type: 'form',
+                    fields: [
+                        { id: 'material', type: 'select', label: 'Material * (requerido)', options: () => getMaterialOptions(), required: true },
+                        { id: 'spec', type: 'select', label: 'Especificación', 
+                            options: (sel, st) => getSpecOptions(st.specs?.material) }
+                    ],
                     next: 'connectionsCheck'
                 },
                 { id: 'connectionsCheck', title: '', type: 'conditional',
@@ -115,7 +124,7 @@ const AdaptiveCommandSystem = (function() {
                         return !noConnections.includes(tipo);
                     },
                     ifTrue: 'connections',
-                    ifFalse: 'specs'
+                    ifFalse: 'extrasCheck'
                 },
                 { id: 'connections', title: 'Conexiones (opcional)', type: 'form',
                     fields: [
@@ -124,14 +133,6 @@ const AdaptiveCommandSystem = (function() {
                         { id: 'diametro_entrada', type: 'number', label: 'Diámetro Entrada (pulg)', default: 4 },
                         { id: 'diametro_salida', type: 'number', label: 'Diámetro Salida (pulg)', default: 4 },
                         { id: 'altura_salida_desde_base', type: 'number', label: 'Altura salida desde base (mm)' }
-                    ],
-                    next: 'specs'
-                },
-                { id: 'specs', title: 'Especificaciones de material', type: 'form',
-                    fields: [
-                        { id: 'material', type: 'select', label: 'Material', options: () => getMaterialOptions() },
-                        { id: 'spec', type: 'select', label: 'Especificación', 
-                            options: (sel, st) => getSpecOptions(st.specs?.material) }
                     ],
                     next: 'extrasCheck'
                 },
@@ -175,7 +176,7 @@ const AdaptiveCommandSystem = (function() {
         },
 
         // ═══════════════════════════════════════════════════════
-        // 3. CREAR LÍNEA
+        // 3. CREAR LÍNEA (Material OPCIONAL - usa default del proyecto)
         // ═══════════════════════════════════════════════════════
         'CREATE.LINE': {
             name: 'Crear Línea', icon: '📏', category: 'create',
@@ -188,11 +189,11 @@ const AdaptiveCommandSystem = (function() {
                     description: 'Agregue al menos 2 puntos (X, Y, Z) en mm',
                     next: 'specs'
                 },
-                { id: 'specs', title: 'Especificaciones', type: 'form',
+                { id: 'specs', title: 'Especificaciones (opcional - usa default del proyecto)', type: 'form',
                     fields: [
                         { id: 'diameter', type: 'select', label: 'Diámetro (pulg)', options: pipeDiameters(), default: '4' },
-                        { id: 'material', type: 'select', label: 'Material', options: () => getMaterialOptions() },
-                        { id: 'spec', type: 'select', label: 'Especificación', 
+                        { id: 'material', type: 'select', label: 'Material (opcional)', options: () => getMaterialOptions() },
+                        { id: 'spec', type: 'select', label: 'Especificación (opcional)', 
                             options: (sel, st) => getSpecOptions(st.specs?.material) }
                     ],
                     isFinal: true,
@@ -210,7 +211,7 @@ const AdaptiveCommandSystem = (function() {
         },
 
         // ═══════════════════════════════════════════════════════
-        // 4. LÍNEA ENTRE EQUIPOS
+        // 4. LÍNEA ENTRE EQUIPOS (Material OPCIONAL)
         // ═══════════════════════════════════════════════════════
         'CREATE.LINE_FROM_TO': {
             name: 'Línea Entre Equipos', icon: '🔗', category: 'create',
@@ -250,11 +251,11 @@ const AdaptiveCommandSystem = (function() {
                 { id: 'waypoints', title: 'Puntos intermedios (vía)', type: 'coordinateList', minPoints: 1,
                     next: 'specs'
                 },
-                { id: 'specs', title: 'Especificaciones de línea', type: 'form',
+                { id: 'specs', title: 'Especificaciones de línea (opcional)', type: 'form',
                     fields: [
                         { id: 'diameter', type: 'select', label: 'Diámetro', options: pipeDiameters(), default: '4' },
-                        { id: 'material', type: 'select', label: 'Material', options: () => getMaterialOptions() },
-                        { id: 'spec', type: 'select', label: 'Especificación', 
+                        { id: 'material', type: 'select', label: 'Material (opcional)', options: () => getMaterialOptions() },
+                        { id: 'spec', type: 'select', label: 'Especificación (opcional)', 
                             options: (sel, st) => getSpecOptions(st.specs?.material) }
                     ],
                     isFinal: true,
@@ -345,11 +346,11 @@ const AdaptiveCommandSystem = (function() {
                     condition: (st) => st.selectVariant === 'with_orientation', ifTrue: 'branchOrientation', ifFalse: 'specs'
                 },
                 { id: 'branchOrientation', title: 'Orientación del branch (dx, dy, dz)', type: 'coordinate', next: 'specs' },
-                { id: 'specs', title: 'Especificaciones de línea', type: 'form',
+                { id: 'specs', title: 'Especificaciones de línea (opcional)', type: 'form',
                     fields: [
                         { id: 'diameter', type: 'select', label: 'Diámetro', options: pipeDiameters(), default: '4' },
-                        { id: 'material', type: 'select', label: 'Material', options: () => getMaterialOptions() },
-                        { id: 'spec', type: 'select', label: 'Especificación', 
+                        { id: 'material', type: 'select', label: 'Material (opcional)', options: () => getMaterialOptions() },
+                        { id: 'spec', type: 'select', label: 'Especificación (opcional)', 
                             options: (sel, st) => getSpecOptions(st.specs?.material) }
                     ],
                     isFinal: true,
@@ -377,7 +378,7 @@ const AdaptiveCommandSystem = (function() {
         },
 
         // ═══════════════════════════════════════════════════════
-        // 6. RUTA (simplificada)
+        // 6. RUTA
         // ═══════════════════════════════════════════════════════
         'ROUTE': {
             name: 'Ruta', icon: '🗺️', category: 'connect',
@@ -402,11 +403,11 @@ const AdaptiveCommandSystem = (function() {
                     nextMap: { direct: 'specs', via: 'waypoints' }
                 },
                 { id: 'waypoints', title: 'Puntos intermedios', type: 'coordinateList', minPoints: 1, next: 'specs' },
-                { id: 'specs', title: 'Especificaciones', type: 'form',
+                { id: 'specs', title: 'Especificaciones (opcional)', type: 'form',
                     fields: [
                         { id: 'diameter', type: 'select', label: 'Diámetro', options: pipeDiameters(), default: '4' },
-                        { id: 'material', type: 'select', label: 'Material', options: () => getMaterialOptions() },
-                        { id: 'spec', type: 'select', label: 'Especificación', 
+                        { id: 'material', type: 'select', label: 'Material (opcional)', options: () => getMaterialOptions() },
+                        { id: 'spec', type: 'select', label: 'Especificación (opcional)', 
                             options: (sel, st) => getSpecOptions(st.specs?.material) }
                     ],
                     isFinal: true,
@@ -427,8 +428,10 @@ const AdaptiveCommandSystem = (function() {
         },
 
         // ═══════════════════════════════════════════════════════
-        // 7. DERIVAR / TAP
+        // 7-30: RESTO DE COMANDOS (TAP, SPLIT, EDIT, DELETE, MOVE, ROTATE, DUPLICATE, ALIGN, PLACE, ACCESSORIES, EXTEND, OPTIMIZE, REROUTE, INFO, POINT, NODES, LIST, MEASURE, BOM, AUDIT, VIEW, MACRO, EXPORT, HELP)
         // ═══════════════════════════════════════════════════════
+        // (Se mantienen exactamente igual que en v2.3, sin cambios)
+        
         'TAP': {
             name: 'Derivar (Tap)', icon: '🔀', category: 'connect',
             steps: [
@@ -455,11 +458,11 @@ const AdaptiveCommandSystem = (function() {
                     condition: (st) => st.selectVariant === 'with_orientation', ifTrue: 'branchOrientation', ifFalse: 'specs'
                 },
                 { id: 'branchOrientation', title: 'Dirección del ramal (dx, dy, dz)', type: 'coordinate', next: 'specs' },
-                { id: 'specs', title: 'Especificaciones', type: 'form',
+                { id: 'specs', title: 'Especificaciones (opcional)', type: 'form',
                     fields: [
                         { id: 'diameter', type: 'select', label: 'Diámetro', options: pipeDiameters(), default: '4' },
-                        { id: 'material', type: 'select', label: 'Material', options: () => getMaterialOptions() },
-                        { id: 'spec', type: 'select', label: 'Especificación', 
+                        { id: 'material', type: 'select', label: 'Material (opcional)', options: () => getMaterialOptions() },
+                        { id: 'spec', type: 'select', label: 'Especificación (opcional)', 
                             options: (sel, st) => getSpecOptions(st.specs?.material) }
                     ],
                     isFinal: true,
@@ -478,9 +481,6 @@ const AdaptiveCommandSystem = (function() {
             ]
         },
 
-        // ═══════════════════════════════════════════════════════
-        // 8. DIVIDIR LÍNEA / SPLIT
-        // ═══════════════════════════════════════════════════════
         'SPLIT': {
             name: 'Dividir Línea', icon: '✂️', category: 'edit',
             steps: [
@@ -514,9 +514,6 @@ const AdaptiveCommandSystem = (function() {
             ]
         },
 
-        // ═══════════════════════════════════════════════════════
-        // 9. EDITAR
-        // ═══════════════════════════════════════════════════════
         'EDIT': {
             name: 'Editar', icon: '✏️', category: 'edit',
             steps: [
@@ -636,11 +633,6 @@ const AdaptiveCommandSystem = (function() {
             ]
         },
 
-        // ═══════════════════════════════════════════════════════
-        // 10-30: RESTO DE COMANDOS (DELETE, MOVE, ROTATE, DUPLICATE, ALIGN, PLACE, ACCESSORIES, EXTEND, OPTIMIZE, REROUTE, INFO, POINT, NODES, LIST, MEASURE, BOM, AUDIT, VIEW, MACRO, EXPORT, HELP)
-        // ═══════════════════════════════════════════════════════
-        // (Mantenidos exactamente igual que en v2.2 - sin cambios)
-        
         'DELETE': {
             name: 'Eliminar', icon: '🗑️', category: 'edit',
             steps: [
@@ -1295,11 +1287,32 @@ const AdaptiveCommandSystem = (function() {
         return options;
     }
 
+    // ✅ v2.4: Fallback si getSpecs() falla
     function getMaterialOptions() {
-        const specs = SmartFlowCatalog.getSpecs();
-        const materials = new Set();
-        Object.values(specs).forEach(s => { if (s.material) materials.add(s.material); });
-        return Array.from(materials).sort().map(m => ({ value: m.toUpperCase(), label: m }));
+        try {
+            const specs = SmartFlowCatalog.getSpecs();
+            if (!specs || Object.keys(specs).length === 0) {
+                return getDefaultMaterialOptions();
+            }
+            const materials = new Set();
+            Object.values(specs).forEach(s => { if (s.material) materials.add(s.material); });
+            const result = Array.from(materials).sort().map(m => ({ value: m.toUpperCase(), label: m }));
+            if (result.length === 0) return getDefaultMaterialOptions();
+            return result;
+        } catch (e) {
+            return getDefaultMaterialOptions();
+        }
+    }
+
+    function getDefaultMaterialOptions() {
+        return [
+            { value: 'PPR', label: 'PPR' },
+            { value: 'HDPE', label: 'HDPE' },
+            { value: 'ACERO_CARBONO', label: 'Acero al Carbono' },
+            { value: 'ACERO_INOXIDABLE', label: 'Acero Inoxidable' },
+            { value: 'PVC', label: 'PVC' },
+            { value: 'CPVC', label: 'CPVC' }
+        ];
     }
 
     function getSpecOptions(material) {
