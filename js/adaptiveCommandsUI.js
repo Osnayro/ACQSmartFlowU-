@@ -1,13 +1,14 @@
 
 // ================================================================
-// SMARTFLOW ADAPTIVE COMMAND UI v2.5 - Interfaz Responsive
+// SMARTFLOW ADAPTIVE COMMAND UI v2.6 - Interfaz Responsive
 // Archivo: js/adaptiveCommandsUI.js
 // Modo dual: Asistido (grilla + flujo paso a paso) + Texto (consola)
-// Actualizaciones v2.5:
-//   - catNames actualizado con nuevas categorías (STEAM_TRAP, SAFETY, SANITARY, HOSE)
-//   - Manejo de pasos condicionales con isFinal dinámico (VIEW)
-//   - executeFlowCommand mejorado con logs de depuración
-//   - Compatible con adaptiveCommands.js v2.5
+// Correcciones v2.6:
+//   - renderFlowForm: opts() recibe (sel, st) para funciones de options
+//   - flowNext: validación de currentFlow no null
+//   - flowBack: guarda datos del paso actual antes de retroceder
+//   - getVariantCount: maneja isFinal como función
+//   - executeFlowCommand con logs de depuración
 // ================================================================
 
 const AdaptiveCommandUI = (function() {
@@ -378,10 +379,19 @@ const AdaptiveCommandUI = (function() {
         }).join('');
     }
 
+    // ✅ v2.6: Maneja isFinal como función
     function getVariantCount(cmd) {
         const flow = AdaptiveCommandSystem.COMMAND_FLOWS[cmd];
         if (!flow) return 1;
-        return flow.steps.filter(s => s.isFinal).length || 1;
+        var count = 0;
+        flow.steps.forEach(function(s) {
+            if (typeof s.isFinal === 'function') {
+                if (s.isFinal({})) count++;
+            } else if (s.isFinal) {
+                count++;
+            }
+        });
+        return count || 1;
     }
 
     function filterCategory(cat) {
@@ -476,7 +486,6 @@ const AdaptiveCommandUI = (function() {
 
         document.getElementById('adaptive-body').innerHTML = bodyHtml;
 
-        // Determinar si es final (maneja isFinal como función)
         let isFinalStep = currentFlow.isFinal;
         if (typeof isFinalStep === 'function') {
             isFinalStep = isFinalStep(AdaptiveCommandSystem.getSelections ? 
@@ -502,7 +511,6 @@ const AdaptiveCommandUI = (function() {
         }, 100);
     }
 
-    // ✅ v2.5: catNames actualizado con todas las categorías
     function renderFlowSelect(stepData, searchable) {
         const options = stepData.options || [];
         const hasCategories = options.length > 0 && options[0].category !== undefined;
@@ -649,31 +657,36 @@ const AdaptiveCommandUI = (function() {
         return html;
     }
 
+    // ✅ v2.6: CORREGIDO - opts() recibe (sel, st)
     function renderFlowForm(stepData) {
-        let html = '';
-        (stepData.fields || []).forEach(field => {
-            html += `<div class="flow-form-group">`;
-            html += `<label>${field.label}</label>`;
+        var html = '';
+        (stepData.fields || []).forEach(function(field) {
+            html += '<div class="flow-form-group">';
+            html += '<label>' + field.label + '</label>';
             
             if (field.type === 'select') {
-                html += `<select id="field-${field.id}" data-field="${field.id}">`;
-                html += `<option value="">Seleccionar...</option>`;
-                let opts = field.options;
-                if (typeof opts === 'function') opts = opts();
-                (opts || []).forEach(opt => {
-                    const val = typeof opt === 'object' ? opt.value : opt;
-                    const lbl = typeof opt === 'object' ? (opt.label || opt.value) : opt;
-                    html += `<option value="${val}">${lbl}</option>`;
+                html += '<select id="field-' + field.id + '" data-field="' + field.id + '">';
+                html += '<option value="">Seleccionar...</option>';
+                var opts = field.options;
+                if (typeof opts === 'function') {
+                    var sel = null;
+                    var st = AdaptiveCommandSystem.getSelections ? AdaptiveCommandSystem.getSelections() : {};
+                    opts = opts(sel, st);
+                }
+                (opts || []).forEach(function(opt) {
+                    var val = typeof opt === 'object' ? opt.value : opt;
+                    var lbl = typeof opt === 'object' ? (opt.label || opt.value) : opt;
+                    html += '<option value="' + val + '">' + lbl + '</option>';
                 });
-                html += `</select>`;
+                html += '</select>';
             } else if (field.type === 'checkbox') {
-                html += `<input type="checkbox" id="field-${field.id}" data-field="${field.id}" style="width:auto">`;
+                html += '<input type="checkbox" id="field-' + field.id + '" data-field="' + field.id + '" style="width:auto">';
             } else {
-                html += `<input type="${field.type}" id="field-${field.id}" data-field="${field.id}" 
-                         value="${field.default || ''}" placeholder="${field.placeholder || ''}"
-                         min="${field.min || ''}" max="${field.max || ''}" step="${field.step || ''}">`;
+                html += '<input type="' + field.type + '" id="field-' + field.id + '" data-field="' + field.id + '" ' +
+                         'value="' + (field.default || '') + '" placeholder="' + (field.placeholder || '') + '" ' +
+                         'min="' + (field.min || '') + '" max="' + (field.max || '') + '" step="' + (field.step || '') + '">';
             }
-            html += `</div>`;
+            html += '</div>';
         });
         return html;
     }
@@ -800,7 +813,10 @@ const AdaptiveCommandUI = (function() {
         handleNextStep(nextData);
     }
 
+    // ✅ v2.6: CORREGIDO - validación de currentFlow no null
     function flowNext() {
+        if (!currentFlow) return;
+        
         let value = null;
 
         if (currentFlow.type === 'form') {
@@ -873,7 +889,13 @@ const AdaptiveCommandUI = (function() {
         renderFlowStep();
     }
 
+    // ✅ v2.6: CORREGIDO - guarda datos del paso actual antes de retroceder
     function flowBack() {
+        if (!currentFlow) {
+            renderAssistedGrid();
+            return;
+        }
+        
         const prevData = AdaptiveCommandSystem.previousStep();
         if (prevData) {
             currentFlow = prevData;
@@ -889,7 +911,6 @@ const AdaptiveCommandUI = (function() {
         renderAssistedGrid();
     }
 
-    // ✅ v2.5: executeFlowCommand con logs de depuración
     function executeFlowCommand() {
         let cmd = null;
         
@@ -915,12 +936,10 @@ const AdaptiveCommandUI = (function() {
         }
         
         if (cmd) {
-            console.log('✅ Ejecutando:', cmd);
             executeTextCommand(cmd);
             showToast('✅ Comando ejecutado', 'ok');
             renderAssistedGrid();
         } else {
-            console.error('❌ No se pudo construir el comando');
             showToast('❌ No se pudo construir el comando', 'err');
         }
     }
@@ -1027,11 +1046,8 @@ const AdaptiveCommandUI = (function() {
     function executeTextCommand(cmd) {
         if (!cmd) return;
         
-        console.log('📤 Ejecutando comando:', cmd);
-        
         if (typeof SmartFlowCommands !== 'undefined' && typeof SmartFlowCommands.executeCommand === 'function') {
             const result = SmartFlowCommands.executeCommand(cmd);
-            console.log('📥 Resultado:', result);
             if (result) {
                 addConsoleLine('✅ Ejecutado correctamente', 'ok');
                 showToast('Comando ejecutado', 'ok');
