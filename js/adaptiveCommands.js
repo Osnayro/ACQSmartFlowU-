@@ -1,15 +1,17 @@
 
 // ================================================================
-// SMARTFLOW ADAPTIVE COMMAND SYSTEM v2.4 - COMPLETO
+// SMARTFLOW ADAPTIVE COMMAND SYSTEM v2.5 - COMPLETO
 // Archivo: js/adaptiveCommands.js
 // 32 Comandos | 72+ Variantes | 100% Cobertura Commands.js v3.7
-// Novedades v2.4:
-//   - Material requerido en CREATE.EQUIPMENT
-//   - Material opcional con default del proyecto en CREATE.LINE/LINE_FROM_TO
-//   - Filtro de especificaciones por material seleccionado
-//   - Pasos condicionales (dimensions, connections, extras)
-//   - getSelections() expuesto para UI
-//   - Fallback de materiales si getSpecs() falla
+// Correcciones v2.5:
+//   - CREATE.EQUIPMENT: Bucle de dimensiones CORREGIDO
+//   - CREATE.EQUIPMENT: Conexiones dinámicas según tipo de equipo
+//   - CONNECT: resolveDirectDest corregido para equipment_to_line
+//   - CONNECT: Simplificado flujo de destino
+//   - VIEW: Vistas directas (top/front/iso/extents) ejecutan correctamente
+//   - getComponentTypeOptions: Categorías STEAM_TRAP, SAFETY, SANITARY, HOSE agregadas
+//   - getComponentCategories: Nuevas categorías agregadas
+//   - Pasos condicionales: Manejo correcto de ifFalse
 // ================================================================
 
 const AdaptiveCommandSystem = (function() {
@@ -61,7 +63,7 @@ const AdaptiveCommandSystem = (function() {
         },
 
         // ═══════════════════════════════════════════════════════
-        // 2. CREAR EQUIPO (Material REQUERIDO)
+        // 2. CREAR EQUIPO - ✅ CORREGIDO v2.5
         // ═══════════════════════════════════════════════════════
         'CREATE.EQUIPMENT': {
             name: 'Crear Equipo', icon: '🏗️', category: 'create',
@@ -108,7 +110,6 @@ const AdaptiveCommandSystem = (function() {
                     },
                     next: 'specs'
                 },
-                // ✅ v2.4: Material REQUERIDO para equipos
                 { id: 'specs', title: 'Especificaciones de material', type: 'form',
                     fields: [
                         { id: 'material', type: 'select', label: 'Material * (requerido)', options: () => getMaterialOptions(), required: true },
@@ -120,20 +121,14 @@ const AdaptiveCommandSystem = (function() {
                 { id: 'connectionsCheck', title: '', type: 'conditional',
                     condition: (st) => {
                         const tipo = st.tipo || '';
-                        const noConnections = ['plataforma', 'antorcha', 'agitador', 'molino', 'llenadora', 'skid_inyeccion'];
+                        const noConnections = ['plataforma', 'agitador', 'molino', 'llenadora'];
                         return !noConnections.includes(tipo);
                     },
                     ifTrue: 'connections',
                     ifFalse: 'extrasCheck'
                 },
                 { id: 'connections', title: 'Conexiones (opcional)', type: 'form',
-                    fields: [
-                        { id: 'diametro_succion', type: 'number', label: 'Diámetro Succión (pulg)', default: 3 },
-                        { id: 'diametro_descarga', type: 'number', label: 'Diámetro Descarga (pulg)', default: 3 },
-                        { id: 'diametro_entrada', type: 'number', label: 'Diámetro Entrada (pulg)', default: 4 },
-                        { id: 'diametro_salida', type: 'number', label: 'Diámetro Salida (pulg)', default: 4 },
-                        { id: 'altura_salida_desde_base', type: 'number', label: 'Altura salida desde base (mm)' }
-                    ],
+                    fields: (st) => getConnectionFields(st.tipo),
                     next: 'extrasCheck'
                 },
                 { id: 'extrasCheck', title: '', type: 'conditional',
@@ -142,7 +137,7 @@ const AdaptiveCommandSystem = (function() {
                         return ['plataforma', 'tanque_v', 'torre', 'reactor', 'columna_fraccionadora'].includes(tipo);
                     },
                     ifTrue: 'extras',
-                    ifFalse: null
+                    ifFalse: '__FINAL__'
                 },
                 { id: 'extras', title: 'Extras (opcional)', type: 'form',
                     fields: [
@@ -176,7 +171,7 @@ const AdaptiveCommandSystem = (function() {
         },
 
         // ═══════════════════════════════════════════════════════
-        // 3. CREAR LÍNEA (Material OPCIONAL - usa default del proyecto)
+        // 3. CREAR LÍNEA
         // ═══════════════════════════════════════════════════════
         'CREATE.LINE': {
             name: 'Crear Línea', icon: '📏', category: 'create',
@@ -211,7 +206,7 @@ const AdaptiveCommandSystem = (function() {
         },
 
         // ═══════════════════════════════════════════════════════
-        // 4. LÍNEA ENTRE EQUIPOS (Material OPCIONAL)
+        // 4. LÍNEA ENTRE EQUIPOS
         // ═══════════════════════════════════════════════════════
         'CREATE.LINE_FROM_TO': {
             name: 'Línea Entre Equipos', icon: '🔗', category: 'create',
@@ -228,29 +223,22 @@ const AdaptiveCommandSystem = (function() {
                     next: 'fromEquip'
                 },
                 { id: 'fromEquip', title: 'Equipo origen', type: 'dynamicSelect',
-                    options: () => getEquipmentOptions(),
-                    next: 'fromPort'
+                    options: () => getEquipmentOptions(), next: 'fromPort'
                 },
                 { id: 'fromPort', title: 'Puerto origen', type: 'dynamicSelect',
-                    options: (sel, st) => getPortOptions(st.fromEquip),
-                    next: 'toEquip'
+                    options: (sel, st) => getPortOptions(st.fromEquip), next: 'toEquip'
                 },
                 { id: 'toEquip', title: 'Equipo destino', type: 'dynamicSelect',
-                    options: () => getEquipmentOptions(),
-                    next: 'toPort'
+                    options: () => getEquipmentOptions(), next: 'toPort'
                 },
                 { id: 'toPort', title: 'Puerto destino', type: 'dynamicSelect',
-                    options: (sel, st) => getPortOptions(st.toEquip),
-                    next: 'waypointsCheck'
+                    options: (sel, st) => getPortOptions(st.toEquip), next: 'waypointsCheck'
                 },
                 { id: 'waypointsCheck', title: 'Waypoints', type: 'conditional',
                     condition: (st) => st.selectVariant === 'via',
-                    ifTrue: 'waypoints',
-                    ifFalse: 'specs'
+                    ifTrue: 'waypoints', ifFalse: 'specs'
                 },
-                { id: 'waypoints', title: 'Puntos intermedios (vía)', type: 'coordinateList', minPoints: 1,
-                    next: 'specs'
-                },
+                { id: 'waypoints', title: 'Puntos intermedios (vía)', type: 'coordinateList', minPoints: 1, next: 'specs' },
                 { id: 'specs', title: 'Especificaciones de línea (opcional)', type: 'form',
                     fields: [
                         { id: 'diameter', type: 'select', label: 'Diámetro', options: pipeDiameters(), default: '4' },
@@ -263,8 +251,7 @@ const AdaptiveCommandSystem = (function() {
                         let cmd = `line ${st.tag} from ${st.fromEquip} ${st.fromPort} to ${st.toEquip}`;
                         if (st.toPort) cmd += ` ${st.toPort}`;
                         if (st.waypoints && st.waypoints.length > 0) {
-                            cmd += ' via';
-                            st.waypoints.forEach(wp => cmd += ` (${wp.x},${wp.y},${wp.z})`);
+                            cmd += ' via'; st.waypoints.forEach(wp => cmd += ` (${wp.x},${wp.y},${wp.z})`);
                         }
                         const sp = st.specs || {};
                         if (sp.diameter) cmd += ` diameter ${sp.diameter}`;
@@ -277,7 +264,7 @@ const AdaptiveCommandSystem = (function() {
         },
 
         // ═══════════════════════════════════════════════════════
-        // 5. CONECTAR
+        // 5. CONECTAR - ✅ CORREGIDO v2.5
         // ═══════════════════════════════════════════════════════
         'CONNECT': {
             name: 'Conectar', icon: '🔌', category: 'connect',
@@ -306,24 +293,20 @@ const AdaptiveCommandSystem = (function() {
                     condition: (st) => ['line_to_equipment','line_to_line'].includes(st.selectVariant)
                 },
                 { id: 'fromPort', title: 'Puerto origen', type: 'dynamicSelect',
-                    options: (sel, st) => getPortOptions(st.fromEquip), next: 'resolveDest',
+                    options: (sel, st) => getPortOptions(st.fromEquip), next: 'toTarget',
                     condition: (st) => st.fromEquip
                 },
                 { id: 'fromPosition', title: 'Posición en línea origen (0-1)', type: 'slider', min: 0.01, max: 0.99, step: 0.01, default: 0.5,
-                    next: 'resolveDest', condition: (st) => st.fromLine
-                },
-                { id: 'resolveDest', title: '', type: 'conditional',
-                    condition: (st) => ['via_waypoints', 'with_orientation'].includes(st.selectVariant),
-                    ifTrue: 'toTarget',
-                    ifFalse: 'resolveDirectDest'
-                },
-                { id: 'resolveDirectDest', title: '', type: 'conditional',
-                    condition: (st) => ['equipment_to_equipment', 'via_waypoints', 'with_orientation'].includes(st.selectVariant) || st.selectVariant === 'line_to_equipment',
-                    ifTrue: 'toEquip',
-                    ifFalse: 'toLine'
+                    next: 'toTarget', condition: (st) => st.fromLine
                 },
                 { id: 'toTarget', title: 'Tipo de destino', type: 'select',
-                    options: () => [{ value: 'equipment', label: '🏗️ Equipo' }, { value: 'line', label: '📏 Línea' }],
+                    options: (sel, st) => {
+                        const opts = [{ value: 'equipment', label: '🏗️ Equipo' }];
+                        if (st.selectVariant !== 'equipment_to_equipment') {
+                            opts.push({ value: 'line', label: '📏 Línea' });
+                        }
+                        return opts;
+                    },
                     nextMap: { equipment: 'toEquip', line: 'toLine' }
                 },
                 { id: 'toEquip', title: 'Equipo destino', type: 'dynamicSelect',
@@ -428,10 +411,8 @@ const AdaptiveCommandSystem = (function() {
         },
 
         // ═══════════════════════════════════════════════════════
-        // 7-30: RESTO DE COMANDOS (TAP, SPLIT, EDIT, DELETE, MOVE, ROTATE, DUPLICATE, ALIGN, PLACE, ACCESSORIES, EXTEND, OPTIMIZE, REROUTE, INFO, POINT, NODES, LIST, MEASURE, BOM, AUDIT, VIEW, MACRO, EXPORT, HELP)
+        // 7. DERIVAR / TAP
         // ═══════════════════════════════════════════════════════
-        // (Se mantienen exactamente igual que en v2.3, sin cambios)
-        
         'TAP': {
             name: 'Derivar (Tap)', icon: '🔀', category: 'connect',
             steps: [
@@ -481,6 +462,9 @@ const AdaptiveCommandSystem = (function() {
             ]
         },
 
+        // ═══════════════════════════════════════════════════════
+        // 8. DIVIDIR LÍNEA / SPLIT
+        // ═══════════════════════════════════════════════════════
         'SPLIT': {
             name: 'Dividir Línea', icon: '✂️', category: 'edit',
             steps: [
@@ -498,8 +482,7 @@ const AdaptiveCommandSystem = (function() {
                     next: 'splitMaterial'
                 },
                 { id: 'splitMaterial', title: 'Material del accesorio', type: 'select',
-                    options: () => getMaterialOptions(),
-                    description: 'Material para el TEE que se insertará', next: 'splitSpec'
+                    options: () => getMaterialOptions(), next: 'splitSpec'
                 },
                 { id: 'splitSpec', title: 'Especificación (opcional)', type: 'select',
                     options: (sel, st) => [{ value: '', label: 'Usar spec de la línea' }, ...getSpecOptions(st.splitMaterial)],
@@ -514,6 +497,9 @@ const AdaptiveCommandSystem = (function() {
             ]
         },
 
+        // ═══════════════════════════════════════════════════════
+        // 9. EDITAR
+        // ═══════════════════════════════════════════════════════
         'EDIT': {
             name: 'Editar', icon: '✏️', category: 'edit',
             steps: [
@@ -524,6 +510,7 @@ const AdaptiveCommandSystem = (function() {
                     ],
                     nextMap: { equipment: 'selectEquipment', line: 'selectLine' }
                 },
+                // --- EQUIPO ---
                 { id: 'selectEquipment', title: 'Seleccione equipo', type: 'dynamicSelect',
                     options: () => getEquipmentOptions(), next: 'equipmentAction'
                 },
@@ -571,6 +558,7 @@ const AdaptiveCommandSystem = (function() {
                         else return `edit equipment ${st.selectEquipment} set puerto ${port} direccion (${val.x},${val.y},${val.z})`;
                     }
                 },
+                // --- LÍNEA ---
                 { id: 'selectLine', title: 'Seleccione línea', type: 'dynamicSelect',
                     options: () => getLineOptions(), next: 'lineAction'
                 },
@@ -633,6 +621,9 @@ const AdaptiveCommandSystem = (function() {
             ]
         },
 
+        // ═══════════════════════════════════════════════════════
+        // 10. ELIMINAR
+        // ═══════════════════════════════════════════════════════
         'DELETE': {
             name: 'Eliminar', icon: '🗑️', category: 'edit',
             steps: [
@@ -666,6 +657,9 @@ const AdaptiveCommandSystem = (function() {
             ]
         },
 
+        // ═══════════════════════════════════════════════════════
+        // 11. MOVER
+        // ═══════════════════════════════════════════════════════
         'MOVE': {
             name: 'Mover', icon: '📍', category: 'edit',
             steps: [
@@ -687,6 +681,9 @@ const AdaptiveCommandSystem = (function() {
             ]
         },
 
+        // ═══════════════════════════════════════════════════════
+        // 12. ROTAR
+        // ═══════════════════════════════════════════════════════
         'ROTATE': {
             name: 'Rotar', icon: '🔄', category: 'edit',
             steps: [
@@ -702,6 +699,9 @@ const AdaptiveCommandSystem = (function() {
             ]
         },
 
+        // ═══════════════════════════════════════════════════════
+        // 13. DUPLICAR
+        // ═══════════════════════════════════════════════════════
         'DUPLICATE': {
             name: 'Duplicar', icon: '📋', category: 'edit',
             steps: [
@@ -719,6 +719,9 @@ const AdaptiveCommandSystem = (function() {
             ]
         },
 
+        // ═══════════════════════════════════════════════════════
+        // 14. ALINEAR
+        // ═══════════════════════════════════════════════════════
         'ALIGN': {
             name: 'Alinear', icon: '📐', category: 'edit',
             steps: [
@@ -733,6 +736,9 @@ const AdaptiveCommandSystem = (function() {
             ]
         },
 
+        // ═══════════════════════════════════════════════════════
+        // 15. APOYAR / PLACE
+        // ═══════════════════════════════════════════════════════
         'PLACE': {
             name: 'Apoyar/Posar', icon: '📌', category: 'edit',
             steps: [
@@ -755,6 +761,9 @@ const AdaptiveCommandSystem = (function() {
             ]
         },
 
+        // ═══════════════════════════════════════════════════════
+        // 16. ACCESORIOS
+        // ═══════════════════════════════════════════════════════
         'ACCESSORIES': {
             name: 'Accesorios', icon: '🔩', category: 'edit',
             steps: [
@@ -784,11 +793,7 @@ const AdaptiveCommandSystem = (function() {
                     fields: (st) => (st.manualComponents || []).map((c, i) => ({
                         id: `pos_${i}`, type: 'slider', label: `Posición para ${c}`, min: 0.01, max: 0.99, step: 0.01, default: 0.5
                     })),
-                    next: 'manualMaterialCheck'
-                },
-                { id: 'manualMaterialCheck', title: '', type: 'conditional',
-                    condition: (st) => (st.manualComponents || []).length > 0,
-                    ifTrue: 'manualMaterial', ifFalse: null
+                    next: 'manualMaterial'
                 },
                 { id: 'manualMaterial', title: 'Material de los accesorios', type: 'select',
                     options: () => getMaterialOptions(), next: 'manualSpec'
@@ -869,6 +874,9 @@ const AdaptiveCommandSystem = (function() {
             ]
         },
 
+        // ═══════════════════════════════════════════════════════
+        // 17. EXTENDER LÍNEA
+        // ═══════════════════════════════════════════════════════
         'EXTEND': {
             name: 'Extender Línea', icon: '➡️', category: 'edit',
             steps: [
@@ -909,6 +917,9 @@ const AdaptiveCommandSystem = (function() {
             ]
         },
 
+        // ═══════════════════════════════════════════════════════
+        // 18. OPTIMIZAR RUTA
+        // ═══════════════════════════════════════════════════════
         'OPTIMIZE': {
             name: 'Optimizar Ruta', icon: '⚡', category: 'edit',
             steps: [
@@ -919,6 +930,9 @@ const AdaptiveCommandSystem = (function() {
             ]
         },
 
+        // ═══════════════════════════════════════════════════════
+        // 19. RE-ENRUTAR
+        // ═══════════════════════════════════════════════════════
         'REROUTE': {
             name: 'Re-enrutar', icon: '🔀', category: 'edit',
             steps: [
@@ -956,6 +970,9 @@ const AdaptiveCommandSystem = (function() {
             ]
         },
 
+        // ═══════════════════════════════════════════════════════
+        // 20. INFORMACIÓN
+        // ═══════════════════════════════════════════════════════
         'INFO': {
             name: 'Información', icon: 'ℹ️', category: 'query',
             steps: [
@@ -982,6 +999,9 @@ const AdaptiveCommandSystem = (function() {
             ]
         },
 
+        // ═══════════════════════════════════════════════════════
+        // 21. COORDENADAS / POINT
+        // ═══════════════════════════════════════════════════════
         'POINT': {
             name: 'Coordenadas', icon: '📍', category: 'query',
             steps: [
@@ -1029,6 +1049,9 @@ const AdaptiveCommandSystem = (function() {
             ]
         },
 
+        // ═══════════════════════════════════════════════════════
+        // 22. NODOS
+        // ═══════════════════════════════════════════════════════
         'NODES': {
             name: 'Nodos', icon: '🔌', category: 'query',
             steps: [
@@ -1040,18 +1063,19 @@ const AdaptiveCommandSystem = (function() {
                     nextMap: { all: 'selectElement', open: 'selectElementOpen' }
                 },
                 { id: 'selectElement', title: 'Seleccione elemento', type: 'dynamicSelect',
-                    options: () => getAllElementOptions(),
-                    isFinal: true, executeImmediately: true,
+                    options: () => getAllElementOptions(), isFinal: true, executeImmediately: true,
                     buildCommand: (params, st) => `nodos ${st.selectElement}`
                 },
                 { id: 'selectElementOpen', title: 'Seleccione elemento', type: 'dynamicSelect',
-                    options: () => getAllElementOptions(),
-                    isFinal: true, executeImmediately: true,
+                    options: () => getAllElementOptions(), isFinal: true, executeImmediately: true,
                     buildCommand: (params, st) => `nodos abiertos ${st.selectElementOpen}`
                 }
             ]
         },
 
+        // ═══════════════════════════════════════════════════════
+        // 23. LISTAR
+        // ═══════════════════════════════════════════════════════
         'LIST': {
             name: 'Listar', icon: '📋', category: 'query',
             steps: [
@@ -1073,6 +1097,9 @@ const AdaptiveCommandSystem = (function() {
             ]
         },
 
+        // ═══════════════════════════════════════════════════════
+        // 24. MEDIR
+        // ═══════════════════════════════════════════════════════
         'MEASURE': {
             name: 'Medir Distancia', icon: '📏', category: 'query',
             steps: [
@@ -1105,6 +1132,9 @@ const AdaptiveCommandSystem = (function() {
             ]
         },
 
+        // ═══════════════════════════════════════════════════════
+        // 25. BOM
+        // ═══════════════════════════════════════════════════════
         'BOM': {
             name: 'Generar BOM', icon: '📊', category: 'utility',
             steps: [
@@ -1115,6 +1145,9 @@ const AdaptiveCommandSystem = (function() {
             ]
         },
 
+        // ═══════════════════════════════════════════════════════
+        // 26. AUDITAR
+        // ═══════════════════════════════════════════════════════
         'AUDIT': {
             name: 'Auditar', icon: '🔍', category: 'utility',
             steps: [
@@ -1125,6 +1158,9 @@ const AdaptiveCommandSystem = (function() {
             ]
         },
 
+        // ═══════════════════════════════════════════════════════
+        // 27. VISTA - ✅ CORREGIDO v2.5
+        // ═══════════════════════════════════════════════════════
         'VIEW': {
             name: 'Vista', icon: '👁️', category: 'utility',
             steps: [
@@ -1136,7 +1172,13 @@ const AdaptiveCommandSystem = (function() {
                         { value: 'extents', label: '🔍 Extender' },
                         { value: 'focus', label: '🎯 Centrar en elemento' }
                     ],
-                    nextMap: { top: null, front: null, iso: null, extents: null, focus: 'focusElement' }
+                    nextMap: { focus: 'focusElement' },
+                    isFinal: (st) => st?.selectVariant !== 'focus',
+                    executeImmediately: (st) => st?.selectVariant !== 'focus',
+                    buildCommand: (params, st) => {
+                        if (st.selectVariant === 'focus') return `view ${st.focusElement}`;
+                        return `view ${st.selectVariant}`;
+                    }
                 },
                 { id: 'focusElement', title: 'Seleccione elemento a enfocar', type: 'dynamicSelect',
                     options: () => getAllElementOptions(), isFinal: true, executeImmediately: true,
@@ -1145,6 +1187,9 @@ const AdaptiveCommandSystem = (function() {
             ]
         },
 
+        // ═══════════════════════════════════════════════════════
+        // 28. MACRO
+        // ═══════════════════════════════════════════════════════
         'MACRO': {
             name: 'Macro', icon: '📜', category: 'utility',
             steps: [
@@ -1178,6 +1223,9 @@ const AdaptiveCommandSystem = (function() {
             ]
         },
 
+        // ═══════════════════════════════════════════════════════
+        // 29. EXPORTAR
+        // ═══════════════════════════════════════════════════════
         'EXPORT': {
             name: 'Exportar', icon: '📁', category: 'utility',
             steps: [
@@ -1189,6 +1237,9 @@ const AdaptiveCommandSystem = (function() {
             ]
         },
 
+        // ═══════════════════════════════════════════════════════
+        // 30. AYUDA
+        // ═══════════════════════════════════════════════════════
         'HELP': {
             name: 'Ayuda', icon: '❓', category: 'utility',
             steps: [
@@ -1208,6 +1259,44 @@ const AdaptiveCommandSystem = (function() {
     // ================================================================
     // FUNCIONES AUXILIARES
     // ================================================================
+    
+    // ✅ NUEVA: Campos de conexión dinámicos según tipo de equipo
+    function getConnectionFields(tipo) {
+        const fields = [];
+        
+        if (tipo.includes('bomba') || tipo === 'compresor') {
+            fields.push({ id: 'diametro_succion', type: 'number', label: 'Diámetro Succión (pulg)', default: 3 });
+            fields.push({ id: 'diametro_descarga', type: 'number', label: 'Diámetro Descarga (pulg)', default: 3 });
+        } else if (['tanque_v', 'tanque_h', 'torre', 'reactor', 'reactor_encamisado', 'autoclave',
+                   'separador', 'separador_trifasico', 'slug_catcher', 'clarificador', 'filtro_arena',
+                   'filtro_carbon', 'desgasificador', 'desmineralizador', 'suavizador', 'espesador',
+                   'floculador', 'columna_fraccionadora', 'absorbedor', 'stripper', 'evaporador',
+                   'cristalizador', 'agitador', 'tanque_acero', 'tanque_aseptico', 'tina_quesera',
+                   'caldera', 'pasteurizador', 'homogeneizador', 'esterilizador_uht', 'llenadora',
+                   'celda_electrolitica', 'canaleta_parshall', 'condensador', 'calentador_fuego_directo',
+                   'secador_rotativo', 'filtro_duplex', 'filtro_prensa', 'filtro_tambor',
+                   'centrifuga', 'centrifuga_discos', 'molino', 'homogeneizador_ap'].includes(tipo)) {
+            fields.push({ id: 'diametro_entrada', type: 'number', label: 'Diámetro Entrada (pulg)', default: 4 });
+            fields.push({ id: 'diametro_salida', type: 'number', label: 'Diámetro Salida (pulg)', default: 4 });
+            if (['tanque_v', 'torre', 'reactor', 'reactor_encamisado', 'columna_fraccionadora', 
+                 'absorbedor', 'stripper', 'evaporador', 'cristalizador', 'agitador', 'caldera'].includes(tipo)) {
+                fields.push({ id: 'altura_salida_desde_base', type: 'number', label: 'Altura salida desde base (mm)', default: 0 });
+            }
+        } else if (tipo === 'osmosis') {
+            fields.push({ id: 'diametro_entrada', type: 'number', label: 'Diámetro Alimentación (pulg)', default: 4 });
+            fields.push({ id: 'diametro_salida', type: 'number', label: 'Diámetro Permeado (pulg)', default: 2 });
+        } else if (tipo === 'antorcha') {
+            fields.push({ id: 'diametro_entrada', type: 'number', label: 'Diámetro Gas de Venteo (pulg)', default: 12 });
+        } else if (['dosificador_quimico', 'skid_inyeccion'].includes(tipo)) {
+            fields.push({ id: 'diametro_succion', type: 'number', label: 'Diámetro Succión (pulg)', default: 1 });
+            fields.push({ id: 'diametro_descarga', type: 'number', label: 'Diámetro Descarga (pulg)', default: 1 });
+        } else if (tipo === 'bomba_sumergible') {
+            fields.push({ id: 'diametro_descarga', type: 'number', label: 'Diámetro Descarga (pulg)', default: 4 });
+        }
+        
+        return fields;
+    }
+
     function getEquipmentOptions() {
         return SmartFlowCore.getEquipos().map(eq => ({
             value: eq.tag, label: `${eq.tag} - ${getEquipmentTypeName(eq.tipo)}`,
@@ -1240,9 +1329,12 @@ const AdaptiveCommandSystem = (function() {
             { value: 'VALVE', label: '🔧 Válvulas' }, { value: 'ELBOW', label: '🔀 Codos' },
             { value: 'TEE', label: '🔱 Tees' }, { value: 'REDUCER', label: '🔽 Reductores' },
             { value: 'FLANGE', label: '⭕ Bridas' }, { value: 'STRAINER', label: '🔍 Filtros' },
+            { value: 'STEAM_TRAP', label: '💨 Trampas de Vapor' },
             { value: 'INSTRUMENT', label: '📊 Instrumentos' }, { value: 'SUPPORT', label: '📌 Soportes' },
             { value: 'EXPANSION', label: '〰️ Juntas de Expansión' }, { value: 'CONNECTION', label: '🔗 Conexiones' },
-            { value: 'SPECIAL', label: '⚙️ Especiales' }, { value: 'ALL', label: '📋 Todos los componentes' }
+            { value: 'SAFETY', label: '🛡️ Seguridad' }, { value: 'SANITARY', label: '🧼 Sanitario' },
+            { value: 'HOSE', label: '🔧 Mangueras' }, { value: 'SPECIAL', label: '⚙️ Especiales' },
+            { value: 'ALL', label: '📋 Todos los componentes' }
         ];
     }
 
@@ -1260,10 +1352,14 @@ const AdaptiveCommandSystem = (function() {
                     else if (tipo.includes('REDUC')) category = 'REDUCER';
                     else if (tipo.includes('FLANGE') || tipo.includes('STUB')) category = 'FLANGE';
                     else if (tipo.includes('STRAINER') || tipo.includes('FILT')) category = 'STRAINER';
-                    else if (tipo.includes('GAUGE') || tipo.includes('METER') || tipo.includes('TRANSMITTER') || tipo.includes('SWITCH')) category = 'INSTRUMENT';
-                    else if (tipo.includes('SHOE') || tipo.includes('GUIDE') || tipo.includes('ANCHOR') || tipo.includes('HANGER') || tipo.includes('SUPPORT')) category = 'SUPPORT';
-                    else if (tipo.includes('UNION') || tipo.includes('NIPPL') || tipo.includes('BULKHEAD') || tipo.includes('ADAPT')) category = 'CONNECTION';
+                    else if (tipo.includes('TRAP')) category = 'STEAM_TRAP';
+                    else if (tipo.includes('GAUGE') || tipo.includes('METER') || tipo.includes('TRANSMITTER') || tipo.includes('SWITCH') || tipo.includes('SIGHT')) category = 'INSTRUMENT';
+                    else if (tipo.includes('SHOE') || tipo.includes('GUIDE') || tipo.includes('ANCHOR') || tipo.includes('HANGER') || tipo.includes('SUPPORT') || tipo.includes('CLAMP') || tipo.includes('BOLT')) category = 'SUPPORT';
+                    else if (tipo.includes('UNION') || tipo.includes('NIPPL') || tipo.includes('BULKHEAD') || tipo.includes('ADAPT') || tipo.includes('TRANSITION')) category = 'CONNECTION';
                     else if (tipo.includes('EXPANSION')) category = 'EXPANSION';
+                    else if (tipo.includes('SILENCER') || tipo.includes('ARRESTER') || tipo.includes('RUPTURE') || tipo.includes('VACUUM') || tipo.includes('SAFETY') || tipo.includes('RELIEF') || tipo.includes('VENT')) category = 'SAFETY';
+                    else if (tipo.includes('SPRAY') || tipo.includes('CIP') || tipo.includes('SANITARY') || tipo.includes('ASEPTIC')) category = 'SANITARY';
+                    else if (tipo.includes('HOSE') || tipo.includes('MANGUERA')) category = 'HOSE';
                     allComponents.push({
                         value: key, label: `${comp.nombre || comp.tipo || key} [${comp.material || comp.spec || 'STD'}]`,
                         category, abbr: comp.abbr || '', spec: comp.spec || '', material: comp.material || ''
@@ -1287,31 +1383,24 @@ const AdaptiveCommandSystem = (function() {
         return options;
     }
 
-    // ✅ v2.4: Fallback si getSpecs() falla
     function getMaterialOptions() {
         try {
             const specs = SmartFlowCatalog.getSpecs();
-            if (!specs || Object.keys(specs).length === 0) {
-                return getDefaultMaterialOptions();
-            }
+            if (!specs || Object.keys(specs).length === 0) return getDefaultMaterialOptions();
             const materials = new Set();
             Object.values(specs).forEach(s => { if (s.material) materials.add(s.material); });
             const result = Array.from(materials).sort().map(m => ({ value: m.toUpperCase(), label: m }));
             if (result.length === 0) return getDefaultMaterialOptions();
             return result;
-        } catch (e) {
-            return getDefaultMaterialOptions();
-        }
+        } catch (e) { return getDefaultMaterialOptions(); }
     }
 
     function getDefaultMaterialOptions() {
         return [
-            { value: 'PPR', label: 'PPR' },
-            { value: 'HDPE', label: 'HDPE' },
-            { value: 'ACERO_CARBONO', label: 'Acero al Carbono' },
+            { value: 'PPR', label: 'PPR' }, { value: 'HDPE', label: 'HDPE' },
+            { value: 'ACERO_AL_CARBONO', label: 'Acero al Carbono' },
             { value: 'ACERO_INOXIDABLE', label: 'Acero Inoxidable' },
-            { value: 'PVC', label: 'PVC' },
-            { value: 'CPVC', label: 'CPVC' }
+            { value: 'PVC', label: 'PVC' }, { value: 'CPVC', label: 'CPVC' }
         ];
     }
 
@@ -1320,16 +1409,14 @@ const AdaptiveCommandSystem = (function() {
         const specs = [];
         Object.entries(allSpecs).forEach(([key, data]) => {
             if (!material) { specs.push({ value: key, label: key, material: data.material || '' }); return; }
-            const matUpper = material.toUpperCase();
+            const matUpper = material.toUpperCase().replace(/ /g, '_');
             const specMat = (data.material || '').toUpperCase();
             const specKey = key.toUpperCase();
-            if (specMat === matUpper || specMat.includes(matUpper) || matUpper.includes(specMat)) {
-                specs.push({ value: key, label: key, material: data.material || '' }); return;
-            }
+            if (specMat === matUpper || specMat.includes(matUpper) || matUpper.includes(specMat)) { specs.push({ value: key, label: key, material: data.material || '' }); return; }
             if (matUpper.includes('PPR') && specKey.includes('PPR')) specs.push({ value: key, label: key, material: data.material || '' });
             else if (matUpper.includes('HDPE') && specKey.includes('HDPE')) specs.push({ value: key, label: key, material: data.material || '' });
-            else if ((matUpper.includes('ACERO') || matUpper.includes('CS')) && specKey.includes('ACERO') && !specKey.includes('INOX')) specs.push({ value: key, label: key, material: data.material || '' });
-            else if ((matUpper.includes('INOX') || matUpper.includes('SS')) && (specKey.includes('INOX') || specKey.includes('SS') || specKey.includes('SANITARY'))) specs.push({ value: key, label: key, material: data.material || '' });
+            else if ((matUpper.includes('ACERO') || matUpper.includes('CARBONO') || matUpper.includes('CS')) && specKey.includes('ACERO') && !specKey.includes('INOX')) specs.push({ value: key, label: key, material: data.material || '' });
+            else if ((matUpper.includes('INOX') || matUpper.includes('SS') || matUpper.includes('STAINLESS')) && (specKey.includes('INOX') || specKey.includes('SS') || specKey.includes('SANITARY'))) specs.push({ value: key, label: key, material: data.material || '' });
             else if (matUpper.includes('PVC') && specKey.includes('PVC') && !specKey.includes('CPVC')) specs.push({ value: key, label: key, material: data.material || '' });
         });
         if (specs.length === 0 && material) return Object.keys(allSpecs).map(spec => ({ value: spec, label: spec, material: allSpecs[spec]?.material || '' }));
@@ -1353,7 +1440,7 @@ const AdaptiveCommandSystem = (function() {
     }
 
     // ================================================================
-    // GESTOR DE FLUJO
+    // GESTOR DE FLUJO - ✅ CORREGIDO v2.5
     // ================================================================
     function startCommandFlow(commandPath) {
         if (DIRECT_COMMANDS[commandPath]) {
@@ -1368,16 +1455,43 @@ const AdaptiveCommandSystem = (function() {
     function getCurrentStepData() {
         if (!currentState.flow) return null;
         const steps = currentState.flow.steps;
-        let stepIndex = currentState.step, step = steps[stepIndex];
-        while (step && step.condition && !step.condition(currentState.selections)) { stepIndex++; if (stepIndex >= steps.length) return null; step = steps[stepIndex]; }
-        currentState.step = stepIndex;
+        let stepIndex = currentState.step;
+        let step = steps[stepIndex];
+
+        // ✅ CORREGIDO: Manejar pasos condicionales con ifFalse
+        while (step && step.type === 'conditional' && step.condition && !step.condition(currentState.selections)) {
+            if (!step.ifFalse || step.ifFalse === '__FINAL__') {
+                const finalStep = findFinalStep(steps);
+                if (finalStep && finalStep.buildCommand) {
+                    return { finished: true, command: finalStep.buildCommand(null, currentState.selections), executeImmediately: finalStep.executeImmediately || false };
+                }
+                return null;
+            }
+            const targetIndex = steps.findIndex(s => s.id === step.ifFalse);
+            if (targetIndex > stepIndex) { stepIndex = targetIndex; step = steps[stepIndex]; }
+            else { stepIndex++; if (stepIndex >= steps.length) return null; step = steps[stepIndex]; }
+        }
+
         if (!step) {
             const finalStep = findFinalStep(steps);
-            if (finalStep && finalStep.buildCommand) return { finished: true, command: finalStep.buildCommand(null, currentState.selections), executeImmediately: finalStep.executeImmediately || false };
+            if (finalStep && finalStep.buildCommand) {
+                return { finished: true, command: finalStep.buildCommand(null, currentState.selections), executeImmediately: finalStep.executeImmediately || false };
+            }
             return null;
         }
-        let options = []; if (typeof step.options === 'function') { const depValue = currentState.selections[Object.keys(currentState.selections).pop()]; options = step.options(depValue, currentState.selections); } else if (step.options) { options = step.options; }
-        let fields = []; if (typeof step.fields === 'function') { fields = step.fields(currentState.selections); } else { fields = step.fields || []; }
+
+        currentState.step = stepIndex;
+
+        let options = []; 
+        if (typeof step.options === 'function') { 
+            const depValue = currentState.selections[Object.keys(currentState.selections).pop()]; 
+            options = step.options(depValue, currentState.selections); 
+        } else if (step.options) { options = step.options; }
+        
+        let fields = []; 
+        if (typeof step.fields === 'function') { fields = step.fields(currentState.selections); } 
+        else { fields = step.fields || []; }
+        
         return {
             commandPath: currentState.commandPath, commandName: currentState.flow.name, commandIcon: currentState.flow.icon,
             stepIndex, totalSteps: steps.filter(s => !s.condition || s.condition(currentState.selections)).length,
@@ -1396,16 +1510,40 @@ const AdaptiveCommandSystem = (function() {
         if (!currentState.flow) return null;
         const step = currentState.flow.steps[currentState.step];
         if (step && step.id) currentState.selections[step.id] = selection;
-        if (step && step.nextMap && selection) { const nextId = step.nextMap[selection]; if (nextId) { const targetIndex = currentState.flow.steps.findIndex(s => s.id === nextId); if (targetIndex > currentState.step) { currentState.step = targetIndex; return getCurrentStepData(); } } }
-        let next = step.next; if (typeof next === 'function') next = next(currentState.selections);
-        if (next) { const targetIndex = currentState.flow.steps.findIndex(s => s.id === next); if (targetIndex > currentState.step) { currentState.step = targetIndex; return getCurrentStepData(); } }
-        currentState.step++; const nextData = getCurrentStepData();
-        if (!nextData || nextData.finished) { const finalStep = findFinalStep(currentState.flow.steps); if (finalStep && finalStep.buildCommand) return { finished: true, command: finalStep.buildCommand(null, currentState.selections), executeImmediately: finalStep.executeImmediately || false, commandName: currentState.flow.name, commandIcon: currentState.flow.icon }; }
+        if (step && step.nextMap && selection) { 
+            const nextId = step.nextMap[selection]; 
+            if (nextId) { 
+                const targetIndex = currentState.flow.steps.findIndex(s => s.id === nextId); 
+                if (targetIndex > currentState.step) { currentState.step = targetIndex; return getCurrentStepData(); } 
+            } 
+        }
+        let next = step.next; 
+        if (typeof next === 'function') next = next(currentState.selections);
+        if (next) { 
+            const targetIndex = currentState.flow.steps.findIndex(s => s.id === next); 
+            if (targetIndex > currentState.step) { currentState.step = targetIndex; return getCurrentStepData(); } 
+        }
+        currentState.step++; 
+        const nextData = getCurrentStepData();
+        if (!nextData || nextData.finished) { 
+            const finalStep = findFinalStep(currentState.flow.steps); 
+            if (finalStep && finalStep.buildCommand) return { 
+                finished: true, 
+                command: finalStep.buildCommand(null, currentState.selections), 
+                executeImmediately: finalStep.executeImmediately || false, 
+                commandName: currentState.flow.name, 
+                commandIcon: currentState.flow.icon 
+            }; 
+        }
         return nextData;
     }
 
     function previousStep() {
-        if (currentState.step > 0) { currentState.step--; const step = currentState.flow.steps[currentState.step]; if (step && step.id) delete currentState.selections[step.id]; }
+        if (currentState.step > 0) { 
+            currentState.step--; 
+            const step = currentState.flow.steps[currentState.step]; 
+            if (step && step.id) delete currentState.selections[step.id]; 
+        }
         return getCurrentStepData();
     }
 
@@ -1433,3 +1571,10 @@ const AdaptiveCommandSystem = (function() {
     };
 
 })();
+```
+
+---
+
+✅ Archivo 1 COMPLETO
+
+Este es el primer archivo: js/
