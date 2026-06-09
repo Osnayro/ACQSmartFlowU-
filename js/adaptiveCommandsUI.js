@@ -1,9 +1,8 @@
-
 // ================================================================
-// SMARTFLOW ADAPTIVE COMMAND UI v2.1 - Interfaz Responsive
+// SMARTFLOW ADAPTIVE COMMAND UI v2.2 - Interfaz Responsive
 // Archivo: js/adaptiveCommandsUI.js
 // Modo dual: Asistido (grilla + flujo paso a paso) + Texto (consola)
-// Novedades v2.1: Selector de componentes por categoría (cascada)
+// Corrección: executeFlowCommand arreglado
 // ================================================================
 
 const AdaptiveCommandUI = (function() {
@@ -326,6 +325,7 @@ const AdaptiveCommandUI = (function() {
     function renderAssistedGrid() {
         updateTitle('Comandos Inteligentes');
         currentFlow = null;
+        AdaptiveCommandSystem.resetFlow();
         
         const commands = AdaptiveCommandSystem.getCommandsByCategory();
         const allCmds = Object.values(commands).flat();
@@ -386,11 +386,9 @@ const AdaptiveCommandUI = (function() {
 
     function filterCategory(cat) {
         activeCategory = cat;
-        
         document.querySelectorAll('.cmd-cat').forEach(btn => {
             btn.classList.toggle('active', btn.dataset.cat === cat);
         });
-
         document.querySelectorAll('.cmd-card').forEach(card => {
             card.style.display = (cat === 'all' || card.dataset.category === cat) ? '' : 'none';
         });
@@ -401,7 +399,6 @@ const AdaptiveCommandUI = (function() {
         document.querySelectorAll('.mode-tab').forEach(tab => {
             tab.classList.toggle('active', tab.dataset.mode === mode);
         });
-        
         if (mode === 'assisted') {
             renderAssistedGrid();
         } else {
@@ -422,6 +419,11 @@ const AdaptiveCommandUI = (function() {
         const stepData = AdaptiveCommandSystem.startCommandFlow(commandPath);
         if (!stepData) {
             showToast('Comando no disponible', 'err');
+            return;
+        }
+
+        if (stepData.direct) {
+            executeTextCommand(stepData.command);
             return;
         }
 
@@ -492,6 +494,7 @@ const AdaptiveCommandUI = (function() {
                 bodyHtml += `<p style="color:#94a3b8">Paso: ${currentFlow.type}</p>`;
         }
 
+        // Mostrar previsualización del comando si es final
         if (currentFlow.isFinal && currentFlow.command) {
             bodyHtml += `
                 <div class="flow-preview">
@@ -504,7 +507,7 @@ const AdaptiveCommandUI = (function() {
         document.getElementById('adaptive-body').innerHTML = bodyHtml;
 
         let footerHtml = `
-            <button class="af-btn af-btn-ghost" onclick="AdaptiveCommandUI.flowBack()" ${currentFlow.stepIndex === 0 ? 'disabled' : ''}>← Anterior</button>
+            <button class="af-btn af-btn-ghost" onclick="AdaptiveCommandUI.flowBack()" ${(currentFlow.stepIndex || 0) === 0 ? 'disabled' : ''}>← Anterior</button>
             <button class="af-btn af-btn-danger" onclick="AdaptiveCommandUI.cancelFlow()">Cancelar</button>
         `;
 
@@ -522,7 +525,6 @@ const AdaptiveCommandUI = (function() {
         }, 100);
     }
 
-    // ✅ ACTUALIZADO: Soporta agrupación por categorías
     function renderFlowSelect(stepData, searchable) {
         const options = stepData.options || [];
         const hasCategories = options.length > 0 && options[0].category !== undefined;
@@ -530,8 +532,7 @@ const AdaptiveCommandUI = (function() {
         let html = '';
         
         if (searchable) {
-            const count = options.length;
-            html += `<input type="text" class="flow-search" id="flow-search" placeholder="🔍 Buscar... (${count} opciones)" oninput="AdaptiveCommandUI.filterFlowItems()">`;
+            html += `<input type="text" class="flow-search" id="flow-search" placeholder="🔍 Buscar... (${options.length} opciones)" oninput="AdaptiveCommandUI.filterFlowItems()">`;
         }
         
         if (hasCategories) {
@@ -638,7 +639,6 @@ const AdaptiveCommandUI = (function() {
             
             Object.entries(grouped).forEach(([cat, items]) => {
                 html += `<div class="flow-cat-header">${catNames[cat] || cat} (${items.length})</div>`;
-                
                 items.forEach(opt => {
                     html += `
                         <div class="flow-select-item" data-value="${opt.value}" onclick="AdaptiveCommandUI.toggleMultiSelect('${opt.value}', this)">
@@ -680,7 +680,9 @@ const AdaptiveCommandUI = (function() {
             if (field.type === 'select') {
                 html += `<select id="field-${field.id}" data-field="${field.id}">`;
                 html += `<option value="">Seleccionar...</option>`;
-                (field.options || []).forEach(opt => {
+                let opts = field.options;
+                if (typeof opts === 'function') opts = opts();
+                (opts || []).forEach(opt => {
                     const val = typeof opt === 'object' ? opt.value : opt;
                     const lbl = typeof opt === 'object' ? (opt.label || opt.value) : opt;
                     html += `<option value="${val}">${lbl}</option>`;
@@ -869,6 +871,7 @@ const AdaptiveCommandUI = (function() {
         if (nextData.finished) {
             if (nextData.executeImmediately && nextData.command) {
                 executeTextCommand(nextData.command);
+                renderAssistedGrid();
             } else if (nextData.command) {
                 currentFlow = {
                     ...currentFlow,
@@ -876,7 +879,8 @@ const AdaptiveCommandUI = (function() {
                     command: nextData.command,
                     executeImmediately: nextData.executeImmediately,
                     commandName: nextData.commandName || currentFlow.commandName,
-                    commandIcon: nextData.commandIcon || currentFlow.commandIcon
+                    commandIcon: nextData.commandIcon || currentFlow.commandIcon,
+                    progress: 100
                 };
                 renderFlowStep();
                 return;
@@ -905,10 +909,49 @@ const AdaptiveCommandUI = (function() {
         renderAssistedGrid();
     }
 
+    // ✅ CORREGIDO: Ejecutar comando final
     function executeFlowCommand() {
+        console.log('🔧 executeFlowCommand llamado');
+        
+        // Intentar obtener el comando del currentFlow
+        let cmd = null;
+        
         if (currentFlow && currentFlow.command) {
-            executeTextCommand(currentFlow.command);
+            cmd = currentFlow.command;
+            console.log('📝 Comando desde currentFlow.command:', cmd);
+        } else {
+            // Intentar construir desde el sistema
+            const stepData = AdaptiveCommandSystem.getCurrentStepData();
+            if (stepData && stepData.command) {
+                cmd = stepData.command;
+                console.log('📝 Comando desde getCurrentStepData:', cmd);
+            }
+        }
+        
+        // Si aún no hay comando, buscar el paso final
+        if (!cmd && currentFlow && currentFlow.commandPath) {
+            const flow = AdaptiveCommandSystem.COMMAND_FLOWS[currentFlow.commandPath];
+            if (flow) {
+                const finalStep = flow.steps.find(s => s.isFinal && s.buildCommand);
+                if (finalStep && finalStep.buildCommand) {
+                    // Obtener las selecciones acumuladas
+                    const selections = AdaptiveCommandSystem.getCurrentStepData ? 
+                        AdaptiveCommandSystem.getCurrentStepData()?.selections || {} : {};
+                    cmd = finalStep.buildCommand(null, selections);
+                    console.log('📝 Comando desde finalStep.buildCommand:', cmd);
+                }
+            }
+        }
+        
+        if (cmd) {
+            console.log('✅ Ejecutando comando:', cmd);
+            executeTextCommand(cmd);
+            showToast('✅ Comando ejecutado', 'ok');
             renderAssistedGrid();
+        } else {
+            console.error('❌ No se pudo construir el comando');
+            console.log('currentFlow:', currentFlow);
+            showToast('❌ No se pudo construir el comando', 'err');
         }
     }
 
@@ -918,7 +961,6 @@ const AdaptiveCommandUI = (function() {
             const searchText = item.dataset.search || '';
             item.style.display = searchText.includes(search) ? '' : 'none';
         });
-        // Ocultar categorías vacías
         document.querySelectorAll('.flow-cat-header').forEach(header => {
             let hasVisible = false;
             let next = header.nextElementSibling;
@@ -1002,19 +1044,31 @@ const AdaptiveCommandUI = (function() {
     }
 
     function addConsoleLine(text, type) {
-        const console = document.getElementById('textConsoleOutput');
-        if (!console) return;
+        const consoleEl = document.getElementById('textConsoleOutput');
+        if (!consoleEl) return;
         
         const line = document.createElement('div');
         line.className = `tco-line tco-${type || 'info'}`;
         line.textContent = (type === 'cmd' ? '> ' : '') + text;
-        console.appendChild(line);
-        console.scrollTop = console.scrollHeight;
+        consoleEl.appendChild(line);
+        consoleEl.scrollTop = consoleEl.scrollHeight;
     }
 
+    // ✅ CORREGIDO: Ejecutar comando de texto
     function executeTextCommand(cmd) {
-        if (typeof SmartFlowCommands !== 'undefined' && SmartFlowCommands.executeCommand) {
+        console.log('🔧 executeTextCommand:', cmd);
+        
+        if (!cmd) {
+            console.warn('⚠️ Comando vacío');
+            return;
+        }
+        
+        // Intentar ejecutar con SmartFlowCommands
+        if (typeof SmartFlowCommands !== 'undefined' && typeof SmartFlowCommands.executeCommand === 'function') {
+            console.log('📤 Enviando a SmartFlowCommands.executeCommand');
             const result = SmartFlowCommands.executeCommand(cmd);
+            console.log('📥 Resultado:', result);
+            
             if (result) {
                 addConsoleLine('✅ Ejecutado correctamente', 'ok');
                 showToast('Comando ejecutado', 'ok');
@@ -1023,11 +1077,20 @@ const AdaptiveCommandUI = (function() {
                 showToast('Comando no reconocido', 'err');
             }
         } else {
+            // Fallback al textarea original
+            console.log('📤 Fallback al textarea original');
             const textarea = document.getElementById('commandText');
             if (textarea) {
                 textarea.value = cmd;
                 const runBtn = document.getElementById('runCommands');
-                if (runBtn) runBtn.click();
+                if (runBtn) {
+                    console.log('🖱️ Clic en runCommands');
+                    runBtn.click();
+                } else {
+                    console.warn('⚠️ No se encontró runCommands');
+                }
+            } else {
+                console.warn('⚠️ No se encontró commandText');
             }
         }
     }
