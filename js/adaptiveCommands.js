@@ -1,17 +1,17 @@
 
 // ================================================================
-// SMARTFLOW ADAPTIVE COMMAND SYSTEM v2.5 - COMPLETO
+// SMARTFLOW ADAPTIVE COMMAND SYSTEM v2.6 - COMPLETO
 // Archivo: js/adaptiveCommands.js
 // 32 Comandos | 72+ Variantes | 100% Cobertura Commands.js v3.7
-// Correcciones v2.5:
-//   - CREATE.EQUIPMENT: Bucle de dimensiones CORREGIDO
+// Correcciones v2.6:
+//   - CORREGIDO: getCurrentStepData() usa 'if' en lugar de 'while'
+//     para NO saltar múltiples condicionales en cadena
+//   - CORREGIDO: nextStep() busca correctamente nextMap → next → avance lineal
 //   - CREATE.EQUIPMENT: Conexiones dinámicas según tipo de equipo
-//   - CONNECT: resolveDirectDest corregido para equipment_to_line
-//   - CONNECT: Simplificado flujo de destino
-//   - VIEW: Vistas directas (top/front/iso/extents) ejecutan correctamente
-//   - getComponentTypeOptions: Categorías STEAM_TRAP, SAFETY, SANITARY, HOSE agregadas
-//   - getComponentCategories: Nuevas categorías agregadas
-//   - Pasos condicionales: Manejo correcto de ifFalse
+//   - CONNECT: Flujo de destino simplificado
+//   - VIEW: Vistas directas ejecutan correctamente
+//   - Material requerido en CREATE.EQUIPMENT
+//   - Filtro de especificaciones por material
 // ================================================================
 
 const AdaptiveCommandSystem = (function() {
@@ -63,7 +63,7 @@ const AdaptiveCommandSystem = (function() {
         },
 
         // ═══════════════════════════════════════════════════════
-        // 2. CREAR EQUIPO - ✅ CORREGIDO v2.5
+        // 2. CREAR EQUIPO
         // ═══════════════════════════════════════════════════════
         'CREATE.EQUIPMENT': {
             name: 'Crear Equipo', icon: '🏗️', category: 'create',
@@ -264,7 +264,7 @@ const AdaptiveCommandSystem = (function() {
         },
 
         // ═══════════════════════════════════════════════════════
-        // 5. CONECTAR - ✅ CORREGIDO v2.5
+        // 5. CONECTAR
         // ═══════════════════════════════════════════════════════
         'CONNECT': {
             name: 'Conectar', icon: '🔌', category: 'connect',
@@ -1159,7 +1159,7 @@ const AdaptiveCommandSystem = (function() {
         },
 
         // ═══════════════════════════════════════════════════════
-        // 27. VISTA - ✅ CORREGIDO v2.5
+        // 27. VISTA
         // ═══════════════════════════════════════════════════════
         'VIEW': {
             name: 'Vista', icon: '👁️', category: 'utility',
@@ -1260,10 +1260,8 @@ const AdaptiveCommandSystem = (function() {
     // FUNCIONES AUXILIARES
     // ================================================================
     
-    // ✅ NUEVA: Campos de conexión dinámicos según tipo de equipo
     function getConnectionFields(tipo) {
         const fields = [];
-        
         if (tipo.includes('bomba') || tipo === 'compresor') {
             fields.push({ id: 'diametro_succion', type: 'number', label: 'Diámetro Succión (pulg)', default: 3 });
             fields.push({ id: 'diametro_descarga', type: 'number', label: 'Diámetro Descarga (pulg)', default: 3 });
@@ -1293,7 +1291,6 @@ const AdaptiveCommandSystem = (function() {
         } else if (tipo === 'bomba_sumergible') {
             fields.push({ id: 'diametro_descarga', type: 'number', label: 'Diámetro Descarga (pulg)', default: 4 });
         }
-        
         return fields;
     }
 
@@ -1440,7 +1437,7 @@ const AdaptiveCommandSystem = (function() {
     }
 
     // ================================================================
-    // GESTOR DE FLUJO - ✅ CORREGIDO v2.5
+    // GESTOR DE FLUJO - CORREGIDO v2.6
     // ================================================================
     function startCommandFlow(commandPath) {
         if (DIRECT_COMMANDS[commandPath]) {
@@ -1452,35 +1449,42 @@ const AdaptiveCommandSystem = (function() {
         return getCurrentStepData();
     }
 
+    // USA 'if' EN LUGAR DE 'while' PARA NO SALTAR MÚLTIPLES CONDICIONALES EN CADENA
     function getCurrentStepData() {
         if (!currentState.flow) return null;
         const steps = currentState.flow.steps;
         let stepIndex = currentState.step;
         let step = steps[stepIndex];
 
-        // ✅ CORREGIDO: Manejar pasos condicionales con ifFalse
-        while (step && step.type === 'conditional' && step.condition && !step.condition(currentState.selections)) {
+        if (step && step.type === 'conditional' && step.condition && !step.condition(currentState.selections)) {
             if (!step.ifFalse || step.ifFalse === '__FINAL__') {
                 const finalStep = findFinalStep(steps);
                 if (finalStep && finalStep.buildCommand) {
-                    return { finished: true, command: finalStep.buildCommand(null, currentState.selections), executeImmediately: finalStep.executeImmediately || false };
+                    const cmd = finalStep.buildCommand(null, currentState.selections);
+                    return { finished: true, command: cmd, executeImmediately: finalStep.executeImmediately || false };
                 }
                 return null;
             }
             const targetIndex = steps.findIndex(s => s.id === step.ifFalse);
-            if (targetIndex > stepIndex) { stepIndex = targetIndex; step = steps[stepIndex]; }
-            else { stepIndex++; if (stepIndex >= steps.length) return null; step = steps[stepIndex]; }
+            if (targetIndex >= 0) {
+                currentState.step = targetIndex;
+                stepIndex = targetIndex;
+                step = steps[stepIndex];
+            } else {
+                currentState.step++;
+                stepIndex = currentState.step;
+                step = steps[stepIndex];
+            }
         }
 
         if (!step) {
             const finalStep = findFinalStep(steps);
             if (finalStep && finalStep.buildCommand) {
-                return { finished: true, command: finalStep.buildCommand(null, currentState.selections), executeImmediately: finalStep.executeImmediately || false };
+                const cmd = finalStep.buildCommand(null, currentState.selections);
+                return { finished: true, command: cmd, executeImmediately: finalStep.executeImmediately || false };
             }
             return null;
         }
-
-        currentState.step = stepIndex;
 
         let options = []; 
         if (typeof step.options === 'function') { 
@@ -1509,31 +1513,46 @@ const AdaptiveCommandSystem = (function() {
     function nextStep(selection) {
         if (!currentState.flow) return null;
         const step = currentState.flow.steps[currentState.step];
-        if (step && step.id) currentState.selections[step.id] = selection;
-        if (step && step.nextMap && selection) { 
-            const nextId = step.nextMap[selection]; 
-            if (nextId) { 
-                const targetIndex = currentState.flow.steps.findIndex(s => s.id === nextId); 
-                if (targetIndex > currentState.step) { currentState.step = targetIndex; return getCurrentStepData(); } 
-            } 
+        
+        if (step && step.id) {
+            currentState.selections[step.id] = selection;
         }
-        let next = step.next; 
-        if (typeof next === 'function') next = next(currentState.selections);
-        if (next) { 
-            const targetIndex = currentState.flow.steps.findIndex(s => s.id === next); 
-            if (targetIndex > currentState.step) { currentState.step = targetIndex; return getCurrentStepData(); } 
+        
+        let nextStepId = null;
+        
+        if (step && step.nextMap && selection) {
+            nextStepId = step.nextMap[selection];
         }
-        currentState.step++; 
+        
+        if (!nextStepId && step && step.next) {
+            if (typeof step.next === 'function') {
+                nextStepId = step.next(currentState.selections);
+            } else {
+                nextStepId = step.next;
+            }
+        }
+        
+        if (nextStepId && typeof nextStepId === 'string') {
+            const targetIndex = currentState.flow.steps.findIndex(s => s.id === nextStepId);
+            if (targetIndex >= 0) {
+                currentState.step = targetIndex;
+                return getCurrentStepData();
+            }
+        }
+        
+        currentState.step++;
         const nextData = getCurrentStepData();
+        
         if (!nextData || nextData.finished) { 
             const finalStep = findFinalStep(currentState.flow.steps); 
-            if (finalStep && finalStep.buildCommand) return { 
-                finished: true, 
-                command: finalStep.buildCommand(null, currentState.selections), 
-                executeImmediately: finalStep.executeImmediately || false, 
-                commandName: currentState.flow.name, 
-                commandIcon: currentState.flow.icon 
-            }; 
+            if (finalStep && finalStep.buildCommand) {
+                const cmd = finalStep.buildCommand(null, currentState.selections);
+                return { 
+                    finished: true, command: cmd, 
+                    executeImmediately: finalStep.executeImmediately || false, 
+                    commandName: currentState.flow.name, commandIcon: currentState.flow.icon 
+                }; 
+            }
         }
         return nextData;
     }
