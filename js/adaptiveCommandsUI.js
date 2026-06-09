@@ -1,8 +1,12 @@
+
 // ================================================================
-// SMARTFLOW ADAPTIVE COMMAND UI v2.2 - Interfaz Responsive
+// SMARTFLOW ADAPTIVE COMMAND UI v2.3 - Interfaz Responsive
 // Archivo: js/adaptiveCommandsUI.js
 // Modo dual: Asistido (grilla + flujo paso a paso) + Texto (consola)
-// Corrección: executeFlowCommand arreglado
+// Correcciones v2.3:
+//   - renderFlowDynamic usa getCurrentStepData() en lugar de currentState
+//   - filterFlowItems busca en #flowSelectList y #flowMultiSelectList
+//   - executeFlowCommand usa getSelections() del sistema
 // ================================================================
 
 const AdaptiveCommandUI = (function() {
@@ -331,13 +335,8 @@ const AdaptiveCommandUI = (function() {
         const allCmds = Object.values(commands).flat();
         
         const catNames = {
-            'config': '⚙️ Config',
-            'create': '🏗️ Crear',
-            'connect': '🔗 Conectar',
-            'edit': '✏️ Editar',
-            'query': '🔍 Consultar',
-            'utility': '📦 Util',
-            'direct': '⚡ Directo'
+            'config': '⚙️ Config', 'create': '🏗️ Crear', 'connect': '🔗 Conectar',
+            'edit': '✏️ Editar', 'query': '🔍 Consultar', 'utility': '📦 Util', 'direct': '⚡ Directo'
         };
 
         let bodyHtml = `
@@ -448,53 +447,23 @@ const AdaptiveCommandUI = (function() {
         `;
 
         switch (currentFlow.type) {
-            case 'select':
-                bodyHtml += renderFlowSelect(currentFlow, false);
-                break;
-            case 'dynamicSelect':
-                bodyHtml += renderFlowSelect(currentFlow, true);
-                break;
-            case 'multiSelect':
-                bodyHtml += renderFlowMultiSelect(currentFlow);
-                break;
-            case 'multiComponentSelect':
-                bodyHtml += renderFlowComponentMultiSelect(currentFlow);
-                break;
-            case 'form':
-                bodyHtml += renderFlowForm(currentFlow);
-                break;
-            case 'coordinate':
-                bodyHtml += renderFlowCoordinate(currentFlow);
-                break;
-            case 'coordinateList':
-                bodyHtml += renderFlowCoordinateList(currentFlow);
-                break;
-            case 'text':
-                bodyHtml += renderFlowText(currentFlow);
-                break;
-            case 'number':
-                bodyHtml += renderFlowNumber(currentFlow);
-                break;
-            case 'slider':
-                bodyHtml += renderFlowSlider(currentFlow);
-                break;
-            case 'confirm':
-                bodyHtml += renderFlowConfirm(currentFlow);
-                break;
-            case 'info':
-                bodyHtml += renderFlowInfo(currentFlow);
-                break;
-            case 'conditional':
-                flowNext();
-                return;
-            case 'dynamic':
-                bodyHtml += renderFlowDynamic(currentFlow);
-                break;
-            default:
-                bodyHtml += `<p style="color:#94a3b8">Paso: ${currentFlow.type}</p>`;
+            case 'select': bodyHtml += renderFlowSelect(currentFlow, false); break;
+            case 'dynamicSelect': bodyHtml += renderFlowSelect(currentFlow, true); break;
+            case 'multiSelect': bodyHtml += renderFlowMultiSelect(currentFlow); break;
+            case 'multiComponentSelect': bodyHtml += renderFlowComponentMultiSelect(currentFlow); break;
+            case 'form': bodyHtml += renderFlowForm(currentFlow); break;
+            case 'coordinate': bodyHtml += renderFlowCoordinate(currentFlow); break;
+            case 'coordinateList': bodyHtml += renderFlowCoordinateList(currentFlow); break;
+            case 'text': bodyHtml += renderFlowText(currentFlow); break;
+            case 'number': bodyHtml += renderFlowNumber(currentFlow); break;
+            case 'slider': bodyHtml += renderFlowSlider(currentFlow); break;
+            case 'confirm': bodyHtml += renderFlowConfirm(currentFlow); break;
+            case 'info': bodyHtml += renderFlowInfo(currentFlow); break;
+            case 'conditional': flowNext(); return;
+            case 'dynamic': bodyHtml += renderFlowDynamic(currentFlow); break;
+            default: bodyHtml += `<p style="color:#94a3b8">Paso: ${currentFlow.type}</p>`;
         }
 
-        // Mostrar previsualización del comando si es final
         if (currentFlow.isFinal && currentFlow.command) {
             bodyHtml += `
                 <div class="flow-preview">
@@ -546,11 +515,9 @@ const AdaptiveCommandUI = (function() {
             const catNames = {
                 'VALVE': '🔧 Válvulas', 'ELBOW': '🔀 Codos', 'TEE': '🔱 Tees',
                 'REDUCER': '🔽 Reductores', 'FLANGE': '⭕ Bridas', 'STRAINER': '🔍 Filtros',
-                'STEAM_TRAP': '💨 Trampas de Vapor', 'INSTRUMENT': '📊 Instrumentos',
-                'PIPE': '📏 Tubería', 'SUPPORT': '📌 Soportes', 'CONNECTION': '🔗 Conexiones',
-                'EXPANSION': '〰️ Expansión', 'HOSE': '🔧 Mangueras', 'SAFETY': '🛡️ Seguridad',
-                'SAMPLE': '🧪 Muestreo', 'QUICK_CONNECT': '⚡ Conexión Rápida',
-                'SANITARY': '🧼 Sanitario', 'SPECIAL': '⚙️ Especiales', 'other': '📦 Otros'
+                'INSTRUMENT': '📊 Instrumentos', 'SUPPORT': '📌 Soportes',
+                'CONNECTION': '🔗 Conexiones', 'EXPANSION': '〰️ Expansión',
+                'SPECIAL': '⚙️ Especiales', 'other': '📦 Otros'
             };
             
             html += `<div class="flow-select-list" id="flowSelectList" style="max-height:50vh">`;
@@ -629,10 +596,9 @@ const AdaptiveCommandUI = (function() {
             const catNames = {
                 'VALVE': '🔧 Válvulas', 'ELBOW': '🔀 Codos', 'TEE': '🔱 Tees',
                 'REDUCER': '🔽 Reductores', 'FLANGE': '⭕ Bridas', 'STRAINER': '🔍 Filtros',
-                'STEAM_TRAP': '💨 Trampas de Vapor', 'INSTRUMENT': '📊 Instrumentos',
-                'SUPPORT': '📌 Soportes', 'CONNECTION': '🔗 Conexiones',
-                'EXPANSION': '〰️ Expansión', 'HOSE': '🔧 Mangueras', 'SAFETY': '🛡️ Seguridad',
-                'SANITARY': '🧼 Sanitario', 'SPECIAL': '⚙️ Especiales', 'other': '📦 Otros'
+                'INSTRUMENT': '📊 Instrumentos', 'SUPPORT': '📌 Soportes',
+                'CONNECTION': '🔗 Conexiones', 'EXPANSION': '〰️ Expansión',
+                'SPECIAL': '⚙️ Especiales', 'other': '📦 Otros'
             };
             
             html += `<div class="flow-select-list" id="flowMultiSelectList" style="max-height:40vh">`;
@@ -773,9 +739,12 @@ const AdaptiveCommandUI = (function() {
         return `<div style="text-align:center;padding:20px;color:var(--accent-cyan, #00f2ff);white-space:pre-line;font-size:0.9em">${stepData.message || ''}</div>`;
     }
 
+    // ✅ v2.3: Corregido - usa getCurrentStepData() en lugar de currentState
     function renderFlowDynamic(stepData) {
         if (stepData.resolver) {
-            const resolved = stepData.resolver(currentState?.selections || {});
+            const flowData = AdaptiveCommandSystem.getCurrentStepData();
+            const selections = flowData?.selections || {};
+            const resolved = stepData.resolver(selections);
             if (resolved.type === 'coordinate') {
                 return renderFlowCoordinate({ default: resolved.default });
             } else if (resolved.type === 'number') {
@@ -909,55 +878,44 @@ const AdaptiveCommandUI = (function() {
         renderAssistedGrid();
     }
 
-    // ✅ CORREGIDO: Ejecutar comando final
+    // ✅ v2.3: Corregido - usa getSelections() del sistema
     function executeFlowCommand() {
-        console.log('🔧 executeFlowCommand llamado');
-        
-        // Intentar obtener el comando del currentFlow
         let cmd = null;
         
         if (currentFlow && currentFlow.command) {
             cmd = currentFlow.command;
-            console.log('📝 Comando desde currentFlow.command:', cmd);
         } else {
-            // Intentar construir desde el sistema
             const stepData = AdaptiveCommandSystem.getCurrentStepData();
             if (stepData && stepData.command) {
                 cmd = stepData.command;
-                console.log('📝 Comando desde getCurrentStepData:', cmd);
             }
         }
         
-        // Si aún no hay comando, buscar el paso final
         if (!cmd && currentFlow && currentFlow.commandPath) {
             const flow = AdaptiveCommandSystem.COMMAND_FLOWS[currentFlow.commandPath];
             if (flow) {
                 const finalStep = flow.steps.find(s => s.isFinal && s.buildCommand);
                 if (finalStep && finalStep.buildCommand) {
-                    // Obtener las selecciones acumuladas
-                    const selections = AdaptiveCommandSystem.getCurrentStepData ? 
-                        AdaptiveCommandSystem.getCurrentStepData()?.selections || {} : {};
+                    const selections = AdaptiveCommandSystem.getSelections ? 
+                        AdaptiveCommandSystem.getSelections() : {};
                     cmd = finalStep.buildCommand(null, selections);
-                    console.log('📝 Comando desde finalStep.buildCommand:', cmd);
                 }
             }
         }
         
         if (cmd) {
-            console.log('✅ Ejecutando comando:', cmd);
             executeTextCommand(cmd);
             showToast('✅ Comando ejecutado', 'ok');
             renderAssistedGrid();
         } else {
-            console.error('❌ No se pudo construir el comando');
-            console.log('currentFlow:', currentFlow);
             showToast('❌ No se pudo construir el comando', 'err');
         }
     }
 
+    // ✅ v2.3: Corregido - busca en ambos contenedores
     function filterFlowItems() {
         const search = document.getElementById('flow-search')?.value?.toLowerCase() || '';
-        document.querySelectorAll('#flowSelectList .flow-select-item').forEach(item => {
+        document.querySelectorAll('#flowSelectList .flow-select-item, #flowMultiSelectList .flow-select-item').forEach(item => {
             const searchText = item.dataset.search || '';
             item.style.display = searchText.includes(search) ? '' : 'none';
         });
@@ -1054,21 +1012,11 @@ const AdaptiveCommandUI = (function() {
         consoleEl.scrollTop = consoleEl.scrollHeight;
     }
 
-    // ✅ CORREGIDO: Ejecutar comando de texto
     function executeTextCommand(cmd) {
-        console.log('🔧 executeTextCommand:', cmd);
+        if (!cmd) return;
         
-        if (!cmd) {
-            console.warn('⚠️ Comando vacío');
-            return;
-        }
-        
-        // Intentar ejecutar con SmartFlowCommands
         if (typeof SmartFlowCommands !== 'undefined' && typeof SmartFlowCommands.executeCommand === 'function') {
-            console.log('📤 Enviando a SmartFlowCommands.executeCommand');
             const result = SmartFlowCommands.executeCommand(cmd);
-            console.log('📥 Resultado:', result);
-            
             if (result) {
                 addConsoleLine('✅ Ejecutado correctamente', 'ok');
                 showToast('Comando ejecutado', 'ok');
@@ -1077,20 +1025,11 @@ const AdaptiveCommandUI = (function() {
                 showToast('Comando no reconocido', 'err');
             }
         } else {
-            // Fallback al textarea original
-            console.log('📤 Fallback al textarea original');
             const textarea = document.getElementById('commandText');
             if (textarea) {
                 textarea.value = cmd;
                 const runBtn = document.getElementById('runCommands');
-                if (runBtn) {
-                    console.log('🖱️ Clic en runCommands');
-                    runBtn.click();
-                } else {
-                    console.warn('⚠️ No se encontró runCommands');
-                }
-            } else {
-                console.warn('⚠️ No se encontró commandText');
+                if (runBtn) runBtn.click();
             }
         }
     }
