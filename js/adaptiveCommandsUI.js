@@ -1,12 +1,13 @@
 
 // ================================================================
-// SMARTFLOW ADAPTIVE COMMAND UI v2.3 - Interfaz Responsive
+// SMARTFLOW ADAPTIVE COMMAND UI v2.5 - Interfaz Responsive
 // Archivo: js/adaptiveCommandsUI.js
 // Modo dual: Asistido (grilla + flujo paso a paso) + Texto (consola)
-// Correcciones v2.3:
-//   - renderFlowDynamic usa getCurrentStepData() en lugar de currentState
-//   - filterFlowItems busca en #flowSelectList y #flowMultiSelectList
-//   - executeFlowCommand usa getSelections() del sistema
+// Actualizaciones v2.5:
+//   - catNames actualizado con nuevas categorías (STEAM_TRAP, SAFETY, SANITARY, HOSE)
+//   - Manejo de pasos condicionales con isFinal dinámico (VIEW)
+//   - executeFlowCommand mejorado con logs de depuración
+//   - Compatible con adaptiveCommands.js v2.5
 // ================================================================
 
 const AdaptiveCommandUI = (function() {
@@ -475,12 +476,19 @@ const AdaptiveCommandUI = (function() {
 
         document.getElementById('adaptive-body').innerHTML = bodyHtml;
 
+        // Determinar si es final (maneja isFinal como función)
+        let isFinalStep = currentFlow.isFinal;
+        if (typeof isFinalStep === 'function') {
+            isFinalStep = isFinalStep(AdaptiveCommandSystem.getSelections ? 
+                AdaptiveCommandSystem.getSelections() : {});
+        }
+
         let footerHtml = `
             <button class="af-btn af-btn-ghost" onclick="AdaptiveCommandUI.flowBack()" ${(currentFlow.stepIndex || 0) === 0 ? 'disabled' : ''}>← Anterior</button>
             <button class="af-btn af-btn-danger" onclick="AdaptiveCommandUI.cancelFlow()">Cancelar</button>
         `;
 
-        if (currentFlow.isFinal) {
+        if (isFinalStep) {
             footerHtml += `<button class="af-btn af-btn-success" onclick="AdaptiveCommandUI.executeFlowCommand()">✅ Ejecutar</button>`;
         } else {
             footerHtml += `<button class="af-btn af-btn-primary" onclick="AdaptiveCommandUI.flowNext()">Siguiente →</button>`;
@@ -494,6 +502,7 @@ const AdaptiveCommandUI = (function() {
         }, 100);
     }
 
+    // ✅ v2.5: catNames actualizado con todas las categorías
     function renderFlowSelect(stepData, searchable) {
         const options = stepData.options || [];
         const hasCategories = options.length > 0 && options[0].category !== undefined;
@@ -515,9 +524,11 @@ const AdaptiveCommandUI = (function() {
             const catNames = {
                 'VALVE': '🔧 Válvulas', 'ELBOW': '🔀 Codos', 'TEE': '🔱 Tees',
                 'REDUCER': '🔽 Reductores', 'FLANGE': '⭕ Bridas', 'STRAINER': '🔍 Filtros',
-                'INSTRUMENT': '📊 Instrumentos', 'SUPPORT': '📌 Soportes',
-                'CONNECTION': '🔗 Conexiones', 'EXPANSION': '〰️ Expansión',
-                'SPECIAL': '⚙️ Especiales', 'other': '📦 Otros'
+                'STEAM_TRAP': '💨 Trampas de Vapor', 'INSTRUMENT': '📊 Instrumentos',
+                'PIPE': '📏 Tubería', 'SUPPORT': '📌 Soportes', 'CONNECTION': '🔗 Conexiones',
+                'EXPANSION': '〰️ Expansión', 'HOSE': '🔧 Mangueras', 'SAFETY': '🛡️ Seguridad',
+                'SAMPLE': '🧪 Muestreo', 'QUICK_CONNECT': '⚡ Conexión Rápida',
+                'SANITARY': '🧼 Sanitario', 'SPECIAL': '⚙️ Especiales', 'other': '📦 Otros'
             };
             
             html += `<div class="flow-select-list" id="flowSelectList" style="max-height:50vh">`;
@@ -596,9 +607,10 @@ const AdaptiveCommandUI = (function() {
             const catNames = {
                 'VALVE': '🔧 Válvulas', 'ELBOW': '🔀 Codos', 'TEE': '🔱 Tees',
                 'REDUCER': '🔽 Reductores', 'FLANGE': '⭕ Bridas', 'STRAINER': '🔍 Filtros',
-                'INSTRUMENT': '📊 Instrumentos', 'SUPPORT': '📌 Soportes',
-                'CONNECTION': '🔗 Conexiones', 'EXPANSION': '〰️ Expansión',
-                'SPECIAL': '⚙️ Especiales', 'other': '📦 Otros'
+                'STEAM_TRAP': '💨 Trampas de Vapor', 'INSTRUMENT': '📊 Instrumentos',
+                'SUPPORT': '📌 Soportes', 'CONNECTION': '🔗 Conexiones',
+                'EXPANSION': '〰️ Expansión', 'HOSE': '🔧 Mangueras', 'SAFETY': '🛡️ Seguridad',
+                'SANITARY': '🧼 Sanitario', 'SPECIAL': '⚙️ Especiales', 'other': '📦 Otros'
             };
             
             html += `<div class="flow-select-list" id="flowMultiSelectList" style="max-height:40vh">`;
@@ -739,7 +751,6 @@ const AdaptiveCommandUI = (function() {
         return `<div style="text-align:center;padding:20px;color:var(--accent-cyan, #00f2ff);white-space:pre-line;font-size:0.9em">${stepData.message || ''}</div>`;
     }
 
-    // ✅ v2.3: Corregido - usa getCurrentStepData() en lugar de currentState
     function renderFlowDynamic(stepData) {
         if (stepData.resolver) {
             const flowData = AdaptiveCommandSystem.getCurrentStepData();
@@ -878,7 +889,7 @@ const AdaptiveCommandUI = (function() {
         renderAssistedGrid();
     }
 
-    // ✅ v2.3: Corregido - usa getSelections() del sistema
+    // ✅ v2.5: executeFlowCommand con logs de depuración
     function executeFlowCommand() {
         let cmd = null;
         
@@ -904,15 +915,16 @@ const AdaptiveCommandUI = (function() {
         }
         
         if (cmd) {
+            console.log('✅ Ejecutando:', cmd);
             executeTextCommand(cmd);
             showToast('✅ Comando ejecutado', 'ok');
             renderAssistedGrid();
         } else {
+            console.error('❌ No se pudo construir el comando');
             showToast('❌ No se pudo construir el comando', 'err');
         }
     }
 
-    // ✅ v2.3: Corregido - busca en ambos contenedores
     function filterFlowItems() {
         const search = document.getElementById('flow-search')?.value?.toLowerCase() || '';
         document.querySelectorAll('#flowSelectList .flow-select-item, #flowMultiSelectList .flow-select-item').forEach(item => {
@@ -1015,8 +1027,11 @@ const AdaptiveCommandUI = (function() {
     function executeTextCommand(cmd) {
         if (!cmd) return;
         
+        console.log('📤 Ejecutando comando:', cmd);
+        
         if (typeof SmartFlowCommands !== 'undefined' && typeof SmartFlowCommands.executeCommand === 'function') {
             const result = SmartFlowCommands.executeCommand(cmd);
+            console.log('📥 Resultado:', result);
             if (result) {
                 addConsoleLine('✅ Ejecutado correctamente', 'ok');
                 showToast('Comando ejecutado', 'ok');
