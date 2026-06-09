@@ -1571,10 +1571,3 @@ const AdaptiveCommandSystem = (function() {
     };
 
 })();
-```
-
----
-
-✅ Archivo 1 COMPLETO
-
-Este es el primer archivo: js/
