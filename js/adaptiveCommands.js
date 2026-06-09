@@ -1,8 +1,15 @@
+
 // ================================================================
-// SMARTFLOW ADAPTIVE COMMAND SYSTEM v2.2 - COMPLETO
+// SMARTFLOW ADAPTIVE COMMAND SYSTEM v2.3 - COMPLETO
 // Archivo: js/adaptiveCommands.js
-// 32 Comandos | 72+ Variantes | 100% Cobertura Commands.js v3.6
-// Novedades v2.2: Material y Spec en TODOS los comandos aplicables
+// 32 Comandos | 72+ Variantes | 100% Cobertura Commands.js v3.7
+// Novedades v2.3:
+//   - Filtro de especificaciones por material seleccionado
+//   - Pasos condicionales en CREATE.EQUIPMENT (dimensions, connections, extras)
+//   - Paso toTarget condicional en CONNECT
+//   - Paso manualMaterial/manualSpec condicional en ACCESSORIES
+//   - Simplificación de ROUTE (sin selectVariant innecesario)
+//   - Comando NODES agregado
 // ================================================================
 
 const AdaptiveCommandSystem = (function() {
@@ -37,7 +44,7 @@ const AdaptiveCommandSystem = (function() {
                     buildCommand: (sel, st) => `set project material ${st.setMaterial || sel}`
                 },
                 { id: 'setSpec', title: 'Seleccione especificación por defecto', type: 'select',
-                    options: () => getSpecOptions(),
+                    options: (sel, st) => getSpecOptions(st.setMaterial),
                     isFinal: true, executeImmediately: true,
                     buildCommand: (sel, st) => `set project spec ${st.setSpec || sel}`
                 },
@@ -54,7 +61,7 @@ const AdaptiveCommandSystem = (function() {
         },
 
         // ═══════════════════════════════════════════════════════
-        // 2. CREAR EQUIPO
+        // 2. CREAR EQUIPO (con pasos condicionales)
         // ═══════════════════════════════════════════════════════
         'CREATE.EQUIPMENT': {
             name: 'Crear Equipo', icon: '🏗️', category: 'create',
@@ -77,14 +84,40 @@ const AdaptiveCommandSystem = (function() {
                 { id: 'position', title: 'Posición del equipo (X, Y, Z) en mm', type: 'coordinate',
                     next: 'dimensions'
                 },
+                // ✅ v2.3: Fields dinámicos según tipo de equipo
                 { id: 'dimensions', title: 'Dimensiones del equipo', type: 'form',
-                    fields: [
-                        { id: 'diametro', type: 'number', label: 'Diámetro (mm)', default: 1000, min: 50 },
-                        { id: 'altura', type: 'number', label: 'Altura (mm)', default: 1500, min: 50 },
-                        { id: 'largo', type: 'number', label: 'Largo (mm)', default: 1000, min: 50 },
-                        { id: 'ancho', type: 'number', label: 'Ancho (mm)', default: 1000, min: 50 }
-                    ],
-                    next: 'connections'
+                    fields: (st) => {
+                        const tipo = st.tipo || '';
+                        const fields = [];
+                        if (!['plataforma'].includes(tipo)) {
+                            fields.push({ id: 'diametro', type: 'number', label: 'Diámetro (mm)', default: 1000, min: 50 });
+                        }
+                        if (!['plataforma'].includes(tipo) && tipo !== 'tanque_h') {
+                            fields.push({ id: 'altura', type: 'number', label: 'Altura (mm)', default: 1500, min: 50 });
+                        }
+                        if (['tanque_h', 'plataforma', 'intercambiador', 'condensador'].includes(tipo) || (tipo && tipo.includes('bomba'))) {
+                            fields.push({ id: 'largo', type: 'number', label: 'Largo (mm)', default: 1000, min: 50 });
+                        }
+                        if (['plataforma'].includes(tipo) || (tipo && tipo.includes('skid'))) {
+                            fields.push({ id: 'ancho', type: 'number', label: 'Ancho (mm)', default: 1000, min: 50 });
+                        }
+                        if (fields.length === 0) {
+                            fields.push({ id: 'diametro', type: 'number', label: 'Diámetro (mm)', default: 1000, min: 50 });
+                            fields.push({ id: 'altura', type: 'number', label: 'Altura (mm)', default: 1500, min: 50 });
+                        }
+                        return fields;
+                    },
+                    next: 'connectionsCheck'
+                },
+                // ✅ v2.3: Condicional - solo equipos con conexiones
+                { id: 'connectionsCheck', title: '', type: 'conditional',
+                    condition: (st) => {
+                        const tipo = st.tipo || '';
+                        const noConnections = ['plataforma', 'antorcha', 'agitador', 'molino', 'llenadora', 'skid_inyeccion'];
+                        return !noConnections.includes(tipo);
+                    },
+                    ifTrue: 'connections',
+                    ifFalse: 'specs'
                 },
                 { id: 'connections', title: 'Conexiones (opcional)', type: 'form',
                     fields: [
@@ -96,12 +129,23 @@ const AdaptiveCommandSystem = (function() {
                     ],
                     next: 'specs'
                 },
+                // ✅ v2.3: Spec filtrada por material
                 { id: 'specs', title: 'Especificaciones de material', type: 'form',
                     fields: [
                         { id: 'material', type: 'select', label: 'Material', options: () => getMaterialOptions() },
-                        { id: 'spec', type: 'select', label: 'Especificación', options: () => getSpecOptions() }
+                        { id: 'spec', type: 'select', label: 'Especificación', 
+                            options: (sel, st) => getSpecOptions(st.specs?.material) }
                     ],
-                    next: 'extras'
+                    next: 'extrasCheck'
+                },
+                // ✅ v2.3: Extras solo para plataforma/tanque/torre/reactor
+                { id: 'extrasCheck', title: '', type: 'conditional',
+                    condition: (st) => {
+                        const tipo = st.tipo || '';
+                        return ['plataforma', 'tanque_v', 'torre', 'reactor', 'columna_fraccionadora'].includes(tipo);
+                    },
+                    ifTrue: 'extras',
+                    ifFalse: null
                 },
                 { id: 'extras', title: 'Extras (opcional)', type: 'form',
                     fields: [
@@ -152,7 +196,8 @@ const AdaptiveCommandSystem = (function() {
                     fields: [
                         { id: 'diameter', type: 'select', label: 'Diámetro (pulg)', options: pipeDiameters(), default: '4' },
                         { id: 'material', type: 'select', label: 'Material', options: () => getMaterialOptions() },
-                        { id: 'spec', type: 'select', label: 'Especificación', options: () => getSpecOptions() }
+                        { id: 'spec', type: 'select', label: 'Especificación', 
+                            options: (sel, st) => getSpecOptions(st.specs?.material) }
                     ],
                     isFinal: true,
                     buildCommand: (params, st) => {
@@ -213,7 +258,8 @@ const AdaptiveCommandSystem = (function() {
                     fields: [
                         { id: 'diameter', type: 'select', label: 'Diámetro', options: pipeDiameters(), default: '4' },
                         { id: 'material', type: 'select', label: 'Material', options: () => getMaterialOptions() },
-                        { id: 'spec', type: 'select', label: 'Especificación', options: () => getSpecOptions() }
+                        { id: 'spec', type: 'select', label: 'Especificación', 
+                            options: (sel, st) => getSpecOptions(st.specs?.material) }
                     ],
                     isFinal: true,
                     buildCommand: (params, st) => {
@@ -234,7 +280,7 @@ const AdaptiveCommandSystem = (function() {
         },
 
         // ═══════════════════════════════════════════════════════
-        // 5. CONECTAR
+        // 5. CONECTAR (con toTarget condicional)
         // ═══════════════════════════════════════════════════════
         'CONNECT': {
             name: 'Conectar', icon: '🔌', category: 'connect',
@@ -263,11 +309,22 @@ const AdaptiveCommandSystem = (function() {
                     condition: (st) => ['line_to_equipment','line_to_line'].includes(st.selectVariant)
                 },
                 { id: 'fromPort', title: 'Puerto origen', type: 'dynamicSelect',
-                    options: (sel, st) => getPortOptions(st.fromEquip), next: 'toTarget',
+                    options: (sel, st) => getPortOptions(st.fromEquip), next: 'resolveDest',
                     condition: (st) => st.fromEquip
                 },
                 { id: 'fromPosition', title: 'Posición en línea origen (0-1)', type: 'slider', min: 0.01, max: 0.99, step: 0.01, default: 0.5,
-                    next: 'toTarget', condition: (st) => st.fromLine
+                    next: 'resolveDest', condition: (st) => st.fromLine
+                },
+                // ✅ v2.3: toTarget solo si el tipo no define automáticamente el destino
+                { id: 'resolveDest', title: '', type: 'conditional',
+                    condition: (st) => ['via_waypoints', 'with_orientation'].includes(st.selectVariant),
+                    ifTrue: 'toTarget',
+                    ifFalse: 'resolveDirectDest'
+                },
+                { id: 'resolveDirectDest', title: '', type: 'conditional',
+                    condition: (st) => ['equipment_to_equipment', 'via_waypoints', 'with_orientation'].includes(st.selectVariant) || st.selectVariant === 'line_to_equipment',
+                    ifTrue: 'toEquip',
+                    ifFalse: 'toLine'
                 },
                 { id: 'toTarget', title: 'Tipo de destino', type: 'select',
                     options: () => [{ value: 'equipment', label: '🏗️ Equipo' }, { value: 'line', label: '📏 Línea' }],
@@ -297,7 +354,8 @@ const AdaptiveCommandSystem = (function() {
                     fields: [
                         { id: 'diameter', type: 'select', label: 'Diámetro', options: pipeDiameters(), default: '4' },
                         { id: 'material', type: 'select', label: 'Material', options: () => getMaterialOptions() },
-                        { id: 'spec', type: 'select', label: 'Especificación', options: () => getSpecOptions() }
+                        { id: 'spec', type: 'select', label: 'Especificación', 
+                            options: (sel, st) => getSpecOptions(st.specs?.material) }
                     ],
                     isFinal: true,
                     buildCommand: (params, st) => {
@@ -324,18 +382,11 @@ const AdaptiveCommandSystem = (function() {
         },
 
         // ═══════════════════════════════════════════════════════
-        // 6. RUTA
+        // 6. RUTA (simplificada - sin selectVariant innecesario)
         // ═══════════════════════════════════════════════════════
         'ROUTE': {
             name: 'Ruta', icon: '🗺️', category: 'connect',
             steps: [
-                { id: 'selectVariant', title: 'Modo de ruteo', type: 'select',
-                    options: [
-                        { value: 'direct', label: '🔗 Ruta directa' },
-                        { value: 'via', label: '🗺️ Con waypoints' }
-                    ],
-                    nextMap: { direct: 'fromEquip', via: 'fromEquip' }
-                },
                 { id: 'fromEquip', title: 'Equipo origen', type: 'dynamicSelect',
                     options: () => getEquipmentOptions(), next: 'fromPort'
                 },
@@ -348,15 +399,20 @@ const AdaptiveCommandSystem = (function() {
                 { id: 'toPort', title: 'Puerto destino', type: 'dynamicSelect',
                     options: (sel, st) => getPortOptions(st.toEquip), next: 'waypointsCheck'
                 },
-                { id: 'waypointsCheck', title: 'Waypoints', type: 'conditional',
-                    condition: (st) => st.selectVariant === 'via', ifTrue: 'waypoints', ifFalse: 'specs'
+                { id: 'waypointsCheck', title: '¿Desea agregar waypoints?', type: 'select',
+                    options: [
+                        { value: 'direct', label: '🔗 Ruta directa' },
+                        { value: 'via', label: '🗺️ Con waypoints' }
+                    ],
+                    nextMap: { direct: 'specs', via: 'waypoints' }
                 },
                 { id: 'waypoints', title: 'Puntos intermedios', type: 'coordinateList', minPoints: 1, next: 'specs' },
                 { id: 'specs', title: 'Especificaciones', type: 'form',
                     fields: [
                         { id: 'diameter', type: 'select', label: 'Diámetro', options: pipeDiameters(), default: '4' },
                         { id: 'material', type: 'select', label: 'Material', options: () => getMaterialOptions() },
-                        { id: 'spec', type: 'select', label: 'Especificación', options: () => getSpecOptions() }
+                        { id: 'spec', type: 'select', label: 'Especificación', 
+                            options: (sel, st) => getSpecOptions(st.specs?.material) }
                     ],
                     isFinal: true,
                     buildCommand: (params, st) => {
@@ -408,7 +464,8 @@ const AdaptiveCommandSystem = (function() {
                     fields: [
                         { id: 'diameter', type: 'select', label: 'Diámetro', options: pipeDiameters(), default: '4' },
                         { id: 'material', type: 'select', label: 'Material', options: () => getMaterialOptions() },
-                        { id: 'spec', type: 'select', label: 'Especificación', options: () => getSpecOptions() }
+                        { id: 'spec', type: 'select', label: 'Especificación', 
+                            options: (sel, st) => getSpecOptions(st.specs?.material) }
                     ],
                     isFinal: true,
                     buildCommand: (params, st) => {
@@ -450,7 +507,7 @@ const AdaptiveCommandSystem = (function() {
                     description: 'Material para el TEE que se insertará', next: 'splitSpec'
                 },
                 { id: 'splitSpec', title: 'Especificación (opcional)', type: 'select',
-                    options: () => [{ value: '', label: 'Usar spec de la línea' }, ...getSpecOptions()],
+                    options: (sel, st) => [{ value: '', label: 'Usar spec de la línea' }, ...getSpecOptions(st.splitMaterial)],
                     isFinal: true,
                     buildCommand: (params, st) => {
                         let cmd = `split ${st.lineTag} at (${st.position.x},${st.position.y},${st.position.z}) type ${st.type || 'TEE_EQUAL'}`;
@@ -506,7 +563,7 @@ const AdaptiveCommandSystem = (function() {
                     buildCommand: (params, st) => `edit equipment ${st.selectEquipment} set material ${st.equipmentMaterial}`
                 },
                 { id: 'equipmentSpec', title: 'Nueva especificación', type: 'select',
-                    options: () => getSpecOptions(), isFinal: true,
+                    options: (sel, st) => getSpecOptions(st.equipmentMaterial), isFinal: true,
                     buildCommand: (params, st) => `edit equipment ${st.selectEquipment} set spec ${st.equipmentSpec}`
                 },
                 { id: 'equipmentPortSelect', title: 'Seleccione puerto', type: 'dynamicSelect',
@@ -548,7 +605,7 @@ const AdaptiveCommandSystem = (function() {
                     buildCommand: (params, st) => `edit line ${st.selectLine} set diameter ${st.lineDiameter}`
                 },
                 { id: 'lineSpec', title: 'Nueva especificación', type: 'select',
-                    options: () => getSpecOptions(), isFinal: true,
+                    options: (sel, st) => getSpecOptions(st.lineMaterial), isFinal: true,
                     buildCommand: (params, st) => `edit line ${st.selectLine} set spec ${st.lineSpec}`
                 },
                 // Agregar componente (con categoría, material y spec)
@@ -570,7 +627,7 @@ const AdaptiveCommandSystem = (function() {
                     options: () => getMaterialOptions(), next: 'lineComponentSpec'
                 },
                 { id: 'lineComponentSpec', title: 'Especificación (opcional)', type: 'select',
-                    options: () => [{ value: '', label: 'Usar spec de la línea' }, ...getSpecOptions()],
+                    options: (sel, st) => [{ value: '', label: 'Usar spec de la línea' }, ...getSpecOptions(st.lineComponentMaterial)],
                     next: 'lineComponentOrient'
                 },
                 { id: 'lineComponentOrient', title: 'Orientación (opcional)', type: 'coordinate',
@@ -737,7 +794,7 @@ const AdaptiveCommandSystem = (function() {
         },
 
         // ═══════════════════════════════════════════════════════
-        // 16. ACCESORIOS (con material y spec en todas las variantes)
+        // 16. ACCESORIOS (con filtro de spec y pasos condicionales)
         // ═══════════════════════════════════════════════════════
         'ACCESSORIES': {
             name: 'Accesorios', icon: '🔩', category: 'edit',
@@ -769,14 +826,20 @@ const AdaptiveCommandSystem = (function() {
                     fields: (st) => (st.manualComponents || []).map((c, i) => ({
                         id: `pos_${i}`, type: 'slider', label: `Posición para ${c}`, min: 0.01, max: 0.99, step: 0.01, default: 0.5
                     })),
-                    next: 'manualMaterial'
+                    next: 'manualMaterialCheck'
+                },
+                // ✅ v2.3: Material y spec condicionales
+                { id: 'manualMaterialCheck', title: '', type: 'conditional',
+                    condition: (st) => (st.manualComponents || []).length > 0,
+                    ifTrue: 'manualMaterial',
+                    ifFalse: null
                 },
                 { id: 'manualMaterial', title: 'Material de los accesorios', type: 'select',
                     options: () => getMaterialOptions(),
                     description: 'Material común para todos los accesorios', next: 'manualSpec'
                 },
                 { id: 'manualSpec', title: 'Especificación (opcional)', type: 'select',
-                    options: () => [{ value: '', label: 'Usar spec de la línea' }, ...getSpecOptions()],
+                    options: (sel, st) => [{ value: '', label: 'Usar spec de la línea' }, ...getSpecOptions(st.manualMaterial)],
                     isFinal: true,
                     buildCommand: (params, st) => {
                         let cmd = `accessories ${st.selectLine} add`;
@@ -814,7 +877,7 @@ const AdaptiveCommandSystem = (function() {
                     description: 'Material para los accesorios automáticos', next: 'autoSpec'
                 },
                 { id: 'autoSpec', title: 'Especificación (opcional)', type: 'select',
-                    options: () => [{ value: '', label: 'Usar spec de la línea' }, ...getSpecOptions()],
+                    options: (sel, st) => [{ value: '', label: 'Usar spec de la línea' }, ...getSpecOptions(st.autoMaterial)],
                     isFinal: true,
                     buildCommand: (params, st) => {
                         let cmd = `accessories ${st.selectLine} auto`;
@@ -855,7 +918,7 @@ const AdaptiveCommandSystem = (function() {
         },
 
         // ═══════════════════════════════════════════════════════
-        // 17. EXTENDER LÍNEA (con material y spec)
+        // 17. EXTENDER LÍNEA
         // ═══════════════════════════════════════════════════════
         'EXTEND': {
             name: 'Extender Línea', icon: '➡️', category: 'edit',
@@ -887,7 +950,7 @@ const AdaptiveCommandSystem = (function() {
                     description: 'Dejar vacío para usar material de la línea', next: 'extendSpec'
                 },
                 { id: 'extendSpec', title: 'Especificación (opcional)', type: 'select',
-                    options: () => [{ value: '', label: 'Usar spec de la línea' }, ...getSpecOptions()],
+                    options: (sel, st) => [{ value: '', label: 'Usar spec de la línea' }, ...getSpecOptions(st.extendMaterial)],
                     isFinal: true,
                     buildCommand: (params, st) => {
                         let cmd = `extend line ${st.selectLine} to ${st.targetTag}`;
@@ -917,7 +980,7 @@ const AdaptiveCommandSystem = (function() {
         },
 
         // ═══════════════════════════════════════════════════════
-        // 19. RE-ENRUTAR (con material y spec)
+        // 19. RE-ENRUTAR
         // ═══════════════════════════════════════════════════════
         'REROUTE': {
             name: 'Re-enrutar', icon: '🔀', category: 'edit',
@@ -946,7 +1009,7 @@ const AdaptiveCommandSystem = (function() {
                     description: 'Dejar vacío para mantener material actual', next: 'rerouteSpec'
                 },
                 { id: 'rerouteSpec', title: 'Especificación (opcional)', type: 'select',
-                    options: () => [{ value: '', label: 'Mantener spec actual' }, ...getSpecOptions()],
+                    options: (sel, st) => [{ value: '', label: 'Mantener spec actual' }, ...getSpecOptions(st.rerouteMaterial)],
                     isFinal: true,
                     buildCommand: (params, st) => {
                         let cmd;
@@ -1043,24 +1106,27 @@ const AdaptiveCommandSystem = (function() {
         },
 
         // ═══════════════════════════════════════════════════════
-        // 22. NODOS
+        // 22. NODOS (NUEVO v2.3)
         // ═══════════════════════════════════════════════════════
         'NODES': {
             name: 'Nodos', icon: '🔌', category: 'query',
             steps: [
                 { id: 'selectVariant', title: '¿Qué nodos desea ver?', type: 'select',
                     options: [
-                        { value: 'all', label: '📋 Todos' },
-                        { value: 'open', label: '🟢 Disponibles' }
+                        { value: 'all', label: '📋 Todos los nodos' },
+                        { value: 'open', label: '🟢 Solo disponibles (abiertos)' }
                     ],
-                    nextMap: { all: 'selectElement', open: 'selectElement' }
+                    nextMap: { all: 'selectElement', open: 'selectElementOpen' }
                 },
                 { id: 'selectElement', title: 'Seleccione elemento', type: 'dynamicSelect',
-                    options: () => getAllElementOptions(), isFinal: true, executeImmediately: true,
-                    buildCommand: (params, st) => {
-                        if (st.selectVariant === 'open') return `nodos abiertos ${st.selectElement}`;
-                        return `nodos ${st.selectElement}`;
-                    }
+                    options: () => getAllElementOptions(),
+                    isFinal: true, executeImmediately: true,
+                    buildCommand: (params, st) => `nodos ${st.selectElement}`
+                },
+                { id: 'selectElementOpen', title: 'Seleccione elemento', type: 'dynamicSelect',
+                    options: () => getAllElementOptions(),
+                    isFinal: true, executeImmediately: true,
+                    buildCommand: (params, st) => `nodos abiertos ${st.selectElementOpen}`
                 }
             ]
         },
@@ -1283,14 +1349,10 @@ const AdaptiveCommandSystem = (function() {
             { value: 'REDUCER', label: '🔽 Reductores', description: 'Concéntrico, Excéntrico' },
             { value: 'FLANGE', label: '⭕ Bridas', description: 'WN, Slip-On, Ciega, Lap Joint, RTJ...' },
             { value: 'STRAINER', label: '🔍 Filtros', description: 'Tipo Y, Canasta, Dúplex, Sanitario...' },
-            { value: 'STEAM_TRAP', label: '💨 Trampas de Vapor', description: 'Termodinámica, Flotador, Cubeta...' },
             { value: 'INSTRUMENT', label: '📊 Instrumentos', description: 'Manómetro, Termómetro, Caudalímetro...' },
             { value: 'SUPPORT', label: '📌 Soportes', description: 'Zapata, Guía, Anclaje, Colgador...' },
             { value: 'EXPANSION', label: '〰️ Juntas de Expansión', description: 'PPR, Acero' },
             { value: 'CONNECTION', label: '🔗 Conexiones', description: 'Uniones, Niples, Pasamuros...' },
-            { value: 'SAFETY', label: '🛡️ Seguridad', description: 'PSV, Disco Ruptura, Arrestador...' },
-            { value: 'SANITARY', label: '🧼 Sanitario', description: 'Válvulas Asépticas, Spray Ball...' },
-            { value: 'HOSE', label: '🔧 Mangueras', description: 'Flexible, Metálica, PTFE' },
             { value: 'SPECIAL', label: '⚙️ Especiales', description: 'Cruz, Tapón, Camlock, Mezclador...' },
             { value: 'ALL', label: '📋 Todos los componentes', description: 'Mostrar lista completa' }
         ];
@@ -1313,26 +1375,13 @@ const AdaptiveCommandSystem = (function() {
                     else if (tipo.includes('TRAP')) category = 'STEAM_TRAP';
                     else if (tipo.includes('INSTRUMENT') || tipo.includes('GAUGE') || tipo.includes('METER') || 
                              tipo.includes('TRANSMITTER') || tipo.includes('SWITCH') || tipo.includes('SIGHT')) category = 'INSTRUMENT';
-                    else if (tipo.includes('PIPE')) category = 'PIPE';
-                    else if (tipo.includes('SHOE') || tipo.includes('BOLT') || tipo.includes('GUIDE') || 
-                             tipo.includes('ANCHOR') || tipo.includes('HANGER') || tipo.includes('CLAMP') ||
-                             tipo.includes('SUPPORT')) category = 'SUPPORT';
+                    else if (tipo.includes('SHOE') || tipo.includes('GUIDE') || tipo.includes('ANCHOR') || 
+                             tipo.includes('HANGER') || tipo.includes('CLAMP') || tipo.includes('SUPPORT')) category = 'SUPPORT';
                     else if (tipo.includes('UNION') || tipo.includes('NIPPL') || tipo.includes('BULKHEAD') || 
                              tipo.includes('TRANSITION') || tipo.includes('ADAPT')) category = 'CONNECTION';
                     else if (tipo.includes('EXPANSION')) category = 'EXPANSION';
-                    else if (tipo.includes('HOSE') || tipo.includes('MANGUERA')) category = 'HOSE';
-                    else if (tipo.includes('SILENCER') || tipo.includes('ARRESTER') || tipo.includes('RUPTURE') || 
-                             tipo.includes('VACUUM') || tipo.includes('SAFETY') || tipo.includes('RELIEF') ||
-                             tipo.includes('VENT')) category = 'SAFETY';
-                    else if (tipo.includes('SAMPLE')) category = 'SAMPLE';
-                    else if (tipo.includes('CAMLOCK') || tipo.includes('QUICK')) category = 'QUICK_CONNECT';
-                    else if (tipo.includes('SPRAY') || tipo.includes('CIP') || tipo.includes('SANITARY') ||
-                             tipo.includes('ASEPTIC')) category = 'SANITARY';
                     else if (tipo.includes('CAP') || tipo.includes('TAPON')) category = 'SPECIAL';
-                    else if (tipo.includes('MIXER') || tipo.includes('INJECTOR') || tipo.includes('DIFFUSER') || 
-                             tipo.includes('EJECTOR') || tipo.includes('MEDIA') || tipo.includes('STERILIZER') ||
-                             tipo.includes('OZONE') || tipo.includes('DESUPERHEATER') || tipo.includes('HEATER') ||
-                             tipo.includes('KNOCKOUT') || tipo.includes('PIG_LAUNCHER') || tipo.includes('CROSS')) category = 'SPECIAL';
+                    else if (tipo.includes('CROSS') || tipo.includes('MIXER') || tipo.includes('INJECTOR')) category = 'SPECIAL';
                     
                     allComponents.push({
                         value: key,
@@ -1366,8 +1415,54 @@ const AdaptiveCommandSystem = (function() {
         return Array.from(materials).sort().map(m => ({ value: m.toUpperCase(), label: m }));
     }
 
-    function getSpecOptions() {
-        return SmartFlowCatalog.listSpecs().map(spec => ({ value: spec, label: spec }));
+    // ✅ v2.3: Filtro de especificaciones por material
+    function getSpecOptions(material) {
+        const allSpecs = SmartFlowCatalog.getSpecs();
+        const specs = [];
+        
+        Object.entries(allSpecs).forEach(([key, data]) => {
+            if (!material) {
+                specs.push({ value: key, label: key, material: data.material || '' });
+                return;
+            }
+            
+            const matUpper = material.toUpperCase();
+            const specMat = (data.material || '').toUpperCase();
+            const specKey = key.toUpperCase();
+            
+            if (specMat === matUpper) {
+                specs.push({ value: key, label: key, material: data.material || '' });
+                return;
+            }
+            
+            if (specMat.includes(matUpper) || matUpper.includes(specMat)) {
+                specs.push({ value: key, label: key, material: data.material || '' });
+                return;
+            }
+            
+            if (matUpper.includes('PPR') && specKey.includes('PPR')) {
+                specs.push({ value: key, label: key, material: data.material || '' });
+            } else if (matUpper.includes('HDPE') && specKey.includes('HDPE')) {
+                specs.push({ value: key, label: key, material: data.material || '' });
+            } else if ((matUpper.includes('ACERO') || matUpper.includes('CS') || matUpper.includes('CARBONO')) && 
+                       (specKey.includes('ACERO') || specKey.includes('CS') || specKey.includes('CARBONO')) &&
+                       !specKey.includes('INOX') && !specKey.includes('SS')) {
+                specs.push({ value: key, label: key, material: data.material || '' });
+            } else if ((matUpper.includes('INOX') || matUpper.includes('SS') || matUpper.includes('STAINLESS')) && 
+                       (specKey.includes('INOX') || specKey.includes('SS') || specKey.includes('STAINLESS') || specKey.includes('SANITARY'))) {
+                specs.push({ value: key, label: key, material: data.material || '' });
+            } else if (matUpper.includes('PVC') && specKey.includes('PVC') && !specKey.includes('CPVC')) {
+                specs.push({ value: key, label: key, material: data.material || '' });
+            } else if (matUpper.includes('CPVC') && specKey.includes('CPVC')) {
+                specs.push({ value: key, label: key, material: data.material || '' });
+            }
+        });
+        
+        if (specs.length === 0 && material) {
+            return Object.keys(allSpecs).map(spec => ({ value: spec, label: spec, material: allSpecs[spec]?.material || '' }));
+        }
+        
+        return specs;
     }
 
     function pipeDiameters() {
