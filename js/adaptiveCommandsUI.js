@@ -1,14 +1,14 @@
 
 // ================================================================
-// SMARTFLOW ADAPTIVE COMMAND UI v2.6 - Interfaz Responsive
+// SMARTFLOW ADAPTIVE COMMAND UI v2.7 - Interfaz Responsive
 // Archivo: js/adaptiveCommandsUI.js
 // Modo dual: Asistido (grilla + flujo paso a paso) + Texto (consola)
-// Correcciones v2.6:
+// Correcciones v2.7:
 //   - renderFlowForm: opts() recibe (sel, st) para funciones de options
 //   - flowNext: validación de currentFlow no null
-//   - flowBack: guarda datos del paso actual antes de retroceder
 //   - getVariantCount: maneja isFinal como función
-//   - executeFlowCommand con logs de depuración
+//   - refreshSpecField: actualiza campo spec al cambiar material
+//   - onchange en campo material para filtrar especificaciones
 // ================================================================
 
 const AdaptiveCommandUI = (function() {
@@ -379,7 +379,6 @@ const AdaptiveCommandUI = (function() {
         }).join('');
     }
 
-    // ✅ v2.6: Maneja isFinal como función
     function getVariantCount(cmd) {
         const flow = AdaptiveCommandSystem.COMMAND_FLOWS[cmd];
         if (!flow) return 1;
@@ -485,6 +484,16 @@ const AdaptiveCommandUI = (function() {
         }
 
         document.getElementById('adaptive-body').innerHTML = bodyHtml;
+
+        // ✅ v2.7: Ejecutar script inline para el listener onchange
+        setTimeout(function() {
+            var materialField = document.getElementById('field-material');
+            if (materialField) {
+                materialField.addEventListener('change', function() {
+                    refreshSpecField();
+                });
+            }
+        }, 50);
 
         let isFinalStep = currentFlow.isFinal;
         if (typeof isFinalStep === 'function') {
@@ -657,7 +666,7 @@ const AdaptiveCommandUI = (function() {
         return html;
     }
 
-    // ✅ v2.6: CORREGIDO - opts() recibe (sel, st)
+    // ✅ v2.7: opts() recibe (sel, st) para funciones de options
     function renderFlowForm(stepData) {
         var html = '';
         (stepData.fields || []).forEach(function(field) {
@@ -813,7 +822,6 @@ const AdaptiveCommandUI = (function() {
         handleNextStep(nextData);
     }
 
-    // ✅ v2.6: CORREGIDO - validación de currentFlow no null
     function flowNext() {
         if (!currentFlow) return;
         
@@ -889,7 +897,6 @@ const AdaptiveCommandUI = (function() {
         renderFlowStep();
     }
 
-    // ✅ v2.6: CORREGIDO - guarda datos del paso actual antes de retroceder
     function flowBack() {
         if (!currentFlow) {
             renderAssistedGrid();
@@ -975,6 +982,26 @@ const AdaptiveCommandUI = (function() {
             <button class="af-btn af-btn-ghost" onclick="this.parentElement.remove()" style="padding:4px 6px;font-size:0.7em">✕</button>
         `;
         container.appendChild(row);
+    }
+
+    // ✅ v2.7: Refrescar campo spec al cambiar material
+    function refreshSpecField() {
+        var materialField = document.getElementById('field-material');
+        var specSelect = document.getElementById('field-spec');
+        if (!specSelect) return;
+        
+        var material = materialField ? materialField.value : '';
+        
+        var specs = AdaptiveCommandSystem.getSpecOptions(material);
+        
+        specSelect.innerHTML = '<option value="">Seleccionar...</option>';
+        
+        specs.forEach(function(spec) {
+            var opt = document.createElement('option');
+            opt.value = spec.value;
+            opt.textContent = spec.label;
+            specSelect.appendChild(opt);
+        });
     }
 
     // ================================================================
@@ -1102,7 +1129,8 @@ const AdaptiveCommandUI = (function() {
         executeTextInput,
         executeTextCommand,
         runQuickCommand,
-        showToast
+        showToast,
+        refreshSpecField
     };
 
 })();
